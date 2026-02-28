@@ -334,14 +334,31 @@ serve(async (req) => {
           const resText = await res.text();
           const resData = (() => { try { return JSON.parse(resText); } catch { return { raw: resText }; } })();
 
+          console.log(`Send response for ${cleanNumber}:`, JSON.stringify(resData).slice(0, 500));
+
+          // Extract message ID from various UazAPI response formats:
+          // { key: { id: "3EB0..." } }
+          // { messageId: "3EB0..." }
+          // { id: "3EB0..." }
+          // { message: { key: { id: "3EB0..." } } }
+          // { data: { key: { id: "3EB0..." } } }
+          const extractMsgId = (d: any): string | null => {
+            if (!d) return null;
+            return d.key?.id || d.messageId || d.id ||
+              d.message?.key?.id || d.data?.key?.id ||
+              d.message?.id || d.data?.id || null;
+          };
+          const messageId = extractMsgId(resData);
+
           if (res.ok && resData.error === undefined) {
             sent++;
-            consecutiveFailures = 0; // Reset on success
+            consecutiveFailures = 0;
             await supabase.from('campaign_contacts').update({
               status: 'sent',
               sent_at: new Date().toISOString(),
-              message_id: resData.key?.id || resData.messageId || null,
+              message_id: messageId,
             }).eq('id', contact.id);
+            console.log(`Sent to ${cleanNumber}, message_id: ${messageId}`);
           } else {
             failed++;
             consecutiveFailures++;
