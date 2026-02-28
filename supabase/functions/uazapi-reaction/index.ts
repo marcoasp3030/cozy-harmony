@@ -29,7 +29,7 @@ serve(async (req) => {
     }
 
     const userId = user.id;
-    const { messageExternalId, emoji, instanceId } = await req.json();
+    const { messageExternalId, emoji, instanceId, number } = await req.json();
 
     if (!messageExternalId || !emoji) {
       return new Response(JSON.stringify({ error: 'messageExternalId e emoji são obrigatórios.' }), {
@@ -72,16 +72,22 @@ serve(async (req) => {
 
     const baseUrl = config.baseUrl.replace(/\/+$/, '');
 
-    const res = await fetch(`${baseUrl}/send/reaction`, {
+    console.log('Sending reaction:', { messageExternalId, emoji, number });
+
+    const sendBody: Record<string, unknown> = {
+      id: messageExternalId,
+      reaction: emoji,
+    };
+    if (number) sendBody.number = String(number).replace(/\D/g, '');
+
+    const res = await fetch(`${baseUrl}/message/react`, {
       method: 'POST',
       headers: { 'token': config.instanceToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        msgId: messageExternalId,
-        reaction: emoji,
-      }),
+      body: JSON.stringify(sendBody),
     });
 
     const data = await res.json();
+    console.log('UazAPI reaction response:', JSON.stringify(data));
 
     if (!res.ok) {
       return new Response(JSON.stringify({ success: false, error: `UazAPI retornou status ${res.status}`, details: data }), {
