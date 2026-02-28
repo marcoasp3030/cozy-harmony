@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, Send, Phone, MoreVertical, Kanban, List, StickyNote, LayoutTemplate, Slash, ArrowLeft, Brain, Loader2, Sparkles, FileText as SummarizeIcon } from "lucide-react";
+import { Search, Send, Phone, MoreVertical, Kanban, List, StickyNote, LayoutTemplate, Slash, ArrowLeft, Brain, Loader2, Sparkles, FileText as SummarizeIcon, MousePointerClick } from "lucide-react";
 import { MediaUploader, AttachmentPreview, uploadMediaFile } from "@/components/inbox/MediaUploader";
 import type { MediaAttachment } from "@/components/inbox/MediaUploader";
 import AudioRecorder from "@/components/inbox/AudioRecorder";
@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -24,6 +25,7 @@ import ContactPanel from "@/components/inbox/ContactPanel";
 import { useSlaNotifications } from "@/hooks/useSlaNotifications";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { Message } from "@/components/inbox/MessageBubble";
+import InteractiveMessageBuilder, { getDefaultInteractive, type InteractiveMessage } from "@/components/shared/InteractiveMessageBuilder";
 
 interface Contact {
   id: string;
@@ -97,6 +99,8 @@ const InboxPage = () => {
   const [aiProvider, setAiProvider] = useState<string | null>(null);
   const [mediaAttachment, setMediaAttachment] = useState<MediaAttachment | null>(null);
   const [mediaUploading, setMediaUploading] = useState(false);
+  const [interactiveOpen, setInteractiveOpen] = useState(false);
+  const [interactiveMsg, setInteractiveMsg] = useState<InteractiveMessage>(getDefaultInteractive());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { instances, defaultInstance } = useWhatsAppInstances();
@@ -305,7 +309,12 @@ const InboxPage = () => {
         instanceId: selectedInstanceId || defaultInstance?.id || undefined,
       };
 
-      if (msgType === "text") {
+      // Check if interactive message
+      if (interactiveMsg.type !== "none" && interactiveMsg.body) {
+        sendBody.type = "interactive";
+        sendBody.interactive = interactiveMsg;
+        sendBody.text = interactiveMsg.body;
+      } else if (msgType === "text") {
         sendBody.text = newMessage.trim();
       } else {
         sendBody.mediaUrl = mediaUrl;
@@ -318,18 +327,30 @@ const InboxPage = () => {
       if (data?.error) throw new Error(data.error);
 
       const externalId = data?.key?.id || data?.messageId || null;
+      const isInteractive = interactiveMsg.type !== "none" && interactiveMsg.body;
       await supabase.from("messages").insert({
         contact_id: contact.id,
         direction: "outbound",
-        type: msgType,
-        content: msgType === "text" ? newMessage.trim() : (newMessage.trim() || mediaAttachment?.file.name || null),
+        type: isInteractive ? "interactive" : msgType,
+        content: isInteractive ? interactiveMsg.body : (msgType === "text" ? newMessage.trim() : (newMessage.trim() || mediaAttachment?.file.name || null)),
         media_url: mediaUrl,
         status: "sent",
         external_id: externalId,
-      });
+        metadata: isInteractive ? {
+          header: interactiveMsg.header || undefined,
+          body: interactiveMsg.body,
+          footer: interactiveMsg.footer || undefined,
+          interactiveType: interactiveMsg.type,
+          buttons: interactiveMsg.buttons,
+          listButtonText: interactiveMsg.listButtonText,
+          listSections: interactiveMsg.listSections,
+          ctaButtons: interactiveMsg.ctaButtons,
+        } : undefined,
+      } as any);
       await supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", selectedConvId);
       setNewMessage("");
       setMediaAttachment(null);
+      setInteractiveMsg(getDefaultInteractive());
     } catch (err: any) {
       toast.error("Erro ao enviar: " + (err.message || "Tente novamente"));
     } finally {
@@ -747,6 +768,16 @@ const InboxPage = () => {
                     >
                       <StickyNote className="h-4 w-4" />
                     </Button>
+                    <Button
+                      variant={interactiveMsg.type !== "none" ? "default" : "ghost"}
+                      size="icon"
+                      className="shrink-0 h-9 w-9"
+                      title="Mensagem interativa (botões, listas)"
+                      onClick={() => setInteractiveOpen(true)}
+                      disabled={sending || isNoteMode}
+                    >
+                      <MousePointerClick className="h-4 w-4" />
+                    </Button>
                     {aiProvider && (
                       <>
                         <Button
@@ -797,10 +828,47 @@ const InboxPage = () => {
                     <AudioRecorder onSend={handleSendAudio} disabled={sending} />
                   )}
                 </div>
+                {interactiveMsg.type !== "none" && (
+                  <div className="flex items-center gap-2 mt-1.5 px-1">
+                    <Badge variant="outline" className="text-xs text-primary border-primary/30 bg-primary/5 gap-1">
+                      <MousePointerClick className="h-3 w-3" />
+                      Mensagem interativa: {interactiveMsg.type === "buttons" ? "Botões" : interactiveMsg.type === "list" ? "Lista" : "CTA"}
+                    </Badge>
+                    <Button variant="ghost" size="sm" className="h-5 text-[10px]" onClick={() => setInteractiveMsg(getDefaultInteractive())}>
+                      Remover
+                    </Button>
+                  </div>
+                )}
                 <p className="text-[10px] text-muted-foreground mt-1.5 px-1">
-                  <kbd className="rounded bg-muted px-1 font-mono">📎</kbd> anexar • <kbd className="rounded bg-muted px-1 font-mono">🎤</kbd> áudio • <kbd className="rounded bg-muted px-1 font-mono">/</kbd> atalhos • <kbd className="rounded bg-muted px-1 font-mono">Enter</kbd> enviar{aiProvider && " • ✨ IA"}
+                  <kbd className="rounded bg-muted px-1 font-mono">📎</kbd> anexar • <kbd className="rounded bg-muted px-1 font-mono">🎤</kbd> áudio • <kbd className="rounded bg-muted px-1 font-mono">/</kbd> atalhos • <kbd className="rounded bg-muted px-1 font-mono">🔘</kbd> interativo • <kbd className="rounded bg-muted px-1 font-mono">Enter</kbd> enviar{aiProvider && " • ✨ IA"}
                 </p>
               </div>
+
+              {/* Interactive Message Dialog */}
+              <Dialog open={interactiveOpen} onOpenChange={setInteractiveOpen}>
+                <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>Mensagem Interativa</DialogTitle>
+                  </DialogHeader>
+                  <InteractiveMessageBuilder
+                    value={interactiveMsg}
+                    onChange={setInteractiveMsg}
+                  />
+                  <div className="flex justify-end gap-2 pt-2">
+                    <Button variant="outline" onClick={() => { setInteractiveMsg(getDefaultInteractive()); setInteractiveOpen(false); }}>
+                      Limpar
+                    </Button>
+                    <Button onClick={() => {
+                      if (interactiveMsg.type !== "none" && interactiveMsg.body) {
+                        setNewMessage(interactiveMsg.body);
+                      }
+                      setInteractiveOpen(false);
+                    }}>
+                      Confirmar
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </>
           )}
         </Card>

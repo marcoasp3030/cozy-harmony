@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, FileText, Edit, Trash2, ImageIcon, Video, Mic, File, Search } from "lucide-react";
+import { Plus, FileText, Edit, Trash2, ImageIcon, Video, Mic, File, Search, MousePointerClick } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,10 +8,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
+import InteractiveMessageBuilder, { getDefaultInteractive, type InteractiveMessage } from "@/components/shared/InteractiveMessageBuilder";
 
 interface Template {
   id: string;
@@ -42,6 +44,7 @@ const typeOptions = [
   { value: "video", label: "Vídeo", icon: Video },
   { value: "audio", label: "Áudio", icon: Mic },
   { value: "document", label: "Documento", icon: File },
+  { value: "interactive", label: "Interativo", icon: MousePointerClick },
 ];
 
 const categoryColors: Record<string, string> = {
@@ -82,6 +85,7 @@ const Templates = () => {
   const [formType, setFormType] = useState("text");
   const [formContent, setFormContent] = useState("");
   const [formMediaUrl, setFormMediaUrl] = useState("");
+  const [formInteractive, setFormInteractive] = useState<InteractiveMessage>(getDefaultInteractive());
 
   const loadTemplates = useCallback(async () => {
     const { data, error } = await supabase
@@ -108,6 +112,7 @@ const Templates = () => {
     setFormType("text");
     setFormContent("");
     setFormMediaUrl("");
+    setFormInteractive(getDefaultInteractive());
     setDialogOpen(true);
   };
 
@@ -118,6 +123,8 @@ const Templates = () => {
     setFormType(t.type);
     setFormContent(t.content);
     setFormMediaUrl(t.media_url || "");
+    // Try to restore interactive data from content metadata
+    setFormInteractive(getDefaultInteractive());
     setDialogOpen(true);
   };
 
@@ -326,7 +333,7 @@ const Templates = () => {
                 </Select>
               </div>
             </div>
-            {formType !== "text" && (
+            {formType !== "text" && formType !== "interactive" && (
               <div>
                 <Label>URL da Mídia</Label>
                 <Input value={formMediaUrl} onChange={(e) => setFormMediaUrl(e.target.value)} placeholder="https://..." />
@@ -338,12 +345,23 @@ const Templates = () => {
                 value={formContent}
                 onChange={(e) => setFormContent(e.target.value)}
                 placeholder="Olá {{nome}}, tudo bem? Use {{variavel}} para personalizar."
-                rows={5}
+                rows={4}
               />
               <p className="mt-1 text-xs text-muted-foreground">
                 Use {"{{variavel}}"} para inserir variáveis dinâmicas.
               </p>
             </div>
+
+            {formType === "interactive" && (
+              <>
+                <Separator />
+                <InteractiveMessageBuilder
+                  value={formInteractive}
+                  onChange={setFormInteractive}
+                  compact
+                />
+              </>
+            )}
             {previewVars.length > 0 && (
               <div>
                 <Label className="text-xs text-muted-foreground">Variáveis detectadas</Label>

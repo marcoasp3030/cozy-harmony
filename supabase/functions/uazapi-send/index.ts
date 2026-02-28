@@ -31,7 +31,7 @@ serve(async (req) => {
 
     const userId = claimsData.claims.sub as string;
     const body = await req.json();
-    const { type, number, text, mediaUrl, caption, filename, delay, instanceId } = body;
+    const { type, number, text, mediaUrl, caption, filename, delay, instanceId, interactive } = body;
 
     if (!type || !number) {
       return new Response(JSON.stringify({ error: 'Campos "type" e "number" são obrigatórios.' }), {
@@ -46,7 +46,7 @@ serve(async (req) => {
       });
     }
 
-    const validTypes = ['text', 'image', 'video', 'audio', 'document', 'ptt', 'sticker', 'contact', 'location'];
+    const validTypes = ['text', 'image', 'video', 'audio', 'document', 'ptt', 'sticker', 'contact', 'location', 'interactive'];
     if (!validTypes.includes(type)) {
       return new Response(JSON.stringify({ error: `Tipo inválido. Use: ${validTypes.join(', ')}` }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -114,6 +114,55 @@ serve(async (req) => {
     if (type === 'text') {
       endpoint = '/send/text';
       sendBody.text = text;
+    } else if (type === 'interactive' && interactive) {
+      // Build interactive message payload for UazAPI
+      endpoint = '/send/interactive';
+      const interactivePayload: Record<string, unknown> = {};
+
+      if (interactive.type === 'buttons') {
+        interactivePayload.type = 'button';
+        interactivePayload.body = { text: interactive.body || text || '' };
+        if (interactive.header) interactivePayload.header = { type: 'text', text: interactive.header };
+        if (interactive.footer) interactivePayload.footer = { text: interactive.footer };
+        interactivePayload.action = {
+          buttons: (interactive.buttons || []).slice(0, 3).map((btn: any, i: number) => ({
+            type: 'reply',
+            reply: { id: btn.id || String(i + 1), title: btn.title?.slice(0, 20) || `Opção ${i + 1}` },
+          })),
+        };
+      } else if (interactive.type === 'list') {
+        interactivePayload.type = 'list';
+        interactivePayload.body = { text: interactive.body || text || '' };
+        if (interactive.header) interactivePayload.header = { type: 'text', text: interactive.header };
+        if (interactive.footer) interactivePayload.footer = { text: interactive.footer };
+        interactivePayload.action = {
+          button: interactive.listButtonText || 'Ver opções',
+          sections: (interactive.listSections || []).map((section: any) => ({
+            title: section.title,
+            rows: (section.rows || []).map((row: any) => ({
+              id: row.id,
+              title: row.title?.slice(0, 24) || 'Item',
+              description: row.description?.slice(0, 72) || undefined,
+            })),
+          })),
+        };
+      } else if (interactive.type === 'cta') {
+        // CTA buttons (URL/phone) - use template-based approach or fallback to text with links
+        interactivePayload.type = 'cta_url';
+        interactivePayload.body = { text: interactive.body || text || '' };
+        if (interactive.header) interactivePayload.header = { type: 'text', text: interactive.header };
+        if (interactive.footer) interactivePayload.footer = { text: interactive.footer };
+        interactivePayload.action = {
+          buttons: (interactive.ctaButtons || []).map((btn: any) => ({
+            type: btn.type === 'phone' ? 'phone_number' : 'url',
+            ...(btn.type === 'phone'
+              ? { phone_number: btn.value, title: btn.title }
+              : { url: btn.value, title: btn.title }),
+          })),
+        };
+      }
+
+      sendBody.interactive = interactivePayload;
     } else {
       endpoint = '/send/media';
       sendBody.type = type;

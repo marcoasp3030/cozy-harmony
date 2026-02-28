@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import InstanceSelector from "@/components/shared/InstanceSelector";
+import InteractiveMessageBuilder, { getDefaultInteractive, type InteractiveMessage } from "@/components/shared/InteractiveMessageBuilder";
 
 type Step = "info" | "recipients" | "message" | "schedule" | "review";
 const STEPS: { key: Step; label: string; icon: React.ReactNode }[] = [
@@ -77,6 +78,8 @@ interface CampaignForm {
   // Recurrence
   recurrenceEnabled: boolean;
   recurrenceType: "daily" | "weekly" | "monthly";
+  // Interactive
+  interactive: InteractiveMessage;
 }
 
 const initialForm: CampaignForm = {
@@ -100,6 +103,7 @@ const initialForm: CampaignForm = {
   maxConsecutiveFailures: 5,
   recurrenceEnabled: false,
   recurrenceType: "weekly",
+  interactive: getDefaultInteractive(),
 };
 
 const messageTypeOptions = [
@@ -300,6 +304,7 @@ export default function CreateCampaignDialog({
           timezoneOffset: -3,
           warmUpDayLimit: 50,
           ...(form.recurrenceEnabled ? { recurrence: { type: form.recurrenceType } } : {}),
+          ...(form.interactive.type !== "none" ? { interactive: form.interactive } : {}),
         } as any,
       };
 
@@ -562,7 +567,7 @@ export default function CreateCampaignDialog({
 
               <div className="space-y-2">
                 <Label>Tipo de Mensagem *</Label>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   {messageTypeOptions.map((opt) => (
                     <Button
                       key={opt.value}
@@ -586,7 +591,7 @@ export default function CreateCampaignDialog({
                   value={form.messageContent}
                   onChange={(e) => update("messageContent", e.target.value)}
                   maxLength={4096}
-                  rows={5}
+                  rows={4}
                   className="font-mono text-sm"
                 />
                 <p className="text-xs text-muted-foreground">
@@ -605,20 +610,14 @@ export default function CreateCampaignDialog({
                 </div>
               )}
 
-              {/* Preview */}
-              {form.messageContent && (
-                <div className="space-y-2">
-                  <Label>Pré-visualização</Label>
-                  <div className="rounded-lg bg-muted p-4">
-                    <div className="inline-block max-w-[80%] rounded-xl bg-success/15 px-4 py-2.5">
-                      <p className="text-sm whitespace-pre-wrap">{form.messageContent}</p>
-                      <p className="mt-1 text-right text-[10px] text-muted-foreground">
-                        {format(new Date(), "HH:mm")}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
+              <Separator />
+
+              {/* Interactive message builder */}
+              <InteractiveMessageBuilder
+                value={form.interactive}
+                onChange={(v) => update("interactive", v)}
+                compact
+              />
             </div>
           )}
 
