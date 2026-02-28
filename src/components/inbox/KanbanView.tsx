@@ -1,5 +1,5 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
+import TagManager from "@/components/contacts/TagManager";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,7 @@ import {
   Eye,
   GitBranchPlus,
   Palette,
+  Tag as TagIcon,
 } from "lucide-react";
 import { useState, useMemo, useEffect, useCallback } from "react";
 
@@ -219,6 +220,7 @@ const KanbanCard = ({
   onDragEnd,
   onSelect,
   onMove,
+  onTagsChanged,
 }: {
   conv: Conversation;
   col: Column;
@@ -229,6 +231,7 @@ const KanbanCard = ({
   onDragEnd: () => void;
   onSelect: (id: string) => void;
   onMove: (id: string, col: Column) => void;
+  onTagsChanged: () => void;
 }) => {
   const waitHours = getWaitHours(conv.last_message_at);
   const urgency = getUrgency(waitHours, col.notifyAfterHours);
@@ -288,10 +291,18 @@ const KanbanCard = ({
                   <MoreHorizontal className="h-3.5 w-3.5" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48" onClick={(e) => e.stopPropagation()}>
+              <DropdownMenuContent align="end" className="w-56" onClick={(e) => e.stopPropagation()}>
                 <DropdownMenuItem className="text-xs gap-2" onClick={() => onSelect(conv.id)}>
                   <Eye className="h-3.5 w-3.5" /> Abrir conversa
                 </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {/* Tag management inline */}
+                <div className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1.5 flex items-center gap-1">
+                    <TagIcon className="h-3 w-3" /> Tags
+                  </p>
+                  <TagManager contactId={conv.contact_id} compact onChanged={onTagsChanged} />
+                </div>
                 <DropdownMenuSeparator />
                 {columns
                   .filter((c) => c.id !== col.id)
@@ -656,6 +667,7 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
                         onDragEnd={() => { setDraggedId(null); setDragOverCol(null); }}
                         onSelect={onSelectConversation}
                         onMove={moveToColumn}
+                        onTagsChanged={loadContactTags}
                       />
                     ))
                   )}
