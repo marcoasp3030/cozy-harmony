@@ -102,6 +102,7 @@ const InboxPage = () => {
   const [interactiveOpen, setInteractiveOpen] = useState(false);
   const [interactiveMsg, setInteractiveMsg] = useState<InteractiveMessage>(getDefaultInteractive());
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const pendingTempIdsRef = useRef<Set<string>>(new Set());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { instances, defaultInstance } = useWhatsAppInstances();
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
@@ -231,6 +232,15 @@ const InboxPage = () => {
       .channel("inbox-realtime")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
         const msg = payload.new as Message;
+        // Skip messages we sent optimistically (will be replaced by the send flow)
+        if (msg.direction === "outbound" && pendingTempIdsRef.current.size > 0) {
+          // Replace the optimistic message with the real DB row
+          const tempId = [...pendingTempIdsRef.current][0];
+          pendingTempIdsRef.current.delete(tempId);
+          setMessages((prev) => prev.map((m) => m.id === tempId ? msg : m));
+          debouncedReload();
+          return;
+        }
         if (msg.direction === "inbound") {
           const soundEnabled = localStorage.getItem("notification_sound_enabled") !== "false";
           if (soundEnabled) playNotificationSound();
@@ -316,8 +326,9 @@ const InboxPage = () => {
     setNewMessage("");
     setMediaAttachment(null);
     setInteractiveMsg(getDefaultInteractive());
+    pendingTempIdsRef.current.add(tempId);
 
-    // Send in background
+    // Send in background (fire-and-forget)
     (async () => {
       try {
         let mediaUrl: string | null = null;
@@ -350,7 +361,8 @@ const InboxPage = () => {
         if (data?.error) throw new Error(data.error);
 
         const externalId = data?.key?.id || data?.messageId || null;
-        const { data: inserted } = await supabase.from("messages").insert({
+        // Insert into DB — realtime will swap the optimistic msg automatically
+        await supabase.from("messages").insert({
           contact_id: contact.id,
           direction: "outbound",
           type: isInteractive ? "interactive" : msgType,
@@ -359,13 +371,17 @@ const InboxPage = () => {
           status: "sent",
           external_id: externalId,
           metadata: optimisticMsg.metadata,
-        } as any).select().single();
+        } as any);
 
-        // Replace optimistic message with real one
-        setMessages((prev) => prev.map((m) => m.id === tempId ? (inserted as Message) : m));
+        // Cleanup: if realtime didn't fire yet, update optimistic directly
+        setTimeout(() => {
+          pendingTempIdsRef.current.delete(tempId);
+          setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, status: "sent" } : m));
+        }, 3000);
+
         supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", selectedConvId);
       } catch (err: any) {
-        // Mark optimistic message as failed
+        pendingTempIdsRef.current.delete(tempId);
         setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, status: "error" } : m));
         toast.error("Erro ao enviar: " + (err.message || "Tente novamente"));
       }
