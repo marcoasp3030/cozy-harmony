@@ -105,16 +105,19 @@ const InboxPage = () => {
   const selectedConv = conversations.find((c) => c.id === selectedConvId);
   const contact = selectedConv?.contact;
 
-  // Load conversations with contacts
+  // Load conversations with contacts - optimized batch query
   const loadConversations = useCallback(async () => {
     const { data: convs } = await supabase
       .from("conversations")
       .select("*")
       .order("last_message_at", { ascending: false });
 
-    if (!convs) return;
+    if (!convs || convs.length === 0) {
+      setConversations([]);
+      return;
+    }
 
-    // Load contacts for conversations
+    // Batch load contacts
     const contactIds = [...new Set(convs.map((c) => c.contact_id))];
     const { data: contacts } = await supabase
       .from("contacts")
@@ -123,23 +126,28 @@ const InboxPage = () => {
 
     const contactMap = new Map((contacts || []).map((c) => [c.id, c]));
 
-    // Load last message for each conversation
-    const enriched: Conversation[] = [];
-    for (const conv of convs) {
-      const { data: lastMsgArr } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("contact_id", conv.contact_id)
-        .order("created_at", { ascending: false })
-        .limit(1);
+    // Batch load last messages - get recent messages for all contacts at once
+    const { data: allMessages } = await supabase
+      .from("messages")
+      .select("*")
+      .in("contact_id", contactIds)
+      .order("created_at", { ascending: false })
+      .limit(contactIds.length * 2); // rough limit
 
-      enriched.push({
-        ...conv,
-        unread_count: conv.unread_count ?? 0,
-        contact: contactMap.get(conv.contact_id) as Contact | undefined,
-        lastMessage: lastMsgArr?.[0] as Message | undefined,
-      });
+    // Build a map of contact_id -> last message
+    const lastMsgMap = new Map<string, Message>();
+    for (const msg of (allMessages || []) as Message[]) {
+      if (msg.contact_id && !lastMsgMap.has(msg.contact_id)) {
+        lastMsgMap.set(msg.contact_id, msg);
+      }
     }
+
+    const enriched: Conversation[] = convs.map((conv) => ({
+      ...conv,
+      unread_count: conv.unread_count ?? 0,
+      contact: contactMap.get(conv.contact_id) as Contact | undefined,
+      lastMessage: lastMsgMap.get(conv.contact_id),
+    }));
 
     setConversations(enriched);
   }, []);
@@ -206,6 +214,13 @@ const InboxPage = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Debounced conversation reload
+  const reloadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedReload = useCallback(() => {
+    if (reloadTimeoutRef.current) clearTimeout(reloadTimeoutRef.current);
+    reloadTimeoutRef.current = setTimeout(() => loadConversations(), 500);
+  }, [loadConversations]);
+
   // Realtime subscriptions
   useEffect(() => {
     const channel = supabase
@@ -215,15 +230,15 @@ const InboxPage = () => {
         { event: "INSERT", schema: "public", table: "messages" },
         (payload) => {
           const msg = payload.new as Message;
-          // If it's the current conversation, add to messages
+          // If it's the current conversation, add to messages instantly
           if (selectedConv && msg.contact_id === selectedConv.contact_id) {
             setMessages((prev) => {
               if (prev.find((m) => m.id === msg.id)) return prev;
               return [...prev, msg];
             });
           }
-          // Refresh conversation list
-          loadConversations();
+          // Debounced refresh of conversation list
+          debouncedReload();
         }
       )
       .on(
@@ -237,12 +252,15 @@ const InboxPage = () => {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "conversations" },
-        () => loadConversations()
+        () => debouncedReload()
       )
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
-  }, [selectedConv?.contact_id, loadConversations]);
+    return () => {
+      supabase.removeChannel(channel);
+      if (reloadTimeoutRef.current) clearTimeout(reloadTimeoutRef.current);
+    };
+  }, [selectedConv?.contact_id, debouncedReload]);
 
   // Send message
   const handleSend = async () => {
