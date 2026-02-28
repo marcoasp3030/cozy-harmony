@@ -109,10 +109,12 @@ export default function CreateCampaignDialog({
   open,
   onOpenChange,
   onCreated,
+  editCampaign,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated?: () => void;
+  editCampaign?: { id: string; name: string; description: string | null; message_type: string; message_content: string | null; media_url: string | null; instance_id: string | null; settings: any } | null;
 }) {
   const { user } = useAuth();
   const [step, setStep] = useState<Step>("info");
@@ -127,12 +129,33 @@ export default function CreateCampaignDialog({
   const [loadingData, setLoadingData] = useState(false);
 
   const stepIndex = STEPS.findIndex((s) => s.key === step);
+  const isEditing = !!editCampaign;
 
   // Load data on open
   useEffect(() => {
     if (!open) return;
     setStep("info");
-    setForm(initialForm);
+    if (editCampaign) {
+      const s = editCampaign.settings || {};
+      setForm({
+        ...initialForm,
+        name: editCampaign.name,
+        description: editCampaign.description || "",
+        messageType: editCampaign.message_type || "text",
+        messageContent: editCampaign.message_content || "",
+        mediaUrl: editCampaign.media_url || "",
+        instanceId: editCampaign.instance_id || null,
+        delayMin: s.delayMin ?? initialForm.delayMin,
+        delayMax: s.delayMax ?? initialForm.delayMax,
+        dailyLimit: s.dailyLimit ?? initialForm.dailyLimit,
+        businessHoursOnly: s.businessHoursOnly ?? initialForm.businessHoursOnly,
+        warmUpEnabled: s.warmUpEnabled ?? initialForm.warmUpEnabled,
+        contentVariation: s.contentVariation ?? initialForm.contentVariation,
+        maxConsecutiveFailures: s.maxConsecutiveFailures ?? initialForm.maxConsecutiveFailures,
+      });
+    } else {
+      setForm(initialForm);
+    }
     loadData();
   }, [open]);
 
@@ -231,34 +254,50 @@ export default function CreateCampaignDialog({
     if (!user) return;
     setSaving(true);
     try {
-      // 1. Insert campaign
+      const campaignData = {
+        name: form.name.trim(),
+        description: form.description.trim() || null,
+        message_type: form.messageType,
+        message_content: form.messageContent.trim(),
+        media_url: form.mediaUrl.trim() || null,
+        instance_id: form.instanceId || null,
+        settings: {
+          delayMin: form.delayMin,
+          delayMax: form.delayMax,
+          dailyLimit: form.dailyLimit,
+          businessHoursOnly: form.businessHoursOnly,
+          warmUpEnabled: form.warmUpEnabled,
+          contentVariation: form.contentVariation,
+          maxConsecutiveFailures: form.maxConsecutiveFailures,
+          batchSize: 30,
+          batchCooldownSec: 15,
+          businessHourStart: 8,
+          businessHourEnd: 20,
+          timezoneOffset: -3,
+          warmUpDayLimit: 50,
+        } as any,
+      };
+
+      if (isEditing && editCampaign) {
+        const { error } = await supabase
+          .from("campaigns")
+          .update(campaignData as any)
+          .eq("id", editCampaign.id);
+        if (error) throw error;
+        toast.success("Campanha atualizada!");
+        onOpenChange(false);
+        onCreated?.();
+        return;
+      }
+
+      // New campaign flow
       const { data: campaign, error: campErr } = await supabase
         .from("campaigns")
         .insert({
-          name: form.name.trim(),
-          description: form.description.trim() || null,
-          message_type: form.messageType,
-          message_content: form.messageContent.trim(),
-          media_url: form.mediaUrl.trim() || null,
+          ...campaignData,
           status: form.scheduleType === "now" ? "draft" : "scheduled",
           scheduled_at: form.scheduledAt ? form.scheduledAt.toISOString() : null,
           created_by: user.id,
-          instance_id: form.instanceId || null,
-          settings: {
-            delayMin: form.delayMin,
-            delayMax: form.delayMax,
-            dailyLimit: form.dailyLimit,
-            businessHoursOnly: form.businessHoursOnly,
-            warmUpEnabled: form.warmUpEnabled,
-            contentVariation: form.contentVariation,
-            maxConsecutiveFailures: form.maxConsecutiveFailures,
-            batchSize: 30,
-            batchCooldownSec: 15,
-            businessHourStart: 8,
-            businessHourEnd: 20,
-            timezoneOffset: -3,
-            warmUpDayLimit: 50,
-          } as any,
           stats: { total: totalRecipients, sent: 0, delivered: 0, read: 0, failed: 0 } as any,
         })
         .select("id")
@@ -267,7 +306,6 @@ export default function CreateCampaignDialog({
       if (campErr) throw campErr;
 
       // 2. Insert campaign contacts
-      // Get contacts: direct + from tags
       let allContactIds = new Set(form.selectedContactIds);
 
       if (form.selectedTagIds.length > 0) {
@@ -280,7 +318,6 @@ export default function CreateCampaignDialog({
         });
       }
 
-      // Fetch phones for all contacts
       const { data: contactPhones } = await supabase
         .from("contacts")
         .select("id, phone")
@@ -297,10 +334,8 @@ export default function CreateCampaignDialog({
         const { error: ccErr } = await supabase
           .from("campaign_contacts")
           .insert(rows);
-
         if (ccErr) throw ccErr;
 
-        // Update stats total
         await supabase
           .from("campaigns")
           .update({ stats: { total: contactPhones.length, sent: 0, delivered: 0, read: 0, failed: 0 } as any })
@@ -311,7 +346,7 @@ export default function CreateCampaignDialog({
       onOpenChange(false);
       onCreated?.();
     } catch (err: any) {
-      toast.error("Erro ao criar campanha: " + (err.message || "Tente novamente"));
+      toast.error("Erro: " + (err.message || "Tente novamente"));
     } finally {
       setSaving(false);
     }
@@ -321,7 +356,7 @@ export default function CreateCampaignDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col gap-0 p-0">
         <DialogHeader className="px-6 pt-6 pb-4">
-          <DialogTitle className="font-heading text-xl">Nova Campanha</DialogTitle>
+          <DialogTitle className="font-heading text-xl">{isEditing ? "Editar Campanha" : "Nova Campanha"}</DialogTitle>
         </DialogHeader>
 
         {/* Stepper */}
@@ -862,7 +897,7 @@ export default function CreateCampaignDialog({
               ) : (
                 <CheckCircle2 className="mr-2 h-4 w-4" />
               )}
-              {form.scheduleType === "now" ? "Criar Campanha" : "Agendar Campanha"}
+              {isEditing ? "Salvar Alterações" : form.scheduleType === "now" ? "Criar Campanha" : "Agendar Campanha"}
             </Button>
           ) : (
             <Button onClick={goNext} disabled={!canGoNext()}>
