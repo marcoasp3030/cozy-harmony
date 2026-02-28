@@ -189,7 +189,7 @@ const MessageBubble = ({ msg, onReact, onRetry, onDelete }: { msg: Message; onRe
           isOutbound ? "left-0 -translate-x-full pr-1" : "right-0 translate-x-full pl-1"
         )}>
           {/* Delete button for outbound messages */}
-          {isOutbound && onDelete && msg.external_id && !confirmDelete && (
+          {isOutbound && onDelete && !confirmDelete && (
             <Button
               variant="ghost"
               size="icon"
@@ -236,7 +236,7 @@ const MessageBubble = ({ msg, onReact, onRetry, onDelete }: { msg: Message; onRe
           "absolute top-1/2 -translate-y-1/2 z-20 flex items-center gap-1 bg-card border border-border rounded-lg shadow-lg px-2 py-1.5 animate-in fade-in zoom-in-95",
           isOutbound ? "left-0 -translate-x-full pr-1" : "right-0 translate-x-full pl-1"
         )}>
-          <span className="text-xs text-muted-foreground whitespace-nowrap">Apagar para todos?</span>
+          <span className="text-xs text-muted-foreground whitespace-nowrap">{msg.external_id ? "Apagar para todos?" : "Apagar mensagem?"}</span>
           <Button
             variant="destructive"
             size="sm"
