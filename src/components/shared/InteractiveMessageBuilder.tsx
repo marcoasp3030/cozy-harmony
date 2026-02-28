@@ -85,11 +85,27 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
 
   const typeOptions: { value: InteractiveType; label: string; icon: React.ReactNode; desc: string }[] = [
     { value: "none", label: "Nenhuma", icon: null, desc: "Texto simples" },
-    { value: "buttons", label: "Botões", icon: <MousePointerClick className="h-5 w-5" />, desc: "Até 3 respostas rápidas" },
-    { value: "list", label: "Lista", icon: <ListOrdered className="h-5 w-5" />, desc: "Menu com seções" },
-    { value: "cta", label: "CTA", icon: <Link className="h-5 w-5" />, desc: "Link ou telefone" },
-    { value: "poll", label: "Enquete", icon: <BarChart3 className="h-5 w-5" />, desc: "Votação" },
+    { value: "buttons", label: "Botões", icon: <MousePointerClick className="h-4 w-4" />, desc: "Até 3 respostas rápidas" },
+    { value: "list", label: "Lista", icon: <ListOrdered className="h-4 w-4" />, desc: "Menu com seções" },
+    { value: "cta", label: "CTA", icon: <Link className="h-4 w-4" />, desc: "Link ou telefone" },
+    { value: "poll", label: "Enquete", icon: <BarChart3 className="h-4 w-4" />, desc: "Votação" },
   ];
+
+  const applyInteractiveType = (nextType: InteractiveType) => {
+    const newVal = { ...value, type: nextType };
+    if (nextType === "buttons" && (!newVal.buttons || newVal.buttons.length === 0)) {
+      newVal.buttons = [{ id: genId(), title: "" }];
+    }
+    if (nextType === "cta" && (!newVal.ctaButtons || newVal.ctaButtons.length === 0)) {
+      newVal.ctaButtons = [{ id: genId(), type: "url", title: "", value: "" }];
+    }
+    if (nextType === "poll" && (!newVal.pollOptions || newVal.pollOptions.length < 2)) {
+      newVal.pollOptions = [{ id: genId(), title: "" }, { id: genId(), title: "" }];
+    }
+    onChange(newVal);
+  };
+
+  const selectedType = typeOptions.find((opt) => opt.value === value.type);
 
   // ─── BUTTONS ───
   const addButton = () => {
@@ -157,38 +173,31 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
       <div className="space-y-3">
         <div>
           <Label className="text-sm font-semibold">Mensagem Interativa</Label>
-          <p className="text-xs text-muted-foreground mt-0.5">Escolha o formato e configure os campos abaixo</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Escolha o formato em lista suspensa para caber melhor no layout</p>
         </div>
-        <div className={cn("grid gap-2", compact ? "grid-cols-2 md:grid-cols-3" : "grid-cols-2 md:grid-cols-5")}>
-          {typeOptions.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => {
-                const newVal = { ...value, type: opt.value };
-                if (opt.value === "buttons" && (!newVal.buttons || newVal.buttons.length === 0))
-                  newVal.buttons = [{ id: genId(), title: "" }];
-                if (opt.value === "cta" && (!newVal.ctaButtons || newVal.ctaButtons.length === 0))
-                  newVal.ctaButtons = [{ id: genId(), type: "url", title: "", value: "" }];
-                if (opt.value === "poll" && (!newVal.pollOptions || newVal.pollOptions.length < 2))
-                  newVal.pollOptions = [{ id: genId(), title: "" }, { id: genId(), title: "" }];
-                onChange(newVal);
-              }}
-              className={cn(
-                "flex flex-col items-center justify-center gap-1.5 rounded-xl border-2 p-3 text-center transition-all min-h-[78px]",
-                value.type === opt.value
-                  ? "border-primary bg-primary/5 text-primary shadow-sm"
-                  : "border-border hover:border-primary/40 hover:bg-muted/50",
-              )}
-            >
-              {opt.icon && <span className="text-primary/80">{opt.icon}</span>}
-              <div>
-                <p className="text-xs font-semibold leading-tight">{opt.label}</p>
-                <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">{opt.desc}</p>
-              </div>
-            </button>
-          ))}
-        </div>
+
+        <Select value={value.type} onValueChange={(v) => applyInteractiveType(v as InteractiveType)}>
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="Selecione o tipo interativo" />
+          </SelectTrigger>
+          <SelectContent>
+            {typeOptions.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                <span className="flex items-center gap-2">
+                  {opt.icon ? <span className="text-primary/80">{opt.icon}</span> : <Type className="h-4 w-4 text-muted-foreground" />}
+                  <span className="flex flex-col leading-tight">
+                    <span className="text-sm">{opt.label}</span>
+                    {!compact && <span className="text-xs text-muted-foreground">{opt.desc}</span>}
+                  </span>
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {selectedType && (
+          <p className={cn("text-xs text-muted-foreground", value.type !== "none" && "text-foreground")}>Tipo atual: <strong>{selectedType.label}</strong>{value.type !== "none" ? ` — ${selectedType.desc}` : ""}</p>
+        )}
       </div>
 
       {value.type !== "none" && (
