@@ -10,18 +10,46 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
-
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     );
 
+    const authHeader = req.headers.get("Authorization");
     const { conversation_id, message_content, contact_name } = await req.json();
 
     if (!conversation_id || !message_content) {
       return new Response(JSON.stringify({ error: "Missing conversation_id or message_content" }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Get user's OpenAI API key from settings
+    let openaiKey = '';
+    if (authHeader?.startsWith("Bearer ")) {
+      const anonClient = createClient(
+        Deno.env.get('SUPABASE_URL')!,
+        Deno.env.get('SUPABASE_ANON_KEY')!,
+        { global: { headers: { Authorization: authHeader } } }
+      );
+      const token = authHeader.replace("Bearer ", "");
+      const { data: claimsData } = await anonClient.auth.getClaims(token);
+      const userId = claimsData?.claims?.sub as string;
+
+      if (userId) {
+        const { data: settings } = await supabase
+          .from('settings')
+          .select('value')
+          .eq('user_id', userId)
+          .eq('key', 'llm_openai')
+          .single();
+        const val = settings?.value as { apiKey?: string } | null;
+        if (val?.apiKey) openaiKey = val.apiKey;
+      }
+    }
+
+    if (!openaiKey) {
+      return new Response(JSON.stringify({ error: "API Key da OpenAI não configurada. Vá em Configurações → API LLM." }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
@@ -55,15 +83,15 @@ serve(async (req) => {
     const currentStage = stages.find(s => s.id === conv.funnel_stage_id);
     const stageNames = stages.map(s => `${s.position + 1}. ${s.name}`).join('\n');
 
-    // Use Lovable AI to classify intent
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    // Call OpenAI API
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        Authorization: `Bearer ${openaiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash-lite",
+        model: "gpt-4o-mini",
         messages: [
           {
             role: "system",
@@ -97,19 +125,8 @@ Se não houver motivo claro para mover, retorne a etapa atual e confidence baixa
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error("AI gateway error:", response.status, errText);
-      
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limit exceeded" }), {
-          status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Payment required" }), {
-          status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-      throw new Error(`AI error: ${response.status}`);
+      console.error("OpenAI error:", response.status, errText);
+      throw new Error(`OpenAI error: ${response.status}`);
     }
 
     const aiData = await response.json();
@@ -118,7 +135,6 @@ Se não houver motivo claro para mover, retorne a etapa atual e confidence baixa
     // Parse AI response
     let parsed;
     try {
-      // Extract JSON from potential markdown code blocks
       const jsonMatch = aiContent.match(/\{[\s\S]*\}/);
       parsed = JSON.parse(jsonMatch?.[0] || aiContent);
     } catch {
