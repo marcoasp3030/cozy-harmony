@@ -183,11 +183,11 @@ serve(async (req) => {
       const result = await callUaz(baseUrl, '/instance/connect', 'token', tok, 'POST', {});
       if (!result.ok) return json({ success: false, error: `Falha ao conectar (${result.status})`, debug: result.data });
       const d = result.data as any;
-      const qr = d?.qrcode || d?.qrCode || d?.qr || d?.base64 || d?.data?.qrcode || null;
+      const qr = d?.qrcode || d?.qrCode || d?.qr || d?.base64 || d?.data?.qrcode || d?.instance?.qrcode || null;
       if (!qr) {
         const statusRes = await callUaz(baseUrl, '/instance/status', 'token', tok, 'GET');
         const sd = statusRes.data as any;
-        const statusQr = sd?.qrcode || sd?.qrCode || sd?.qr || sd?.base64 || sd?.data?.qrcode || null;
+        const statusQr = sd?.qrcode || sd?.qrCode || sd?.qr || sd?.base64 || sd?.data?.qrcode || sd?.instance?.qrcode || null;
         return json({ success: true, qrcode: statusQr, connectData: d, statusData: sd });
       }
       return json({ success: true, qrcode: qr, ...d });
@@ -198,7 +198,7 @@ serve(async (req) => {
       const result = await callUaz(baseUrl, '/instance/status', 'token', tok, 'GET');
       if (!result.ok) return json({ success: false, error: `Falha ao obter QR (${result.status})`, debug: result.data });
       const d = result.data as any;
-      const qr = d?.qrcode || d?.qrCode || d?.qr || d?.base64 || d?.data?.qrcode || null;
+      const qr = d?.qrcode || d?.qrCode || d?.qr || d?.base64 || d?.data?.qrcode || d?.instance?.qrcode || null;
       return json({ success: true, qrcode: qr, ...d });
     }
 
