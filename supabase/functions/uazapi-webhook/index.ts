@@ -210,19 +210,32 @@ serve(async (req) => {
         'server': 'sent', 'device': 'delivered', 'played': 'read',
       };
 
+      const normalizeMsgId = (value: unknown): string => {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        const parts = raw.split(':').filter(Boolean);
+        return parts.length > 1 ? parts[parts.length - 1] : raw;
+      };
+
       console.log(`Status updates to process: ${updates.length}`, JSON.stringify(updates).slice(0, 300));
 
       const affectedCampaignIds = new Set<string>();
 
       for (const { msgId, status: rawStatus } of updates) {
-        const statusStr = statusMap[rawStatus] || rawStatus;
-        if (!statusStr || statusStr === 'error') continue;
+        const normalizedMsgId = normalizeMsgId(msgId);
+        const statusStr = statusMap[rawStatus] || statusMap[String(rawStatus || '').toLowerCase()] || String(rawStatus || '').toLowerCase();
+        if (!normalizedMsgId || !statusStr || statusStr === 'error') continue;
 
-        // Update messages table
+        // Update messages table (supports both normalized and prefixed external_id)
         await supabase
           .from('messages')
           .update({ status: statusStr })
-          .eq('external_id', msgId);
+          .eq('external_id', normalizedMsgId);
+
+        await supabase
+          .from('messages')
+          .update({ status: statusStr })
+          .like('external_id', `%:${normalizedMsgId}`);
 
         // Update campaign_contacts if applicable
         if (statusStr === 'delivered' || statusStr === 'read') {
@@ -234,11 +247,20 @@ serve(async (req) => {
             updateData.delivered_at = new Date().toISOString();
           }
 
-          const { data: updatedRows } = await supabase
+          let { data: updatedRows } = await supabase
             .from('campaign_contacts')
             .update(updateData)
-            .eq('message_id', msgId)
+            .eq('message_id', normalizedMsgId)
             .select('campaign_id');
+
+          if (!updatedRows || updatedRows.length === 0) {
+            const fallback = await supabase
+              .from('campaign_contacts')
+              .update(updateData)
+              .like('message_id', `%:${normalizedMsgId}`)
+              .select('campaign_id');
+            updatedRows = fallback.data || [];
+          }
 
           if (updatedRows && updatedRows.length > 0) {
             for (const row of updatedRows) {
