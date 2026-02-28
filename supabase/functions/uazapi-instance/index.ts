@@ -11,93 +11,43 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const json = (data: unknown, status = 200) =>
+    new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
   const parseJsonSafe = async (res: Response) => {
     const raw = await res.text();
-    try {
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return { raw };
-    }
+    try { return raw ? JSON.parse(raw) : null; } catch { return { raw }; }
   };
 
-  const authModes = [
-    'bearer',
-    'raw-authorization',
-    'token-header',
-    'token-lower-header',
-    'admintoken-header',
-    'apikey-header',
-    'x-api-key',
-  ] as const;
-
-  const callUazApi = async ({
-    baseUrl,
-    endpoints,
-    token,
-    method = 'GET',
-    body,
-  }: {
-    baseUrl: string;
-    endpoints: string[];
-    token: string;
-    method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
-    body?: Record<string, unknown>;
-  }) => {
-    const attempts: Array<{
-      endpoint: string;
-      method: string;
-      auth_mode: string;
-      status: number;
-      response: unknown;
-    }> = [];
-
-    for (const endpoint of endpoints) {
-      for (const mode of authModes) {
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-        };
-
-        if (mode === 'bearer') headers['Authorization'] = `Bearer ${token}`;
-        if (mode === 'raw-authorization') headers['Authorization'] = token;
-        if (mode === 'token-header') headers['Token'] = token;
-        if (mode === 'token-lower-header') headers['token'] = token;
-        if (mode === 'admintoken-header') headers['admintoken'] = token;
-        if (mode === 'apikey-header') headers['apikey'] = token;
-        if (mode === 'x-api-key') headers['x-api-key'] = token;
-
-        const res = await fetch(`${baseUrl}${endpoint}`, {
-          method,
-          headers,
-          body: body ? JSON.stringify(body) : undefined,
-        });
-
-        const data = await parseJsonSafe(res);
-        attempts.push({ endpoint, method, auth_mode: mode, status: res.status, response: data });
-
-        if (res.ok) {
-          return {
-            ok: true,
-            status: res.status,
-            data,
-            details: { attempts },
-          };
-        }
-      }
-    }
-
-    const last = attempts[attempts.length - 1];
-    return {
-      ok: false,
-      status: last?.status ?? 500,
-      data: last?.response ?? null,
-      details: { attempts },
+  // Call UazAPI with the documented auth header
+  const callUaz = async (
+    baseUrl: string,
+    endpoint: string,
+    headerName: string,
+    token: string,
+    method: 'GET' | 'POST' | 'DELETE' = 'GET',
+    body?: Record<string, unknown>,
+  ) => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      [headerName]: token,
     };
+    const url = `${baseUrl}${endpoint}`;
+    console.log(`UazAPI ${method} ${url} [header: ${headerName}]`);
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await parseJsonSafe(res);
+    console.log(`UazAPI response: ${res.status}`, JSON.stringify(data).slice(0, 500));
+    return { ok: res.ok, status: res.status, data };
   };
 
   try {
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      return json({ error: 'Unauthorized' }, 401);
     }
 
     const supabase = createClient(
@@ -106,10 +56,10 @@ serve(async (req) => {
       { global: { headers: { Authorization: authHeader } } }
     );
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
+    const jwtToken = authHeader.replace('Bearer ', '');
+    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(jwtToken);
     if (claimsError || !claimsData?.claims) {
-      return new Response(JSON.stringify({ error: 'Unauthorized', detail: claimsError?.message }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      return json({ error: 'Unauthorized', detail: claimsError?.message }, 401);
     }
 
     const userId = claimsData.claims.sub as string;
@@ -123,242 +73,118 @@ serve(async (req) => {
       .eq('key', 'uazapi_config')
       .single();
 
-    const config = (settings?.value || {}) as { baseUrl: string; adminToken: string; instanceToken: string };
+    const config = (settings?.value || {}) as { baseUrl: string; adminToken: string; instanceToken: string; instanceName?: string };
 
     if (!config.baseUrl) {
-      return new Response(JSON.stringify({ success: false, error: 'URL da UazAPI não configurada.' }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return json({ success: false, error: 'URL da UazAPI não configurada.' });
     }
 
     const baseUrl = config.baseUrl.replace(/\/+$/, '');
 
+    // ── CREATE INSTANCE (admin) ──────────────────────────────
     if (action === 'create-instance') {
       if (!config.adminToken) {
-        return new Response(JSON.stringify({ success: false, error: 'Admin Token é obrigatório para criar instâncias.' }), {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return json({ success: false, error: 'Admin Token é obrigatório para criar instâncias.' });
       }
 
       const name = instanceName || `inst_${userId.slice(0, 8)}`;
-      const result = await callUazApi({
-        baseUrl,
-        endpoints: ['/instance/init', '/instance/create', '/instance'],
-        token: config.adminToken,
-        method: 'POST',
-        body: { name, instanceName: name, systemName: 'api' },
+
+      // UazAPI v2 docs: POST /instance/init with header "admintoken"
+      const result = await callUaz(baseUrl, '/instance/init', 'admintoken', config.adminToken, 'POST', {
+        instanceName: name,
       });
 
       if (!result.ok) {
-        return new Response(JSON.stringify({
+        return json({
           success: false,
           error: `Falha ao criar instância (${result.status})`,
-          details: result.details,
-          response: result.data,
-        }), {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          debug: { endpoint: '/instance/init', header: 'admintoken', response: result.data },
         });
       }
 
-      const data = result.data as any;
-      const newToken =
-        data?.token ||
-        data?.instanceToken ||
-        data?.hash ||
-        data?.apikey ||
-        data?.instance?.token ||
-        data?.data?.token ||
-        '';
+      const d = result.data as any;
+      const newToken = d?.token || d?.instance?.token || d?.data?.token || d?.hash || d?.apikey || '';
+      const createdName = d?.instanceName || d?.instance?.instanceName || d?.name || name;
 
-      if (newToken) {
-        const updatedConfig = { ...config, instanceToken: newToken };
-        await supabase
-          .from('settings')
-          .upsert(
-            { user_id: userId, key: 'uazapi_config', value: updatedConfig },
-            { onConflict: 'user_id,key' }
-          );
-      }
+      // Save token + instance name
+      const updatedConfig = { ...config, instanceToken: newToken || config.instanceToken, instanceName: createdName };
+      await supabase
+        .from('settings')
+        .upsert({ user_id: userId, key: 'uazapi_config', value: updatedConfig }, { onConflict: 'user_id,key' });
 
-      return new Response(JSON.stringify({ success: true, instanceToken: newToken, data, details: result.details }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return json({ success: true, instanceToken: newToken, instanceName: createdName, data: d });
     }
 
+    // ── Instance-level actions require instanceToken ──────────
     if (!config.instanceToken) {
-      return new Response(JSON.stringify({ success: false, error: 'Instance Token não configurado. Crie uma instância primeiro.' }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return json({ success: false, error: 'Instance Token não configurado. Crie uma instância primeiro.' });
     }
 
+    // UazAPI v2 docs: instance endpoints use header "token"
+    const tok = config.instanceToken;
+
+    // ── TEST / STATUS ────────────────────────────────────────
     if (action === 'test') {
-      const result = await callUazApi({
-        baseUrl,
-        endpoints: ['/instance/status', '/instance/info'],
-        token: config.instanceToken,
-        method: 'GET',
-      });
+      const result = await callUaz(baseUrl, '/instance/status', 'token', tok, 'GET');
 
       if (!result.ok) {
-        return new Response(JSON.stringify({ connected: false, error: `Falha ao consultar status (${result.status})`, details: result.details, response: result.data }), {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return json({ connected: false, error: `Status retornou ${result.status}`, debug: result.data });
       }
 
-      return new Response(JSON.stringify({ connected: true, ...result.data, details: result.details }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return json({ connected: true, ...result.data });
     }
 
+    // ── CONNECT ──────────────────────────────────────────────
     if (action === 'connect') {
-      // UazAPI v2 docs: POST /instance/connect (token header)
-      const connectResult = await callUazApi({
-        baseUrl,
-        endpoints: ['/instance/connect'],
-        token: config.instanceToken,
-        method: 'POST',
-        body: {},
-      });
+      // UazAPI v2 docs: POST /instance/connect with header "token"
+      const result = await callUaz(baseUrl, '/instance/connect', 'token', tok, 'POST', {});
 
-      if (!connectResult.ok) {
-        return new Response(JSON.stringify({
+      if (!result.ok) {
+        return json({
           success: false,
-          error: `Falha ao conectar instância (${connectResult.status})`,
-          details: connectResult.details,
-          response: connectResult.data,
-        }), {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          error: `Falha ao conectar (${result.status})`,
+          debug: { endpoint: '/instance/connect', method: 'POST', header: 'token', response: result.data },
         });
       }
 
-      const connectData = connectResult.data as any;
-      const connectQr =
-        connectData?.qrcode ||
-        connectData?.qrCode ||
-        connectData?.qr ||
-        connectData?.base64 ||
-        connectData?.data?.qrcode ||
-        connectData?.instance?.qrcode ||
-        null;
+      const d = result.data as any;
+      const qr = d?.qrcode || d?.qrCode || d?.qr || d?.base64 || d?.data?.qrcode || null;
 
-      // If connect response does not carry QR, read from status endpoint
-      if (!connectQr) {
-        const statusResult = await callUazApi({
-          baseUrl,
-          endpoints: ['/instance/status'],
-          token: config.instanceToken,
-          method: 'GET',
-        });
-
-        const statusData = statusResult.data as any;
-        const statusQr =
-          statusData?.qrcode ||
-          statusData?.qrCode ||
-          statusData?.qr ||
-          statusData?.base64 ||
-          statusData?.data?.qrcode ||
-          statusData?.instance?.qrcode ||
-          statusData?.status?.qrcode ||
-          null;
-
-        return new Response(JSON.stringify({
-          success: true,
-          qrcode: statusQr,
-          connectData,
-          statusData,
-          details: {
-            connectAttempts: connectResult.details?.attempts || [],
-            statusAttempts: statusResult.details?.attempts || [],
-          },
-        }), {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+      // If no QR in connect response, check status
+      if (!qr) {
+        const statusRes = await callUaz(baseUrl, '/instance/status', 'token', tok, 'GET');
+        const sd = statusRes.data as any;
+        const statusQr = sd?.qrcode || sd?.qrCode || sd?.qr || sd?.base64 || sd?.data?.qrcode || null;
+        return json({ success: true, qrcode: statusQr, connectData: d, statusData: sd });
       }
 
-      return new Response(JSON.stringify({
-        success: true,
-        qrcode: connectQr,
-        ...connectData,
-        details: connectResult.details,
-      }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return json({ success: true, qrcode: qr, ...d });
     }
 
+    // ── QRCODE ───────────────────────────────────────────────
     if (action === 'qrcode') {
-      // UazAPI v2: QR is typically returned in /instance/status while connecting
-      const result = await callUazApi({
-        baseUrl,
-        endpoints: ['/instance/status'],
-        token: config.instanceToken,
-        method: 'GET',
-      });
-
+      const result = await callUaz(baseUrl, '/instance/status', 'token', tok, 'GET');
       if (!result.ok) {
-        return new Response(JSON.stringify({ success: false, error: `Falha ao obter QR (${result.status})`, details: result.details, response: result.data }), {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return json({ success: false, error: `Falha ao obter QR (${result.status})`, debug: result.data });
       }
-
-      const data = result.data as any;
-      const qr =
-        data?.qrcode ||
-        data?.qrCode ||
-        data?.qr ||
-        data?.base64 ||
-        data?.data?.qrcode ||
-        data?.instance?.qrcode ||
-        data?.status?.qrcode ||
-        null;
-
-      return new Response(JSON.stringify({ success: true, qrcode: qr, ...data, details: result.details }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      const d = result.data as any;
+      const qr = d?.qrcode || d?.qrCode || d?.qr || d?.base64 || d?.data?.qrcode || null;
+      return json({ success: true, qrcode: qr, ...d });
     }
 
+    // ── DISCONNECT ───────────────────────────────────────────
     if (action === 'disconnect') {
-      const result = await callUazApi({
-        baseUrl,
-        endpoints: ['/instance/disconnect', '/instance/logout'],
-        token: config.instanceToken,
-        method: 'POST',
-      });
-
+      const result = await callUaz(baseUrl, '/instance/disconnect', 'token', tok, 'POST');
       if (!result.ok) {
-        return new Response(JSON.stringify({ success: false, error: `Falha ao desconectar (${result.status})`, details: result.details, response: result.data }), {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return json({ success: false, error: `Falha ao desconectar (${result.status})`, debug: result.data });
       }
-
-      return new Response(JSON.stringify({ success: true, ...result.data, details: result.details }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return json({ success: true, ...result.data });
     }
 
-    return new Response(JSON.stringify({ error: 'Ação inválida. Use: create-instance, test, qrcode, connect, disconnect' }), {
-      status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return json({ error: 'Ação inválida. Use: create-instance, test, qrcode, connect, disconnect' }, 400);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Erro desconhecido';
     console.error('uazapi-instance error:', message);
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return json({ error: message }, 500);
   }
 });
