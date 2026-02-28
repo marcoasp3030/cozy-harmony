@@ -16,6 +16,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import KanbanView from "@/components/inbox/KanbanView";
 import MessageBubble from "@/components/inbox/MessageBubble";
 import ContactPanel from "@/components/inbox/ContactPanel";
+import { useSlaNotifications } from "@/hooks/useSlaNotifications";
 import type { Message } from "@/components/inbox/MessageBubble";
 
 interface Contact {
@@ -88,6 +89,9 @@ const InboxPage = () => {
 
   const selectedConv = conversations.find((c) => c.id === selectedConvId);
   const contact = selectedConv?.contact;
+
+  // SLA notifications
+  useSlaNotifications(conversations);
 
   // Load conversations
   const loadConversations = useCallback(async () => {
