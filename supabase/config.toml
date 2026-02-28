@@ -1,1 +1,10 @@
 project_id = "wszmgoerulwkwhensevl"
+
+[functions.create-admin]
+verify_jwt = false
+
+[functions.uazapi-instance]
+verify_jwt = false
+
+[functions.uazapi-send]
+verify_jwt = false
