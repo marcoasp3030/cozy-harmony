@@ -542,77 +542,80 @@ export default function CreateCampaignDialog({
           )}
 
           {step === "message" && (
-            <div className="space-y-4">
-              {/* Template selector */}
-              {templates.length > 0 && (
-                <div className="space-y-2">
-                  <Label>Usar Template</Label>
-                  <Select
-                    value={form.templateId || ""}
-                    onValueChange={(v) => applyTemplate(v)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione um template (opcional)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {templates.map((t) => (
-                        <SelectItem key={t.id} value={t.id}>
-                          {t.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+            <div className="space-y-5">
+              <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+                <div>
+                  <p className="text-sm font-medium">Mensagem base da campanha</p>
+                  <p className="text-xs text-muted-foreground">Defina conteúdo principal e mídia antes de configurar interações</p>
                 </div>
-              )}
 
-              <div className="space-y-2">
-                <Label>Tipo de Mensagem *</Label>
-                <div className="flex gap-2 flex-wrap">
-                  {messageTypeOptions.map((opt) => (
-                    <Button
-                      key={opt.value}
-                      type="button"
-                      variant={form.messageType === opt.value ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => update("messageType", opt.value)}
-                      className="gap-1.5"
+                {templates.length > 0 && (
+                  <div className="space-y-2">
+                    <Label>Usar Template</Label>
+                    <Select
+                      value={form.templateId || ""}
+                      onValueChange={(v) => applyTemplate(v)}
                     >
-                      {opt.icon}
-                      {opt.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione um template (opcional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {templates.map((t) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
 
-              <div className="space-y-2">
-                <Label>Conteúdo da Mensagem *</Label>
-                <Textarea
-                  placeholder="Digite sua mensagem... Use {{variavel}} para personalização"
-                  value={form.messageContent}
-                  onChange={(e) => update("messageContent", e.target.value)}
-                  maxLength={4096}
-                  rows={4}
-                  className="font-mono text-sm"
-                />
-                <p className="text-xs text-muted-foreground">
-                  {form.messageContent.length}/4096 caracteres
-                </p>
-              </div>
-
-              {form.messageType !== "text" && (
                 <div className="space-y-2">
-                  <Label>URL da Mídia</Label>
-                  <Input
-                    placeholder="https://exemplo.com/imagem.jpg"
-                    value={form.mediaUrl}
-                    onChange={(e) => update("mediaUrl", e.target.value)}
-                  />
+                  <Label>Tipo de Mensagem *</Label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                    {messageTypeOptions.map((opt) => (
+                      <Button
+                        key={opt.value}
+                        type="button"
+                        variant={form.messageType === opt.value ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => update("messageType", opt.value)}
+                        className="gap-1.5 justify-start"
+                      >
+                        {opt.icon}
+                        {opt.label}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
-              )}
 
-              <Separator />
+                <div className="space-y-2">
+                  <Label>Conteúdo da Mensagem *</Label>
+                  <Textarea
+                    placeholder="Digite sua mensagem... Use {{variavel}} para personalização"
+                    value={form.messageContent}
+                    onChange={(e) => update("messageContent", e.target.value)}
+                    maxLength={4096}
+                    rows={5}
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {form.messageContent.length}/4096 caracteres
+                  </p>
+                </div>
 
-              {/* Interactive message builder */}
+                {form.messageType !== "text" && (
+                  <div className="space-y-2">
+                    <Label>URL da Mídia</Label>
+                    <Input
+                      placeholder="https://exemplo.com/imagem.jpg"
+                      value={form.mediaUrl}
+                      onChange={(e) => update("mediaUrl", e.target.value)}
+                    />
+                  </div>
+                )}
+              </div>
+
               <div className="rounded-lg border border-border bg-muted/20 p-4">
                 <InteractiveMessageBuilder
                   value={form.interactive}
