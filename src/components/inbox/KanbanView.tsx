@@ -12,6 +12,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -19,15 +24,14 @@ import {
   GripVertical,
   Search,
   MoreHorizontal,
-  AlertTriangle,
   Clock,
   MessageSquare,
-  ArrowRight,
-  GitBranchPlus,
   Inbox,
   Timer,
   Flame,
   Eye,
+  GitBranchPlus,
+  Palette,
 } from "lucide-react";
 import { useState, useMemo, useEffect, useCallback } from "react";
 
@@ -97,11 +101,21 @@ interface KanbanViewProps {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-const legacyColumns = [
+const DEFAULT_LEGACY_COLUMNS = [
   { id: "open", label: "Abertas", color: "#22c55e" },
   { id: "in_progress", label: "Em Atendimento", color: "#3b82f6" },
   { id: "waiting", label: "Aguardando", color: "#f59e0b" },
   { id: "resolved", label: "Resolvidas", color: "#6b7280" },
+];
+
+const PRESET_COLORS = [
+  "#22c55e", "#16a34a", "#10b981",
+  "#3b82f6", "#2563eb", "#6366f1",
+  "#8b5cf6", "#a855f7", "#d946ef",
+  "#ec4899", "#f43f5e", "#ef4444",
+  "#f97316", "#f59e0b", "#eab308",
+  "#14b8a6", "#06b6d4", "#0ea5e9",
+  "#6b7280", "#78716c", "#64748b",
 ];
 
 const formatTime = (dateStr: string) => {
@@ -137,6 +151,20 @@ const formatWaitTime = (hours: number): string => {
   return `${Math.round(hours / 24)}d`;
 };
 
+// ── Color persistence helpers ───────────────────────────────────────
+
+const getLegacyColumnColors = (): Record<string, string> => {
+  try {
+    return JSON.parse(localStorage.getItem("kanban_legacy_colors") || "{}");
+  } catch { return {}; }
+};
+
+const saveLegacyColumnColor = (colId: string, color: string) => {
+  const colors = getLegacyColumnColors();
+  colors[colId] = color;
+  localStorage.setItem("kanban_legacy_colors", JSON.stringify(colors));
+};
+
 // ── Column type ─────────────────────────────────────────────────────
 
 type Column = {
@@ -146,6 +174,38 @@ type Column = {
   stageId: string | null;
   notifyAfterHours: number | null;
 };
+
+// ── Color Picker ────────────────────────────────────────────────────
+
+const ColorPicker = ({ color, onChange }: { color: string; onChange: (c: string) => void }) => (
+  <Popover>
+    <PopoverTrigger asChild>
+      <button
+        className="h-4 w-4 rounded-full ring-2 ring-background shadow-md cursor-pointer hover:scale-125 transition-transform"
+        style={{ backgroundColor: color, boxShadow: `0 0 10px ${color}50` }}
+      />
+    </PopoverTrigger>
+    <PopoverContent className="w-auto p-3" align="start" side="bottom">
+      <div className="flex items-center gap-2 mb-2">
+        <Palette className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-xs font-medium text-muted-foreground">Cor da coluna</span>
+      </div>
+      <div className="grid grid-cols-7 gap-1.5">
+        {PRESET_COLORS.map((c) => (
+          <button
+            key={c}
+            onClick={() => onChange(c)}
+            className={cn(
+              "h-6 w-6 rounded-full transition-all hover:scale-110",
+              color === c && "ring-2 ring-offset-2 ring-primary"
+            )}
+            style={{ backgroundColor: c }}
+          />
+        ))}
+      </div>
+    </PopoverContent>
+  </Popover>
+);
 
 // ── Card Component ──────────────────────────────────────────────────
 
@@ -181,48 +241,43 @@ const KanbanCard = ({
       onDragEnd={onDragEnd}
       onClick={() => onSelect(conv.id)}
       className={cn(
-        "group relative cursor-pointer rounded-xl border bg-background p-3 transition-all duration-200",
-        "hover:shadow-lg hover:-translate-y-0.5 hover:border-primary/40",
+        "group relative cursor-pointer rounded-xl border bg-card p-3 transition-all duration-200",
+        "hover:shadow-lg hover:-translate-y-0.5 hover:border-primary/30",
         "active:scale-[0.98]",
-        urgency === "critical" && "border-l-[3px] border-l-destructive",
-        urgency === "warning" && "border-l-[3px] border-l-warning",
-        urgency === "normal" && "border-border",
+        urgency === "critical" && "border-l-[3px] border-l-destructive bg-destructive/5",
+        urgency === "warning" && "border-l-[3px] border-l-amber-400",
+        urgency === "normal" && "border-border/50",
         draggedId === conv.id && "opacity-30 scale-95 rotate-1"
       )}
     >
-      {/* Urgency glow */}
       {urgency === "critical" && (
         <div className="absolute -inset-px rounded-xl bg-destructive/5 pointer-events-none" />
       )}
 
       <div className="relative flex items-start gap-2.5">
-        {/* Drag handle */}
-        <GripVertical className="h-4 w-4 mt-1 text-muted-foreground/30 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 cursor-grab active:cursor-grabbing" />
+        <GripVertical className="h-4 w-4 mt-1 text-muted-foreground/20 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 cursor-grab active:cursor-grabbing" />
 
-        {/* Avatar with online dot */}
         <div className="relative shrink-0">
-          <Avatar className="h-9 w-9 ring-2 ring-background">
+          <Avatar className="h-9 w-9 ring-2 ring-background shadow-sm">
             {conv.contact?.profile_picture && <AvatarImage src={conv.contact.profile_picture} />}
             <AvatarFallback
-              className="text-xs font-semibold"
-              style={{ backgroundColor: `${col.color}15`, color: col.color }}
+              className="text-xs font-bold"
+              style={{ backgroundColor: `${col.color}18`, color: col.color }}
             >
               {getInitials(conv.contact?.name || null, conv.contact?.phone || "")}
             </AvatarFallback>
           </Avatar>
           {hasUnread && (
-            <div className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-primary border-2 border-background" />
+            <div className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-primary border-2 border-background animate-pulse" />
           )}
         </div>
 
-        {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-1">
             <span className="text-sm font-semibold truncate leading-tight">
               {conv.contact?.name || conv.contact?.phone || "Desconhecido"}
             </span>
 
-            {/* Quick actions */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                 <Button
@@ -242,7 +297,7 @@ const KanbanCard = ({
                   .filter((c) => c.id !== col.id)
                   .map((c) => (
                     <DropdownMenuItem key={c.id} className="text-xs gap-2" onClick={() => onMove(conv.id, c)}>
-                      <div className="h-2 w-2 rounded-full" style={{ backgroundColor: c.color }} />
+                      <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: c.color }} />
                       {c.label}
                     </DropdownMenuItem>
                   ))}
@@ -250,7 +305,6 @@ const KanbanCard = ({
             </DropdownMenu>
           </div>
 
-          {/* Last message */}
           <p className="text-xs text-muted-foreground truncate mt-1 leading-relaxed">
             {conv.lastMessage?.direction === "outbound" && (
               <span className="text-primary/60">Você: </span>
@@ -258,17 +312,13 @@ const KanbanCard = ({
             {conv.lastMessage?.content || (conv.lastMessage?.type !== "text" ? `📎 ${conv.lastMessage?.type}` : "Sem mensagens")}
           </p>
 
-          {/* Tags */}
           {tags.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1.5">
               {tags.map((tag) => (
                 <span
                   key={tag.id}
                   className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-semibold ring-1 ring-inset"
-                  style={{
-                    backgroundColor: `${tag.color}15`,
-                    color: tag.color,
-                  }}
+                  style={{ backgroundColor: `${tag.color}15`, color: tag.color }}
                 >
                   {tag.name}
                 </span>
@@ -276,23 +326,18 @@ const KanbanCard = ({
             </div>
           )}
 
-          {/* Footer row */}
-          <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-border/50">
-            <span className="text-[10px] text-muted-foreground/70 font-medium">
+          <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-border/40">
+            <span className="text-[10px] text-muted-foreground/60 font-medium">
               {conv.last_message_at ? formatTime(conv.last_message_at) : ""}
             </span>
-
             <div className="flex items-center gap-1.5">
-              {/* SLA badge */}
               {urgency !== "normal" && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span
                       className={cn(
                         "inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold",
-                        urgency === "critical"
-                          ? "bg-destructive/10 text-destructive"
-                          : "bg-warning/10 text-warning"
+                        urgency === "critical" ? "bg-destructive/10 text-destructive" : "bg-amber-500/10 text-amber-600"
                       )}
                     >
                       {urgency === "critical" ? <Flame className="h-3 w-3" /> : <Timer className="h-3 w-3" />}
@@ -304,8 +349,6 @@ const KanbanCard = ({
                   </TooltipContent>
                 </Tooltip>
               )}
-
-              {/* Unread count */}
               {hasUnread && (
                 <span className="inline-flex items-center justify-center h-5 min-w-[20px] rounded-full bg-primary text-primary-foreground text-[10px] font-bold px-1.5">
                   {conv.unread_count}
@@ -332,29 +375,32 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
     return localStorage.getItem("kanban_selected_funnel") || "legacy";
   });
   const [contactTagsMap, setContactTagsMap] = useState<Record<string, Tag[]>>({});
+  const [legacyColors, setLegacyColors] = useState<Record<string, string>>(getLegacyColumnColors);
 
-  // Persist funnel selection
   const handleFunnelChange = useCallback((value: string) => {
     setSelectedFunnelId(value);
     localStorage.setItem("kanban_selected_funnel", value);
   }, []);
 
-  // Load tags for all contacts in conversations
+  const handleLegacyColorChange = useCallback((colId: string, color: string) => {
+    saveLegacyColumnColor(colId, color);
+    setLegacyColors((prev) => ({ ...prev, [colId]: color }));
+  }, []);
+
+  const handleStageColorChange = useCallback(async (stageId: string, color: string) => {
+    const { error } = await supabase.from("funnel_stages").update({ color }).eq("id", stageId);
+    if (error) { toast.error("Erro ao salvar cor"); return; }
+    setStages((prev) => prev.map((s) => (s.id === stageId ? { ...s, color } : s)));
+  }, []);
+
   const loadContactTags = useCallback(async () => {
     const contactIds = [...new Set(conversations.map((c) => c.contact_id))];
     if (contactIds.length === 0) return;
-
-    const { data: ctData } = await supabase
-      .from("contact_tags")
-      .select("contact_id, tag_id")
-      .in("contact_id", contactIds);
-
+    const { data: ctData } = await supabase.from("contact_tags").select("contact_id, tag_id").in("contact_id", contactIds);
     if (!ctData || ctData.length === 0) { setContactTagsMap({}); return; }
-
     const tagIds = [...new Set(ctData.map((ct) => ct.tag_id))];
     const { data: tagsData } = await supabase.from("tags").select("*").in("id", tagIds);
     const tagMap = new Map((tagsData || []).map((t) => [t.id, t as Tag]));
-
     const result: Record<string, Tag[]> = {};
     for (const ct of ctData) {
       const tag = tagMap.get(ct.tag_id);
@@ -374,7 +420,6 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
     const funnelList = (f || []) as Funnel[];
     setFunnels(funnelList);
     setStages((s || []) as FunnelStage[]);
-    // Only set default if no saved preference
     const saved = localStorage.getItem("kanban_selected_funnel");
     if (!saved || saved === "legacy") {
       const defaultFunnel = funnelList.find((fn) => fn.is_default);
@@ -392,7 +437,13 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
   const funnelStages = stages.filter((s) => s.funnel_id === selectedFunnelId).sort((a, b) => a.position - b.position);
 
   const columns: Column[] = isLegacy
-    ? legacyColumns.map((c) => ({ id: c.id, label: c.label, color: c.color, stageId: null, notifyAfterHours: null }))
+    ? DEFAULT_LEGACY_COLUMNS.map((c) => ({
+        id: c.id,
+        label: c.label,
+        color: legacyColors[c.id] || c.color,
+        stageId: null,
+        notifyAfterHours: null,
+      }))
     : funnelStages.map((s) => ({ id: s.id, label: s.name, color: s.color, stageId: s.id, notifyAfterHours: s.notify_after_hours }));
 
   const getColumnItems = (col: Column) => {
@@ -408,8 +459,8 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
     }
     if (urgencyFilter !== "all") {
       items = items.filter((c) => {
-        const urgency = getUrgency(getWaitHours(c.last_message_at), col.notifyAfterHours);
-        return urgencyFilter === "critical" ? urgency === "critical" : urgency !== "normal";
+        const u = getUrgency(getWaitHours(c.last_message_at), col.notifyAfterHours);
+        return urgencyFilter === "critical" ? u === "critical" : u !== "normal";
       });
     }
     return items;
@@ -456,11 +507,11 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-220px)] gap-4">
+    <div className="flex flex-col h-[calc(100vh-220px)] gap-3">
       {/* ─── Toolbar ─── */}
-      <div className="flex items-center gap-3 flex-wrap rounded-xl border border-border bg-card/50 backdrop-blur-sm px-4 py-2.5">
+      <div className="flex items-center gap-3 flex-wrap rounded-2xl border border-border/50 bg-card/80 backdrop-blur-md px-4 py-2.5 shadow-sm">
         <Select value={selectedFunnelId} onValueChange={handleFunnelChange}>
-          <SelectTrigger className="h-8 w-[200px] text-sm border-border/50 bg-background/60">
+          <SelectTrigger className="h-8 w-[200px] text-sm border-border/40 bg-background/70 rounded-lg">
             <GitBranchPlus className="h-3.5 w-3.5 mr-1.5 text-primary" />
             <SelectValue placeholder="Selecionar funil" />
           </SelectTrigger>
@@ -472,7 +523,7 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
           </SelectContent>
         </Select>
 
-        <div className="h-5 w-px bg-border/60 hidden sm:block" />
+        <div className="h-5 w-px bg-border/40 hidden sm:block" />
 
         <div className="relative flex-1 min-w-[180px] max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -480,11 +531,11 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
             placeholder="Buscar contato..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-8 h-8 text-sm border-border/50 bg-background/60"
+            className="pl-8 h-8 text-sm border-border/40 bg-background/70 rounded-lg"
           />
         </div>
 
-        <div className="h-5 w-px bg-border/60 hidden sm:block" />
+        <div className="h-5 w-px bg-border/40 hidden sm:block" />
 
         <div className="flex items-center gap-1">
           {(["all", "warning", "critical"] as const).map((filter) => (
@@ -505,8 +556,8 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
 
       {/* ─── Board ─── */}
       <div
-        className="grid flex-1 gap-3 min-h-0"
-        style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(${columns.length > 5 ? "220px" : "0"}, 1fr))` }}
+        className="grid flex-1 gap-3 min-h-0 overflow-x-auto"
+        style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(${columns.length > 5 ? "230px" : "0"}, 1fr))` }}
       >
         {columns.map((col) => {
           const items = filteredForColumn(col);
@@ -520,28 +571,46 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
               className={cn(
                 "flex flex-col rounded-2xl border transition-all duration-300 min-h-0 overflow-hidden",
                 isDragOver
-                  ? "border-primary shadow-lg shadow-primary/10 scale-[1.01]"
-                  : "border-border/60 bg-muted/30"
+                  ? "border-primary/60 shadow-xl scale-[1.01]"
+                  : "border-border/40"
               )}
+              style={{
+                background: isDragOver
+                  ? `linear-gradient(180deg, ${col.color}12 0%, transparent 40%)`
+                  : `linear-gradient(180deg, ${col.color}08 0%, transparent 30%)`,
+              }}
               onDragOver={(e) => { e.preventDefault(); setDragOverCol(col.id); }}
               onDragLeave={() => setDragOverCol(null)}
               onDrop={(e) => handleDrop(e, col)}
             >
               {/* ── Column Header ── */}
-              <div className="px-4 pt-4 pb-3 space-y-2.5">
-                <div className="flex items-center gap-2.5">
-                  <div
-                    className="h-3 w-3 rounded-md shadow-sm"
-                    style={{ backgroundColor: col.color, boxShadow: `0 0 8px ${col.color}40` }}
+              <div className="px-4 pt-4 pb-3 space-y-2">
+                {/* Top accent bar */}
+                <div
+                  className="h-1 -mx-4 -mt-4 rounded-t-2xl"
+                  style={{ backgroundColor: col.color }}
+                />
+
+                <div className="flex items-center gap-2 pt-1">
+                  <ColorPicker
+                    color={col.color}
+                    onChange={(c) =>
+                      isLegacy
+                        ? handleLegacyColorChange(col.id, c)
+                        : col.stageId && handleStageColorChange(col.stageId, c)
+                    }
                   />
                   <h3 className="text-sm font-bold tracking-tight truncate">{col.label}</h3>
-                  <span className="ml-auto text-xs font-bold text-muted-foreground bg-background/80 rounded-md px-2 py-0.5">
+                  <span
+                    className="ml-auto text-[11px] font-bold rounded-lg px-2 py-0.5"
+                    style={{ backgroundColor: `${col.color}15`, color: col.color }}
+                  >
                     {items.length}
                   </span>
                 </div>
 
                 {/* Distribution bar */}
-                <div className="h-1 rounded-full bg-border/40 overflow-hidden">
+                <div className="h-1 rounded-full bg-border/30 overflow-hidden">
                   <div
                     className="h-full rounded-full transition-all duration-500"
                     style={{ width: `${proportion}%`, backgroundColor: col.color }}
@@ -570,8 +639,8 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
               <ScrollArea className="flex-1 px-2 pb-2">
                 <div className="space-y-2">
                   {items.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/50">
-                      <Inbox className="h-8 w-8 mb-2 opacity-40" />
+                    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/40">
+                      <Inbox className="h-8 w-8 mb-2 opacity-30" />
                       <p className="text-xs font-medium">Nenhuma conversa</p>
                     </div>
                   ) : (
