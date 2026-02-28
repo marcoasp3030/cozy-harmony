@@ -11,6 +11,89 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const parseJsonSafe = async (res: Response) => {
+    const raw = await res.text();
+    try {
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return { raw };
+    }
+  };
+
+  const authModes = [
+    'bearer',
+    'raw-authorization',
+    'token-header',
+    'token-lower-header',
+    'admintoken-header',
+    'apikey-header',
+    'x-api-key',
+  ] as const;
+
+  const callUazApi = async ({
+    baseUrl,
+    endpoints,
+    token,
+    method = 'GET',
+    body,
+  }: {
+    baseUrl: string;
+    endpoints: string[];
+    token: string;
+    method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+    body?: Record<string, unknown>;
+  }) => {
+    const attempts: Array<{
+      endpoint: string;
+      method: string;
+      auth_mode: string;
+      status: number;
+      response: unknown;
+    }> = [];
+
+    for (const endpoint of endpoints) {
+      for (const mode of authModes) {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+
+        if (mode === 'bearer') headers['Authorization'] = `Bearer ${token}`;
+        if (mode === 'raw-authorization') headers['Authorization'] = token;
+        if (mode === 'token-header') headers['Token'] = token;
+        if (mode === 'token-lower-header') headers['token'] = token;
+        if (mode === 'admintoken-header') headers['admintoken'] = token;
+        if (mode === 'apikey-header') headers['apikey'] = token;
+        if (mode === 'x-api-key') headers['x-api-key'] = token;
+
+        const res = await fetch(`${baseUrl}${endpoint}`, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        const data = await parseJsonSafe(res);
+        attempts.push({ endpoint, method, auth_mode: mode, status: res.status, response: data });
+
+        if (res.ok) {
+          return {
+            ok: true,
+            status: res.status,
+            data,
+            details: { attempts },
+          };
+        }
+      }
+    }
+
+    const last = attempts[attempts.length - 1];
+    return {
+      ok: false,
+      status: last?.status ?? 500,
+      data: last?.response ?? null,
+      details: { attempts },
+    };
+  };
+
   try {
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
@@ -30,10 +113,9 @@ serve(async (req) => {
     }
 
     const userId = claimsData.claims.sub as string;
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { action, instanceName } = body;
 
-    // Get user's UazAPI settings from DB
     const { data: settings } = await supabase
       .from('settings')
       .select('value')
@@ -44,42 +126,53 @@ serve(async (req) => {
     const config = (settings?.value || {}) as { baseUrl: string; adminToken: string; instanceToken: string };
 
     if (!config.baseUrl) {
-      return new Response(JSON.stringify({ error: 'URL da UazAPI não configurada.' }), {
-        status: 400,
+      return new Response(JSON.stringify({ success: false, error: 'URL da UazAPI não configurada.' }), {
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     const baseUrl = config.baseUrl.replace(/\/+$/, '');
 
-    // Action: create-instance — uses adminToken to create a new instance and auto-save instanceToken
     if (action === 'create-instance') {
       if (!config.adminToken) {
-        return new Response(JSON.stringify({ error: 'Admin Token é obrigatório para criar instâncias.' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        return new Response(JSON.stringify({ success: false, error: 'Admin Token é obrigatório para criar instâncias.' }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
       const name = instanceName || `inst_${userId.slice(0, 8)}`;
-
-      const res = await fetch(`${baseUrl}/instance/create`, {
+      const result = await callUazApi({
+        baseUrl,
+        endpoints: ['/instance/init', '/instance/create', '/instance'],
+        token: config.adminToken,
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${config.adminToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ instanceName: name }),
+        body: { name, instanceName: name, systemName: 'api' },
       });
-      const data = await res.json();
 
-      if (!res.ok) {
-        return new Response(JSON.stringify({ error: `Erro ao criar instância: ${res.status}`, details: data }), {
-          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      if (!result.ok) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: `Falha ao criar instância (${result.status})`,
+          details: result.details,
+          response: result.data,
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
-      // Auto-save the instance token returned by the API
-      const newToken = data.token || data.instanceToken || data.hash || data.apikey || '';
+      const data = result.data as any;
+      const newToken =
+        data?.token ||
+        data?.instanceToken ||
+        data?.hash ||
+        data?.apikey ||
+        data?.instance?.token ||
+        data?.data?.token ||
+        '';
+
       if (newToken) {
         const updatedConfig = { ...config, instanceToken: newToken };
         await supabase
@@ -90,74 +183,176 @@ serve(async (req) => {
           );
       }
 
-      return new Response(JSON.stringify({ success: true, instanceToken: newToken, ...data }), {
-        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      return new Response(JSON.stringify({ success: true, instanceToken: newToken, data, details: result.details }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // For other actions, instanceToken is required
     if (!config.instanceToken) {
-      return new Response(JSON.stringify({ error: 'Instance Token não configurado. Crie uma instância primeiro.' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      return new Response(JSON.stringify({ success: false, error: 'Instance Token não configurado. Crie uma instância primeiro.' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     if (action === 'test') {
-      const res = await fetch(`${baseUrl}/instance/status`, {
-        headers: { 'Authorization': `Bearer ${config.instanceToken}` },
+      const result = await callUazApi({
+        baseUrl,
+        endpoints: ['/instance/status', '/instance/info'],
+        token: config.instanceToken,
+        method: 'GET',
       });
-      const data = await res.json();
 
-      if (!res.ok) {
-        return new Response(JSON.stringify({ connected: false, error: `API retornou status ${res.status}` }), {
-          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      if (!result.ok) {
+        return new Response(JSON.stringify({ connected: false, error: `Falha ao consultar status (${result.status})`, details: result.details, response: result.data }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
-      return new Response(JSON.stringify({ connected: true, ...data }), {
-        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-
-    } else if (action === 'qrcode') {
-      const res = await fetch(`${baseUrl}/instance/qrcode`, {
-        headers: { 'Authorization': `Bearer ${config.instanceToken}` },
-      });
-      const data = await res.json();
-
-      return new Response(JSON.stringify(data), {
-        status: res.ok ? 200 : 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-
-    } else if (action === 'connect') {
-      const res = await fetch(`${baseUrl}/instance/connect`, {
-        headers: { 'Authorization': `Bearer ${config.instanceToken}` },
-      });
-      const data = await res.json();
-
-      return new Response(JSON.stringify(data), {
-        status: res.ok ? 200 : 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-
-    } else if (action === 'disconnect') {
-      const res = await fetch(`${baseUrl}/instance/disconnect`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${config.instanceToken}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      const data = await res.json();
-
-      return new Response(JSON.stringify(data), {
-        status: res.ok ? 200 : 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-
-    } else {
-      return new Response(JSON.stringify({ error: 'Ação inválida. Use: create-instance, test, qrcode, connect, disconnect' }), {
-        status: 400,
+      return new Response(JSON.stringify({ connected: true, ...result.data, details: result.details }), {
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    if (action === 'connect') {
+      // UazAPI v2 docs: POST /instance/connect (token header)
+      const connectResult = await callUazApi({
+        baseUrl,
+        endpoints: ['/instance/connect'],
+        token: config.instanceToken,
+        method: 'POST',
+        body: {},
+      });
+
+      if (!connectResult.ok) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: `Falha ao conectar instância (${connectResult.status})`,
+          details: connectResult.details,
+          response: connectResult.data,
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const connectData = connectResult.data as any;
+      const connectQr =
+        connectData?.qrcode ||
+        connectData?.qrCode ||
+        connectData?.qr ||
+        connectData?.base64 ||
+        connectData?.data?.qrcode ||
+        connectData?.instance?.qrcode ||
+        null;
+
+      // If connect response does not carry QR, read from status endpoint
+      if (!connectQr) {
+        const statusResult = await callUazApi({
+          baseUrl,
+          endpoints: ['/instance/status'],
+          token: config.instanceToken,
+          method: 'GET',
+        });
+
+        const statusData = statusResult.data as any;
+        const statusQr =
+          statusData?.qrcode ||
+          statusData?.qrCode ||
+          statusData?.qr ||
+          statusData?.base64 ||
+          statusData?.data?.qrcode ||
+          statusData?.instance?.qrcode ||
+          statusData?.status?.qrcode ||
+          null;
+
+        return new Response(JSON.stringify({
+          success: true,
+          qrcode: statusQr,
+          connectData,
+          statusData,
+          details: {
+            connectAttempts: connectResult.details?.attempts || [],
+            statusAttempts: statusResult.details?.attempts || [],
+          },
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        qrcode: connectQr,
+        ...connectData,
+        details: connectResult.details,
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (action === 'qrcode') {
+      // UazAPI v2: QR is typically returned in /instance/status while connecting
+      const result = await callUazApi({
+        baseUrl,
+        endpoints: ['/instance/status'],
+        token: config.instanceToken,
+        method: 'GET',
+      });
+
+      if (!result.ok) {
+        return new Response(JSON.stringify({ success: false, error: `Falha ao obter QR (${result.status})`, details: result.details, response: result.data }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const data = result.data as any;
+      const qr =
+        data?.qrcode ||
+        data?.qrCode ||
+        data?.qr ||
+        data?.base64 ||
+        data?.data?.qrcode ||
+        data?.instance?.qrcode ||
+        data?.status?.qrcode ||
+        null;
+
+      return new Response(JSON.stringify({ success: true, qrcode: qr, ...data, details: result.details }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (action === 'disconnect') {
+      const result = await callUazApi({
+        baseUrl,
+        endpoints: ['/instance/disconnect', '/instance/logout'],
+        token: config.instanceToken,
+        method: 'POST',
+      });
+
+      if (!result.ok) {
+        return new Response(JSON.stringify({ success: false, error: `Falha ao desconectar (${result.status})`, details: result.details, response: result.data }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      return new Response(JSON.stringify({ success: true, ...result.data, details: result.details }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    return new Response(JSON.stringify({ error: 'Ação inválida. Use: create-instance, test, qrcode, connect, disconnect' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Erro desconhecido';
     console.error('uazapi-instance error:', message);
