@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Play, Pause, BarChart3, Loader2, RotateCw, MoreVertical, Copy, Pencil, Trash2 } from "lucide-react";
+import { Play, Pause, BarChart3, Loader2, RotateCw, MoreVertical, Copy, Pencil, Trash2, Clock, Send, CheckCheck, Eye, AlertTriangle, CalendarDays } from "lucide-react";
 import CampaignReportDialog from "./CampaignReportDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -38,13 +39,13 @@ export interface Campaign {
   scheduled_at: string | null;
 }
 
-export const statusConfig: Record<string, { label: string; className: string }> = {
-  running: { label: "Em execução", className: "bg-success/15 text-success" },
-  completed: { label: "Concluída", className: "bg-primary/15 text-primary" },
-  paused: { label: "Pausada", className: "bg-warning/15 text-warning" },
-  draft: { label: "Rascunho", className: "bg-muted text-muted-foreground" },
-  scheduled: { label: "Agendada", className: "bg-info/15 text-info" },
-  cancelled: { label: "Cancelada", className: "bg-destructive/15 text-destructive" },
+export const statusConfig: Record<string, { label: string; className: string; icon: React.ReactNode }> = {
+  running: { label: "Em execução", className: "bg-success/15 text-success border-success/30", icon: <Loader2 className="h-3 w-3 animate-spin" /> },
+  completed: { label: "Concluída", className: "bg-primary/15 text-primary border-primary/30", icon: <CheckCheck className="h-3 w-3" /> },
+  paused: { label: "Pausada", className: "bg-warning/15 text-warning border-warning/30", icon: <Pause className="h-3 w-3" /> },
+  draft: { label: "Rascunho", className: "bg-muted text-muted-foreground border-border", icon: <Pencil className="h-3 w-3" /> },
+  scheduled: { label: "Agendada", className: "bg-info/15 text-info border-info/30", icon: <Clock className="h-3 w-3" /> },
+  cancelled: { label: "Cancelada", className: "bg-destructive/15 text-destructive border-destructive/30", icon: <AlertTriangle className="h-3 w-3" /> },
 };
 
 interface CampaignCardProps {
@@ -83,44 +84,70 @@ export default function CampaignCard({ campaign, executing, onExecute, onEdit, o
 
   const canEdit = campaign.status === "draft" || campaign.status === "scheduled";
 
+  const statItems = [
+    { icon: <Send className="h-3.5 w-3.5" />, label: "Enviadas", value: s.sent, color: "text-primary" },
+    { icon: <CheckCheck className="h-3.5 w-3.5" />, label: "Entregues", value: s.delivered, color: "text-success" },
+    { icon: <Eye className="h-3.5 w-3.5" />, label: "Lidas", value: s.read, color: "text-info" },
+    { icon: <AlertTriangle className="h-3.5 w-3.5" />, label: "Falhas", value: s.failed, color: "text-destructive" },
+  ];
+
   return (
     <>
-      <Card className="transition-all duration-200 hover:shadow-md">
-        <CardContent className="p-6">
-          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-base md:text-lg font-heading font-semibold">
-                📢 {campaign.name}
-              </span>
-              <Badge variant="secondary" className={config.className}>
-                {config.label}
-              </Badge>
-              {campaign.status === "running" && (
-                <Loader2 className="h-4 w-4 animate-spin text-success" />
+      <Card className="group transition-all duration-200 hover:shadow-lg hover:border-primary/20 border">
+        <CardContent className="p-0">
+          {/* Top section */}
+          <div className="flex items-start justify-between gap-3 p-4 pb-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2.5 mb-1">
+                <h3 className="text-base font-heading font-semibold truncate">
+                  {campaign.name}
+                </h3>
+                <Badge variant="outline" className={`text-[10px] shrink-0 gap-1 ${config.className}`}>
+                  {config.icon}
+                  {config.label}
+                </Badge>
+              </div>
+              {campaign.description && (
+                <p className="text-xs text-muted-foreground line-clamp-1">{campaign.description}</p>
               )}
+              <div className="flex items-center gap-3 mt-1.5 text-[11px] text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <CalendarDays className="h-3 w-3" />
+                  {new Date(campaign.created_at).toLocaleDateString("pt-BR")}
+                </span>
+                {campaign.scheduled_at && (
+                  <span className="flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    Agendada: {new Date(campaign.scheduled_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                )}
+                {s.total > 0 && (
+                  <span className="font-medium">{s.total.toLocaleString()} contatos</span>
+                )}
+              </div>
             </div>
-            <div className="flex gap-2 flex-wrap items-center">
+
+            <div className="flex items-center gap-1.5 shrink-0">
               {(campaign.status === "draft" || campaign.status === "scheduled") && (
-                <Button size="sm" onClick={() => onExecute(campaign.id, "start")} disabled={executing}>
+                <Button size="sm" className="h-8 text-xs" onClick={() => onExecute(campaign.id, "start")} disabled={executing}>
                   {executing ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Play className="mr-1 h-3 w-3" />}
                   Iniciar
                 </Button>
               )}
               {campaign.status === "running" && (
-                <Button size="sm" variant="outline" onClick={() => onExecute(campaign.id, "pause")} disabled={executing}>
+                <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => onExecute(campaign.id, "pause")} disabled={executing}>
                   <Pause className="mr-1 h-3 w-3" />
                   Pausar
                 </Button>
               )}
               {campaign.status === "paused" && (
-                <Button size="sm" onClick={() => onExecute(campaign.id, "resume")} disabled={executing}>
+                <Button size="sm" className="h-8 text-xs" onClick={() => onExecute(campaign.id, "resume")} disabled={executing}>
                   {executing ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RotateCw className="mr-1 h-3 w-3" />}
                   Retomar
                 </Button>
               )}
-              <Button size="sm" variant="outline" onClick={() => setReportOpen(true)}>
-                <BarChart3 className="mr-1 h-3 w-3" />
-                Relatório
+              <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setReportOpen(true)}>
+                <BarChart3 className="h-3.5 w-3.5" />
               </Button>
 
               <DropdownMenu>
@@ -140,6 +167,10 @@ export default function CampaignCard({ campaign, executing, onExecute, onEdit, o
                     <Copy className="mr-2 h-4 w-4" />
                     Duplicar
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setReportOpen(true)}>
+                    <BarChart3 className="mr-2 h-4 w-4" />
+                    Relatório
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"
@@ -153,26 +184,35 @@ export default function CampaignCard({ campaign, executing, onExecute, onEdit, o
             </div>
           </div>
 
-          <div className="mt-4">
-            <div className="mb-2 flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Progresso</span>
-              <span className="font-medium">
-                {progress.toFixed(0)}% ({s.sent + s.failed}/{s.total})
-              </span>
+          {/* Progress bar */}
+          {s.total > 0 && (
+            <div className="px-4 pb-3">
+              <div className="flex items-center justify-between text-[11px] mb-1.5">
+                <span className="text-muted-foreground">Progresso</span>
+                <span className="font-semibold tabular-nums">{progress.toFixed(0)}%</span>
+              </div>
+              <Progress value={progress} className="h-1.5" />
             </div>
-            <Progress value={progress} className="h-2" />
-          </div>
+          )}
 
-          <div className="mt-4 flex items-center gap-6 text-sm flex-wrap">
-            <span>✓ Enviadas: <strong>{s.sent.toLocaleString()}</strong></span>
-            <span>✓ Entregues: <strong>{s.delivered.toLocaleString()}</strong></span>
-            <span>👁 Lidas: <strong>{s.read.toLocaleString()}</strong></span>
-            <span className="text-destructive">✗ Falhas: <strong>{s.failed.toLocaleString()}</strong></span>
-          </div>
-
-          <p className="mt-3 text-xs text-muted-foreground">
-            Criada: {new Date(campaign.created_at).toLocaleString("pt-BR")}
-          </p>
+          {/* Stats row */}
+          {s.total > 0 && (
+            <div className="border-t bg-muted/30 px-4 py-2.5 flex items-center gap-1 flex-wrap">
+              {statItems.map((item) => (
+                <Tooltip key={item.label}>
+                  <TooltipTrigger asChild>
+                    <div className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium ${item.color} bg-background border border-border/50`}>
+                      {item.icon}
+                      <span className="tabular-nums">{item.value.toLocaleString()}</span>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p>{item.label}: {item.value.toLocaleString()}</p>
+                  </TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
