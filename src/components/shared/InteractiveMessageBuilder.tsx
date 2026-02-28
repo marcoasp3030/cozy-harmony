@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Trash2, Link, Phone, ListOrdered, MousePointerClick } from "lucide-react";
+import { Plus, Trash2, Link, Phone, ListOrdered, MousePointerClick, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-export type InteractiveType = "none" | "buttons" | "list" | "cta";
+export type InteractiveType = "none" | "buttons" | "list" | "cta" | "poll";
 
 export interface ReplyButton {
   id: string;
@@ -34,6 +34,11 @@ export interface CtaButton {
   value: string;
 }
 
+export interface PollOption {
+  id: string;
+  title: string;
+}
+
 export interface InteractiveMessage {
   type: InteractiveType;
   body: string;
@@ -43,6 +48,9 @@ export interface InteractiveMessage {
   listSections?: ListSection[];
   listButtonText?: string;
   ctaButtons?: CtaButton[];
+  pollName?: string;
+  pollOptions?: PollOption[];
+  pollMultiSelect?: boolean;
 }
 
 const defaultInteractive: InteractiveMessage = {
@@ -54,6 +62,9 @@ const defaultInteractive: InteractiveMessage = {
   listSections: [{ title: "Opções", rows: [{ id: "1", title: "" }] }],
   listButtonText: "Ver opções",
   ctaButtons: [],
+  pollName: "",
+  pollOptions: [{ id: "1", title: "" }, { id: "2", title: "" }],
+  pollMultiSelect: false,
 };
 
 const genId = () => Math.random().toString(36).slice(2, 8);
@@ -65,7 +76,7 @@ interface Props {
 }
 
 export function getDefaultInteractive(): InteractiveMessage {
-  return { ...defaultInteractive, buttons: [], listSections: [{ title: "Opções", rows: [{ id: genId(), title: "" }] }], ctaButtons: [] };
+  return { ...defaultInteractive, buttons: [], listSections: [{ title: "Opções", rows: [{ id: genId(), title: "" }] }], ctaButtons: [], pollOptions: [{ id: genId(), title: "" }, { id: genId(), title: "" }] };
 }
 
 export default function InteractiveMessageBuilder({ value, onChange, compact }: Props) {
@@ -77,6 +88,7 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
     { value: "buttons", label: "Botões", icon: <MousePointerClick className="h-4 w-4" />, desc: "Até 3 botões de resposta rápida" },
     { value: "list", label: "Lista", icon: <ListOrdered className="h-4 w-4" />, desc: "Menu expansível com seções" },
     { value: "cta", label: "CTA (URL/Tel)", icon: <Link className="h-4 w-4" />, desc: "Botões com link ou telefone" },
+    { value: "poll", label: "Enquete", icon: <BarChart3 className="h-4 w-4" />, desc: "Votação com múltiplas opções" },
   ];
 
   // ─── BUTTONS ───
@@ -130,6 +142,15 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
   const updateCta = (id: string, field: keyof CtaButton, val: string) =>
     update("ctaButtons", (value.ctaButtons || []).map((b) => (b.id === id ? { ...b, [field]: val } : b)));
 
+  // ─── POLL ───
+  const addPollOption = () => {
+    if ((value.pollOptions?.length || 0) >= 12) return;
+    update("pollOptions", [...(value.pollOptions || []), { id: genId(), title: "" }]);
+  };
+  const removePollOption = (id: string) => update("pollOptions", (value.pollOptions || []).filter((o) => o.id !== id));
+  const updatePollOption = (id: string, title: string) =>
+    update("pollOptions", (value.pollOptions || []).map((o) => (o.id === id ? { ...o, title } : o)));
+
   return (
     <div className="space-y-4">
       {/* Type selector */}
@@ -146,6 +167,8 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
                   newVal.buttons = [{ id: genId(), title: "" }];
                 if (opt.value === "cta" && (!newVal.ctaButtons || newVal.ctaButtons.length === 0))
                   newVal.ctaButtons = [{ id: genId(), type: "url", title: "", value: "" }];
+                if (opt.value === "poll" && (!newVal.pollOptions || newVal.pollOptions.length < 2))
+                  newVal.pollOptions = [{ id: genId(), title: "" }, { id: genId(), title: "" }];
                 onChange(newVal);
               }}
               className={cn(
@@ -364,6 +387,60 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
             </div>
           )}
 
+          {/* ─── POLL EDITOR ─── */}
+          {value.type === "poll" && (
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Nome da enquete *</Label>
+                <Input
+                  placeholder="Qual sua preferência?"
+                  value={value.pollName || ""}
+                  onChange={(e) => update("pollName", e.target.value)}
+                  maxLength={256}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="poll-multi"
+                  checked={value.pollMultiSelect || false}
+                  onChange={(e) => update("pollMultiSelect", e.target.checked)}
+                  className="rounded border-border"
+                />
+                <Label htmlFor="poll-multi" className="text-xs cursor-pointer">Permitir múltiplas respostas</Label>
+              </div>
+              <Label>Opções (mín. 2, máx. 12)</Label>
+              {(value.pollOptions || []).map((opt, i) => (
+                <div key={opt.id} className="flex items-center gap-2">
+                  <Badge variant="outline" className="shrink-0 w-6 h-6 flex items-center justify-center p-0 text-xs">
+                    {i + 1}
+                  </Badge>
+                  <Input
+                    placeholder={`Opção ${i + 1}`}
+                    value={opt.title}
+                    onChange={(e) => updatePollOption(opt.id, e.target.value)}
+                    maxLength={100}
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-destructive shrink-0"
+                    onClick={() => removePollOption(opt.id)}
+                    disabled={(value.pollOptions?.length || 0) <= 2}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+              {(value.pollOptions?.length || 0) < 12 && (
+                <Button variant="outline" size="sm" onClick={addPollOption} className="gap-1">
+                  <Plus className="h-3 w-3" /> Adicionar opção
+                </Button>
+              )}
+            </div>
+          )}
+
           {/* ─── PREVIEW ─── */}
           <Separator />
           <div className="space-y-2">
@@ -415,6 +492,24 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
                       >
                         {btn.type === "url" ? <Link className="h-3 w-3" /> : <Phone className="h-3 w-3" />}
                         {btn.title || "..."}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {value.type === "poll" && (value.pollOptions || []).length > 0 && (
+                  <div className="border-t border-border/30">
+                    <div className="px-4 py-2">
+                      <p className="text-xs font-bold flex items-center gap-1"><BarChart3 className="h-3 w-3" /> {value.pollName || "Enquete"}</p>
+                      {value.pollMultiSelect && <p className="text-[10px] text-muted-foreground">Múltipla escolha</p>}
+                    </div>
+                    {(value.pollOptions || []).map((opt) => (
+                      <div
+                        key={opt.id}
+                        className="px-4 py-1.5 text-xs border-t border-border/20 flex items-center gap-2"
+                      >
+                        <span className="h-3 w-3 rounded-full border border-primary/50 shrink-0" />
+                        {opt.title || "..."}
                       </div>
                     ))}
                   </div>
