@@ -203,7 +203,7 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
       {value.type !== "none" && (
         <>
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="rounded-lg border border-border bg-background p-3 max-h-[52vh] overflow-y-auto pr-2">
+            <div className="rounded-lg border border-border bg-background p-3">
               <Accordion type="multiple" defaultValue={["content", "config"]} className="space-y-0">
                 {/* ─── CONTENT SECTION ─── */}
                 <AccordionItem value="content" className="border-b-0">
@@ -475,7 +475,7 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
               </Accordion>
             </div>
 
-            <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3 self-start">
+            <div className="hidden xl:block space-y-2 rounded-lg border border-border bg-muted/30 p-3 self-start">
               <Label className="text-xs">Pré-visualização</Label>
               <div className="rounded-lg bg-muted p-3">
                 <div className="inline-block max-w-full rounded-xl bg-success/15 overflow-hidden">

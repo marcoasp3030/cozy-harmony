@@ -384,7 +384,7 @@ export default function CreateCampaignDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl w-[96vw] max-h-[95vh] flex flex-col gap-0 p-0">
+      <DialogContent className="max-w-4xl w-[96vw] max-h-[98vh] flex flex-col gap-0 p-0">
         <DialogHeader className="px-6 pt-6 pb-4">
           <DialogTitle className="font-heading text-xl">{isEditing ? "Editar Campanha" : "Nova Campanha"}</DialogTitle>
         </DialogHeader>
@@ -417,7 +417,7 @@ export default function CreateCampaignDialog({
         <Separator />
 
         {/* Content */}
-        <ScrollArea className="flex-1 px-6 py-4" style={{ maxHeight: "72vh" }}>
+        <ScrollArea className="flex-1 px-6 py-4" style={{ maxHeight: "80vh" }}>
           {step === "info" && (
             <div className="space-y-4">
               <div className="space-y-2">
