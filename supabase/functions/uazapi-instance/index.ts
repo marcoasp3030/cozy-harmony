@@ -138,7 +138,7 @@ serve(async (req) => {
     if (action === 'create-instance') {
       if (!config.adminToken) return json({ success: false, error: 'Admin Token é obrigatório para criar instâncias.' });
       const name = instanceName || `inst_${userId.slice(0, 8)}`;
-      const result = await callUaz(baseUrl, '/instance/init', 'admintoken', config.adminToken, 'POST', { instanceName: name });
+      const result = await callUaz(baseUrl, '/instance/init', 'admintoken', config.adminToken, 'POST', { Name: name, instanceName: name, name: name });
       if (!result.ok) return json({ success: false, error: `Falha ao criar instância (${result.status})`, debug: result.data });
 
       const d = result.data as any;
