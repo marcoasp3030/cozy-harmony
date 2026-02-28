@@ -17,8 +17,14 @@ const extractError = (data: any, fallback: string): string => {
       ? data.details
       : JSON.stringify(data.details, null, 2)
     : "";
+  const debug = data.debug
+    ? typeof data.debug === "string"
+      ? data.debug
+      : JSON.stringify(data.debug, null, 2)
+    : "";
   const mainError = data.error || data.message || "";
-  return detail ? `${mainError}\n\nDetalhes: ${detail}` : mainError || fallback;
+  const extra = detail || debug;
+  return extra ? `${mainError}\n\nDetalhes: ${extra}` : mainError || fallback;
 };
 
 const SettingsPage = () => {
@@ -26,6 +32,7 @@ const SettingsPage = () => {
   const [baseUrl, setBaseUrl] = useState("");
   const [adminToken, setAdminToken] = useState("");
   const [instanceToken, setInstanceToken] = useState("");
+  const [instanceName, setInstanceName] = useState("");
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "connected" | "error">("idle");
@@ -46,10 +53,11 @@ const SettingsPage = () => {
         .single();
 
       if (data?.value) {
-        const config = data.value as { baseUrl: string; adminToken: string; instanceToken: string };
+        const config = data.value as { baseUrl: string; adminToken: string; instanceToken: string; instanceName?: string };
         setBaseUrl(config.baseUrl || "");
         setAdminToken(config.adminToken || "");
         setInstanceToken(config.instanceToken || "");
+        setInstanceName(config.instanceName || "");
       }
     };
     load();
@@ -59,7 +67,12 @@ const SettingsPage = () => {
     if (!user) return;
     setSaving(true);
     try {
-      const config = { baseUrl: baseUrl.trim(), adminToken: adminToken.trim(), instanceToken: instanceToken.trim() };
+      const config = {
+        baseUrl: baseUrl.trim(),
+        adminToken: adminToken.trim(),
+        instanceToken: instanceToken.trim(),
+        instanceName: instanceName.trim(),
+      };
 
       const { error } = await supabase
         .from("settings")
@@ -167,11 +180,12 @@ const SettingsPage = () => {
     setCreatingInstance(true);
     try {
       const { data, error } = await supabase.functions.invoke("uazapi-instance", {
-        body: { action: "create-instance" },
+        body: { action: "create-instance", instanceName: instanceName.trim() || undefined },
       });
       if (error) throw error;
       if (data.instanceToken) {
         setInstanceToken(data.instanceToken);
+        if (data.instanceName) setInstanceName(data.instanceName);
         toast.success("Instância criada! Token preenchido automaticamente.");
       } else if (data.error) {
         toast.error(extractError(data, "Erro ao criar instância"), { duration: 8000 });
@@ -226,6 +240,15 @@ const SettingsPage = () => {
                   value={adminToken}
                   onChange={(e) => setAdminToken(e.target.value)}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label>Nome da Instância</Label>
+                <Input
+                  placeholder="Nome para identificar a instância (ex: atendimento)"
+                  value={instanceName}
+                  onChange={(e) => setInstanceName(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">Usado ao criar uma nova instância. Deixe vazio para gerar automaticamente.</p>
               </div>
               <div className="space-y-2">
                 <Label>Instance Token</Label>
