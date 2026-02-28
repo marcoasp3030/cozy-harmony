@@ -240,6 +240,8 @@ serve(async (req) => {
       const messageType = campaign.message_type || 'text';
       const messageContent = campaign.message_content || '';
       const mediaUrl = campaign.media_url || '';
+      const interactive = (campaignSettings as any).interactive || null;
+      const hasInteractive = interactive && interactive.type && interactive.type !== 'none';
 
       let sent = 0;
       let failed = 0;
@@ -298,30 +300,98 @@ serve(async (req) => {
         // ── BUILD SEND BODY ──────────────────────────────────
         const cleanNumber = String(contact.phone).replace(/\D/g, '');
         const sendBody: Record<string, unknown> = { number: cleanNumber };
+        let sendEndpoint: string;
 
-        switch (messageType) {
-          case 'text':
-            sendBody.text = text;
-            break;
-          case 'image':
-          case 'video':
-            sendBody.mediaUrl = mediaUrl;
-            if (text) sendBody.caption = text;
-            break;
-          case 'audio':
-          case 'ptt':
-            sendBody.mediaUrl = mediaUrl;
-            break;
-          case 'document':
-            sendBody.mediaUrl = mediaUrl;
-            if (text) sendBody.caption = text;
-            break;
-          default:
-            sendBody.text = text;
+        if (hasInteractive && interactive.type === 'poll') {
+          // ── POLL MESSAGE ──────────────────────────────────
+          sendEndpoint = '/send/poll';
+          sendBody.name = interactive.pollName || 'Enquete';
+          sendBody.options = (interactive.pollOptions || []).map((o: any) => o.title).filter(Boolean);
+          sendBody.selectableCount = interactive.pollMultiSelect ? 0 : 1;
+        } else if (hasInteractive) {
+          // ── INTERACTIVE MESSAGE (buttons / list / cta) ────
+          sendEndpoint = '/send/interactive';
+          const interactivePayload: Record<string, unknown> = {};
+          const bodyText = interactive.body || text || '';
+
+          if (interactive.type === 'buttons') {
+            interactivePayload.type = 'button';
+            interactivePayload.body = { text: bodyText };
+            if (interactive.header) interactivePayload.header = { type: 'text', text: interactive.header };
+            if (interactive.footer) interactivePayload.footer = { text: interactive.footer };
+            interactivePayload.action = {
+              buttons: (interactive.buttons || []).slice(0, 3).map((btn: any, i: number) => ({
+                type: 'reply',
+                reply: { id: btn.id || String(i + 1), title: btn.title?.slice(0, 20) || `Opção ${i + 1}` },
+              })),
+            };
+          } else if (interactive.type === 'list') {
+            interactivePayload.type = 'list';
+            interactivePayload.body = { text: bodyText };
+            if (interactive.header) interactivePayload.header = { type: 'text', text: interactive.header };
+            if (interactive.footer) interactivePayload.footer = { text: interactive.footer };
+            interactivePayload.action = {
+              button: interactive.listButtonText || 'Ver opções',
+              sections: (interactive.listSections || []).map((section: any) => ({
+                title: section.title,
+                rows: (section.rows || []).map((row: any) => ({
+                  id: row.id,
+                  title: row.title?.slice(0, 24) || 'Item',
+                  description: row.description?.slice(0, 72) || undefined,
+                })),
+              })),
+            };
+          } else if (interactive.type === 'cta') {
+            interactivePayload.type = 'cta_url';
+            interactivePayload.body = { text: bodyText };
+            if (interactive.header) interactivePayload.header = { type: 'text', text: interactive.header };
+            if (interactive.footer) interactivePayload.footer = { text: interactive.footer };
+            interactivePayload.action = {
+              buttons: (interactive.ctaButtons || []).map((btn: any) => ({
+                type: btn.type === 'phone' ? 'phone_number' : 'url',
+                ...(btn.type === 'phone'
+                  ? { phone_number: btn.value, title: btn.title }
+                  : { url: btn.value, title: btn.title }),
+              })),
+            };
+          }
+
+          sendBody.interactive = interactivePayload;
+        } else {
+          // ── STANDARD MESSAGE (text / media) ────────────────
+          switch (messageType) {
+            case 'text':
+              sendEndpoint = `/send/text`;
+              sendBody.text = text;
+              break;
+            case 'image':
+            case 'video':
+              sendEndpoint = `/send/media`;
+              sendBody.type = messageType;
+              sendBody.file = mediaUrl;
+              if (text) sendBody.caption = text;
+              break;
+            case 'audio':
+            case 'ptt':
+              sendEndpoint = `/send/media`;
+              sendBody.type = messageType;
+              sendBody.file = mediaUrl;
+              break;
+            case 'document':
+              sendEndpoint = `/send/media`;
+              sendBody.type = 'document';
+              sendBody.file = mediaUrl;
+              if (text) sendBody.caption = text;
+              break;
+            default:
+              sendEndpoint = `/send/text`;
+              sendBody.text = text;
+          }
         }
 
         try {
-          const sendUrl = `${baseUrl}/send/${messageType}`;
+          const sendUrl = `${baseUrl}${sendEndpoint}`;
+          console.log(`Sending ${hasInteractive ? interactive.type : messageType} to ${cleanNumber} via ${sendEndpoint}`);
           const res = await fetch(sendUrl, {
             method: 'POST',
             headers: {
