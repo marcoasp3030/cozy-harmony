@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Plus, Trash2, Star, Loader2, QrCode, Wifi, WifiOff,
   CheckCircle2, RefreshCw, Smartphone, Clock, Unplug, Pencil,
@@ -44,6 +44,42 @@ const InstanceCard = ({ instance, onUpdate, onSetDefault, onDelete, onRename }: 
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(instance.name);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Poll status every 5s while QR is visible
+  useEffect(() => {
+    if (!qrCode) {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      return;
+    }
+    pollingRef.current = setInterval(async () => {
+      try {
+        const { data } = await supabase.functions.invoke("uazapi-instance", {
+          body: { action: "test", instanceId: instance.id },
+        });
+        if (data?.connected) {
+          setConnectionStatus("connected");
+          const phone = data.phone || data.instance?.user?.id?.replace("@s.whatsapp.net", "") || undefined;
+          const name = data.name || data.instance?.user?.name || data.pushname || undefined;
+          setConnectionInfo({ phone, name });
+          setQrCode(null);
+          setLastChecked(new Date());
+          await supabase.from("whatsapp_instances").update({ status: "connected", phone: phone || null, device_name: name || null } as any).eq("id", instance.id);
+          onUpdate();
+          toast.success("WhatsApp conectado com sucesso!");
+        }
+      } catch {}
+    }, 5000);
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [qrCode, instance.id, onUpdate]);
 
   const checkStatus = async () => {
     setChecking(true);
