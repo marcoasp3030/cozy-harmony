@@ -205,7 +205,7 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
         <>
           <div className="space-y-4">
             <div className="rounded-lg border border-border bg-background p-3">
-              <ScrollArea className="h-[56vh] pr-3">
+              <ScrollArea className="h-[56vh] pr-3 [&>[data-radix-scroll-area-viewport]]:!overflow-y-scroll">
                 <Accordion type="multiple" defaultValue={["content", "config"]} className="space-y-0">
                   {/* ─── CONTENT SECTION ─── */}
                   <AccordionItem value="content" className="border-b-0">
