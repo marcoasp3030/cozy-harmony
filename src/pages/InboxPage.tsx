@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Search, Send, Phone, MoreVertical, Kanban, List, StickyNote, LayoutTemplate, Slash, ArrowLeft, Brain, Loader2, Sparkles, FileText as SummarizeIcon } from "lucide-react";
+import { MediaUploader, AttachmentPreview, uploadMediaFile } from "@/components/inbox/MediaUploader";
+import type { MediaAttachment } from "@/components/inbox/MediaUploader";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -90,6 +92,8 @@ const InboxPage = () => {
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiProvider, setAiProvider] = useState<string | null>(null);
+  const [mediaAttachment, setMediaAttachment] = useState<MediaAttachment | null>(null);
+  const [mediaUploading, setMediaUploading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -245,10 +249,10 @@ const InboxPage = () => {
 
   // Send message or internal note
   const handleSend = async () => {
-    if (!newMessage.trim() || !contact || sending) return;
+    if ((!newMessage.trim() && !mediaAttachment) || !contact || sending) return;
 
     if (isNoteMode) {
-      // Save as internal note
+      if (!newMessage.trim()) return;
       setSending(true);
       try {
         await supabase.from("messages").insert({
@@ -271,9 +275,39 @@ const InboxPage = () => {
 
     setSending(true);
     try {
-      const { data, error } = await supabase.functions.invoke("uazapi-send", {
-        body: { type: "text", number: contact.phone, text: newMessage.trim() },
-      });
+      let mediaUrl: string | null = null;
+      let msgType = "text";
+
+      // Upload media if attached
+      if (mediaAttachment) {
+        setMediaUploading(true);
+        try {
+          mediaUrl = await uploadMediaFile(mediaAttachment.file);
+          msgType = mediaAttachment.type;
+        } catch (err: any) {
+          toast.error(err.message || "Erro ao fazer upload");
+          setSending(false);
+          setMediaUploading(false);
+          return;
+        }
+        setMediaUploading(false);
+      }
+
+      // Send via UazAPI
+      const sendBody: Record<string, any> = {
+        type: msgType,
+        number: contact.phone,
+      };
+
+      if (msgType === "text") {
+        sendBody.text = newMessage.trim();
+      } else {
+        sendBody.mediaUrl = mediaUrl;
+        if (newMessage.trim()) sendBody.caption = newMessage.trim();
+        if (msgType === "document") sendBody.filename = mediaAttachment?.file.name;
+      }
+
+      const { data, error } = await supabase.functions.invoke("uazapi-send", { body: sendBody });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
@@ -281,13 +315,15 @@ const InboxPage = () => {
       await supabase.from("messages").insert({
         contact_id: contact.id,
         direction: "outbound",
-        type: "text",
-        content: newMessage.trim(),
+        type: msgType,
+        content: msgType === "text" ? newMessage.trim() : (newMessage.trim() || mediaAttachment?.file.name || null),
+        media_url: mediaUrl,
         status: "sent",
         external_id: externalId,
       });
       await supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", selectedConvId);
       setNewMessage("");
+      setMediaAttachment(null);
     } catch (err: any) {
       toast.error("Erro ao enviar: " + (err.message || "Tente novamente"));
     } finally {
@@ -613,8 +649,21 @@ const InboxPage = () => {
                     </Button>
                   </div>
                 )}
+                {mediaAttachment && (
+                  <AttachmentPreview
+                    attachment={mediaAttachment}
+                    onRemove={() => setMediaAttachment(null)}
+                    uploading={mediaUploading}
+                  />
+                )}
                 <div className="flex items-end gap-2">
                   <div className="flex gap-0.5">
+                    <MediaUploader
+                      attachment={mediaAttachment}
+                      onAttach={setMediaAttachment}
+                      onRemove={() => setMediaAttachment(null)}
+                      disabled={sending || isNoteMode}
+                    />
                     <Popover open={templateOpen} onOpenChange={setTemplateOpen}>
                       <PopoverTrigger asChild>
                         <Button variant="ghost" size="icon" className="shrink-0 h-9 w-9" title="Templates">
@@ -686,7 +735,7 @@ const InboxPage = () => {
                   </div>
                   <Textarea
                     ref={textareaRef}
-                    placeholder={isNoteMode ? "Escreva uma nota interna..." : "Digite / para atalhos ou sua mensagem..."}
+                    placeholder={isNoteMode ? "Escreva uma nota interna..." : mediaAttachment ? "Legenda (opcional)..." : "Digite / para atalhos ou sua mensagem..."}
                     value={newMessage}
                     onChange={(e) => handleMessageChange(e.target.value)}
                     onKeyDown={handleKeyDown}
@@ -700,13 +749,13 @@ const InboxPage = () => {
                     size="icon"
                     className={cn("shrink-0", isNoteMode && "bg-warning hover:bg-warning/90")}
                     onClick={handleSend}
-                    disabled={!newMessage.trim() || sending}
+                    disabled={(!newMessage.trim() && !mediaAttachment) || sending}
                   >
                     <Send className="h-4 w-4" />
                   </Button>
                 </div>
                 <p className="text-[10px] text-muted-foreground mt-1.5 px-1">
-                  Digite <kbd className="rounded bg-muted px-1 font-mono">/</kbd> para atalhos • <kbd className="rounded bg-muted px-1 font-mono">Enter</kbd> para enviar{aiProvider && " • ✨ IA disponível"}
+                  <kbd className="rounded bg-muted px-1 font-mono">📎</kbd> anexar • <kbd className="rounded bg-muted px-1 font-mono">/</kbd> atalhos • <kbd className="rounded bg-muted px-1 font-mono">Enter</kbd> enviar{aiProvider && " • ✨ IA"}
                 </p>
               </div>
             </>
