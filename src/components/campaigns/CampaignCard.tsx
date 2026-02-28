@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Play, Pause, BarChart3, Loader2, RotateCw, MoreVertical, Copy, Pencil, Trash2 } from "lucide-react";
+import CampaignReportDialog from "./CampaignReportDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -56,6 +57,7 @@ interface CampaignCardProps {
 
 export default function CampaignCard({ campaign, executing, onExecute, onEdit, onDuplicate, onDeleted }: CampaignCardProps) {
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const s = (campaign.stats as CampaignStats) || { total: 0, sent: 0, delivered: 0, read: 0, failed: 0 };
@@ -115,7 +117,7 @@ export default function CampaignCard({ campaign, executing, onExecute, onEdit, o
                   Retomar
                 </Button>
               )}
-              <Button size="sm" variant="outline">
+              <Button size="sm" variant="outline" onClick={() => setReportOpen(true)}>
                 <BarChart3 className="mr-1 h-3 w-3" />
                 Relatório
               </Button>
@@ -190,6 +192,8 @@ export default function CampaignCard({ campaign, executing, onExecute, onEdit, o
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <CampaignReportDialog open={reportOpen} onOpenChange={setReportOpen} campaign={campaign} />
     </>
   );
 }
