@@ -108,6 +108,7 @@ const InboxPage = () => {
   const [templateSearch, setTemplateSearch] = useState("");
   const [templateOpen, setTemplateOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"list" | "kanban">("list");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const selectedConv = conversations.find((c) => c.id === selectedConvId);
@@ -323,6 +324,7 @@ const InboxPage = () => {
   };
 
   const filteredConversations = conversations.filter((c) => {
+    if (filterStatus !== "all" && c.status !== filterStatus) return false;
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
     return (
@@ -377,12 +379,41 @@ const InboxPage = () => {
       <div className="grid h-[calc(100vh-220px)] grid-cols-12 gap-4">
         {/* Conversation List */}
         <Card className="col-span-3 flex flex-col overflow-hidden">
-          <div className="border-b border-border p-3">
+          <div className="border-b border-border">
+            <div className="flex overflow-x-auto">
+              {[
+                { value: "all", label: "Todas" },
+                { value: "open", label: "Abertas" },
+                { value: "in_progress", label: "Atendendo" },
+                { value: "waiting", label: "Aguardando" },
+                { value: "resolved", label: "Resolvidas" },
+              ].map((s) => {
+                const count = s.value === "all"
+                  ? conversations.length
+                  : conversations.filter((c) => c.status === s.value).length;
+                return (
+                  <button
+                    key={s.value}
+                    onClick={() => setFilterStatus(s.value)}
+                    className={cn(
+                      "flex-1 px-2 py-2 text-[11px] font-medium transition-colors border-b-2 whitespace-nowrap",
+                      filterStatus === s.value
+                        ? "border-primary text-primary"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {s.label} {count > 0 && <span className="ml-0.5 opacity-60">({count})</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="border-b border-border p-2">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Buscar conversa..."
-                className="pl-9"
+                placeholder="Buscar..."
+                className="pl-8 h-8 text-sm"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
