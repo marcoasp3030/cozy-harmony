@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { CheckCheck, Check, Clock, AlertCircle, ImageIcon, FileText, Mic, Download, Play, Pause, MousePointerClick, ListOrdered, Link, Phone, SmilePlus } from "lucide-react";
+import { CheckCheck, Check, Clock, AlertCircle, ImageIcon, FileText, Mic, Download, Play, Pause, MousePointerClick, ListOrdered, Link, Phone, SmilePlus, RotateCcw } from "lucide-react";
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -151,7 +151,7 @@ const ReactionBadge = ({ emoji, isOutbound }: { emoji: string; isOutbound: boole
 );
 
 /** Renders a single chat message with rich media */
-const MessageBubble = ({ msg, onReact }: { msg: Message; onReact?: (msgId: string, emoji: string) => void }) => {
+const MessageBubble = ({ msg, onReact, onRetry }: { msg: Message; onReact?: (msgId: string, emoji: string) => void; onRetry?: (msg: Message) => void }) => {
   const isOutbound = msg.direction === "outbound";
   const isNote = msg.type === "note";
   const [hovered, setHovered] = useState(false);
@@ -301,6 +301,20 @@ const MessageBubble = ({ msg, onReact }: { msg: Message; onReact?: (msgId: strin
           <span className="text-[10px]">{formatMessageTime(msg.created_at)}</span>
           {isOutbound && statusIcon(msg.status)}
         </div>
+
+        {/* Retry button for failed messages */}
+        {isOutbound && (msg.status === "error" || msg.status === "failed") && onRetry && (
+          <button
+            onClick={() => onRetry(msg)}
+            className={cn(
+              "flex items-center gap-1 mt-1 text-[11px] font-medium rounded-md px-2 py-0.5 transition-colors",
+              "bg-destructive/10 text-destructive hover:bg-destructive/20"
+            )}
+          >
+            <RotateCcw className="h-3 w-3" />
+            Reenviar
+          </button>
+        )}
 
         {/* Reaction badge */}
         {reaction && <ReactionBadge emoji={reaction} isOutbound={isOutbound} />}
