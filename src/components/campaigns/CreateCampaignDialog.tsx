@@ -4,6 +4,7 @@ import { ptBR } from "date-fns/locale";
 import {
   CalendarIcon, ChevronLeft, ChevronRight, Users, FileText, Clock,
   CheckCircle2, Loader2, Search, X, ImageIcon, Video, FileAudio, File,
+  Shield, Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Calendar } from "@/components/ui/calendar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -62,6 +64,14 @@ interface CampaignForm {
   templateId: string | null;
   scheduleType: "now" | "scheduled";
   scheduledAt: Date | undefined;
+  // Anti-block settings
+  delayMin: number;
+  delayMax: number;
+  dailyLimit: number;
+  businessHoursOnly: boolean;
+  warmUpEnabled: boolean;
+  contentVariation: boolean;
+  maxConsecutiveFailures: number;
 }
 
 const initialForm: CampaignForm = {
@@ -75,6 +85,13 @@ const initialForm: CampaignForm = {
   templateId: null,
   scheduleType: "now",
   scheduledAt: undefined,
+  delayMin: 3000,
+  delayMax: 8000,
+  dailyLimit: 200,
+  businessHoursOnly: true,
+  warmUpEnabled: false,
+  contentVariation: true,
+  maxConsecutiveFailures: 5,
 };
 
 const messageTypeOptions = [
@@ -223,7 +240,21 @@ export default function CreateCampaignDialog({
           status: form.scheduleType === "now" ? "draft" : "scheduled",
           scheduled_at: form.scheduledAt ? form.scheduledAt.toISOString() : null,
           created_by: user.id,
-          settings: {} as any,
+          settings: {
+            delayMin: form.delayMin,
+            delayMax: form.delayMax,
+            dailyLimit: form.dailyLimit,
+            businessHoursOnly: form.businessHoursOnly,
+            warmUpEnabled: form.warmUpEnabled,
+            contentVariation: form.contentVariation,
+            maxConsecutiveFailures: form.maxConsecutiveFailures,
+            batchSize: 30,
+            batchCooldownSec: 15,
+            businessHourStart: 8,
+            businessHourEnd: 20,
+            timezoneOffset: -3,
+            warmUpDayLimit: 50,
+          } as any,
           stats: { total: totalRecipients, sent: 0, delivered: 0, read: 0, failed: 0 } as any,
         })
         .select("id")
@@ -523,104 +554,227 @@ export default function CreateCampaignDialog({
           )}
 
           {step === "schedule" && (
-            <div className="space-y-4">
-              <Label>Quando enviar?</Label>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    update("scheduleType", "now");
-                    update("scheduledAt", undefined);
-                  }}
-                  className={cn(
-                    "flex flex-col items-center gap-2 rounded-xl border-2 p-6 transition-colors",
-                    form.scheduleType === "now"
-                      ? "border-primary bg-primary/5"
-                      : "border-border hover:border-primary/50",
-                  )}
-                >
-                  <Clock className="h-8 w-8 text-primary" />
-                  <span className="font-medium">Enviar Agora</span>
-                  <span className="text-xs text-muted-foreground">
-                    A campanha será iniciada imediatamente
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => update("scheduleType", "scheduled")}
-                  className={cn(
-                    "flex flex-col items-center gap-2 rounded-xl border-2 p-6 transition-colors",
-                    form.scheduleType === "scheduled"
-                      ? "border-primary bg-primary/5"
-                      : "border-border hover:border-primary/50",
-                  )}
-                >
-                  <CalendarIcon className="h-8 w-8 text-primary" />
-                  <span className="font-medium">Agendar</span>
-                  <span className="text-xs text-muted-foreground">
-                    Escolha data e hora para envio
-                  </span>
-                </button>
+            <div className="space-y-6">
+              <div className="space-y-4">
+                <Label>Quando enviar?</Label>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      update("scheduleType", "now");
+                      update("scheduledAt", undefined);
+                    }}
+                    className={cn(
+                      "flex flex-col items-center gap-2 rounded-xl border-2 p-6 transition-colors",
+                      form.scheduleType === "now"
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/50",
+                    )}
+                  >
+                    <Clock className="h-8 w-8 text-primary" />
+                    <span className="font-medium">Enviar Agora</span>
+                    <span className="text-xs text-muted-foreground">
+                      A campanha será iniciada imediatamente
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => update("scheduleType", "scheduled")}
+                    className={cn(
+                      "flex flex-col items-center gap-2 rounded-xl border-2 p-6 transition-colors",
+                      form.scheduleType === "scheduled"
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/50",
+                    )}
+                  >
+                    <CalendarIcon className="h-8 w-8 text-primary" />
+                    <span className="font-medium">Agendar</span>
+                    <span className="text-xs text-muted-foreground">
+                      Escolha data e hora para envio
+                    </span>
+                  </button>
+                </div>
+
+                {form.scheduleType === "scheduled" && (
+                  <div className="space-y-2">
+                    <Label>Data e Hora</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal",
+                            !form.scheduledAt && "text-muted-foreground",
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {form.scheduledAt
+                            ? format(form.scheduledAt, "PPP 'às' HH:mm", { locale: ptBR })
+                            : "Selecione a data"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={form.scheduledAt}
+                          onSelect={(d) => {
+                            if (d) {
+                              const existing = form.scheduledAt;
+                              if (existing) {
+                                d.setHours(existing.getHours(), existing.getMinutes());
+                              } else {
+                                d.setHours(9, 0);
+                              }
+                              update("scheduledAt", d);
+                            }
+                          }}
+                          disabled={(date) => date < new Date()}
+                          initialFocus
+                          className="p-3 pointer-events-auto"
+                        />
+                        {form.scheduledAt && (
+                          <div className="border-t px-4 py-3">
+                            <Label className="text-xs">Horário</Label>
+                            <Input
+                              type="time"
+                              value={form.scheduledAt ? format(form.scheduledAt, "HH:mm") : "09:00"}
+                              onChange={(e) => {
+                                const [h, m] = e.target.value.split(":").map(Number);
+                                const newDate = new Date(form.scheduledAt!);
+                                newDate.setHours(h, m);
+                                update("scheduledAt", newDate);
+                              }}
+                              className="mt-1"
+                            />
+                          </div>
+                        )}
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                )}
               </div>
 
-              {form.scheduleType === "scheduled" && (
-                <div className="space-y-2">
-                  <Label>Data e Hora</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full justify-start text-left font-normal",
-                          !form.scheduledAt && "text-muted-foreground",
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {form.scheduledAt
-                          ? format(form.scheduledAt, "PPP 'às' HH:mm", { locale: ptBR })
-                          : "Selecione a data"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={form.scheduledAt}
-                        onSelect={(d) => {
-                          if (d) {
-                            // Preserve current time or set default
-                            const existing = form.scheduledAt;
-                            if (existing) {
-                              d.setHours(existing.getHours(), existing.getMinutes());
-                            } else {
-                              d.setHours(9, 0);
-                            }
-                            update("scheduledAt", d);
-                          }
-                        }}
-                        disabled={(date) => date < new Date()}
-                        initialFocus
-                        className="p-3 pointer-events-auto"
-                      />
-                      {form.scheduledAt && (
-                        <div className="border-t px-4 py-3">
-                          <Label className="text-xs">Horário</Label>
-                          <Input
-                            type="time"
-                            value={form.scheduledAt ? format(form.scheduledAt, "HH:mm") : "09:00"}
-                            onChange={(e) => {
-                              const [h, m] = e.target.value.split(":").map(Number);
-                              const newDate = new Date(form.scheduledAt!);
-                              newDate.setHours(h, m);
-                              update("scheduledAt", newDate);
-                            }}
-                            className="mt-1"
-                          />
-                        </div>
-                      )}
-                    </PopoverContent>
-                  </Popover>
+              <Separator />
+
+              {/* Anti-block settings */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Shield className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="text-sm font-medium">Proteção Anti-Bloqueio (Meta)</p>
+                    <p className="text-xs text-muted-foreground">Configurações baseadas nas boas práticas da Meta para WhatsApp</p>
+                  </div>
                 </div>
-              )}
+
+                <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
+                  {/* Business Hours */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Horário comercial apenas</p>
+                      <p className="text-xs text-muted-foreground">Enviar apenas entre 8h e 20h (BRT)</p>
+                    </div>
+                    <Switch checked={form.businessHoursOnly} onCheckedChange={(v) => update("businessHoursOnly", v)} />
+                  </div>
+
+                  <Separator />
+
+                  {/* Warm-up Mode */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Modo warm-up</p>
+                      <p className="text-xs text-muted-foreground">Limite inicial de 50/dia para números novos</p>
+                    </div>
+                    <Switch checked={form.warmUpEnabled} onCheckedChange={(v) => update("warmUpEnabled", v)} />
+                  </div>
+
+                  <Separator />
+
+                  {/* Content Variation */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Variação de conteúdo</p>
+                      <p className="text-xs text-muted-foreground">Pequenas variações invisíveis para evitar detecção de duplicatas</p>
+                    </div>
+                    <Switch checked={form.contentVariation} onCheckedChange={(v) => update("contentVariation", v)} />
+                  </div>
+
+                  <Separator />
+
+                  {/* Delay Range */}
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Intervalo entre mensagens</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs">Mínimo (seg)</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={30}
+                          value={form.delayMin / 1000}
+                          onChange={(e) => update("delayMin", Math.max(1000, Number(e.target.value) * 1000))}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Máximo (seg)</Label>
+                        <Input
+                          type="number"
+                          min={2}
+                          max={60}
+                          value={form.delayMax / 1000}
+                          onChange={(e) => update("delayMax", Math.max(2000, Number(e.target.value) * 1000))}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Delay aleatório entre cada envio (recomendado: 3-8s)</p>
+                  </div>
+
+                  <Separator />
+
+                  {/* Daily Limit */}
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Limite diário</p>
+                    <Input
+                      type="number"
+                      min={10}
+                      max={1000}
+                      value={form.dailyLimit}
+                      onChange={(e) => update("dailyLimit", Math.max(10, Number(e.target.value)))}
+                    />
+                    <p className="text-xs text-muted-foreground">Máximo de mensagens por dia (recomendado: 200)</p>
+                  </div>
+
+                  <Separator />
+
+                  {/* Max Consecutive Failures */}
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Auto-pausar após falhas</p>
+                    <Input
+                      type="number"
+                      min={2}
+                      max={20}
+                      value={form.maxConsecutiveFailures}
+                      onChange={(e) => update("maxConsecutiveFailures", Math.max(2, Number(e.target.value)))}
+                    />
+                    <p className="text-xs text-muted-foreground">Pausar campanha após N falhas consecutivas (protege seu número)</p>
+                  </div>
+                </div>
+
+                {/* Info box */}
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 flex gap-2">
+                  <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <p><strong className="text-foreground">Boas práticas Meta/WhatsApp:</strong></p>
+                    <ul className="list-disc list-inside space-y-0.5">
+                      <li>Envie apenas para contatos que optaram por receber mensagens</li>
+                      <li>Evite envios fora do horário comercial</li>
+                      <li>Comece com volumes baixos e aumente gradualmente</li>
+                      <li>Monitore a taxa de falhas — se subir, pause e investigue</li>
+                      <li>Não envie a mesma mensagem para todos — personalize com variáveis</li>
+                      <li>Mantenha uma taxa de resposta saudável — mensagens ignoradas prejudicam</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -658,6 +812,16 @@ export default function CreateCampaignDialog({
                       ? format(form.scheduledAt, "dd/MM/yyyy 'às' HH:mm")
                       : "Agendado (sem data)"}
                   </p>
+                </div>
+                <div className="px-4 py-3">
+                  <p className="text-xs text-muted-foreground">Proteção Anti-Bloqueio</p>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {form.businessHoursOnly && <Badge variant="outline" className="text-xs">Horário comercial</Badge>}
+                    {form.warmUpEnabled && <Badge variant="outline" className="text-xs">Warm-up</Badge>}
+                    {form.contentVariation && <Badge variant="outline" className="text-xs">Variação de conteúdo</Badge>}
+                    <Badge variant="outline" className="text-xs">Delay: {form.delayMin/1000}-{form.delayMax/1000}s</Badge>
+                    <Badge variant="outline" className="text-xs">Limite: {form.dailyLimit}/dia</Badge>
+                  </div>
                 </div>
               </div>
             </div>
