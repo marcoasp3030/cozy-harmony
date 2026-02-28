@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { CheckCheck, Check, Clock, AlertCircle, ImageIcon, FileText, Mic, Download, Play, Pause } from "lucide-react";
+import { CheckCheck, Check, Clock, AlertCircle, ImageIcon, FileText, Mic, Download, Play, Pause, MousePointerClick, ListOrdered, Link, Phone } from "lucide-react";
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 
@@ -192,8 +192,49 @@ const MessageBubble = ({ msg }: { msg: Message }) => {
         )}
 
         {/* Text content (skip for documents that show filename already) */}
-        {msg.content && !(msg.type === "document" && msg.media_url) && (
+        {msg.content && !(msg.type === "document" && msg.media_url) && msg.type !== "interactive" && (
           <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+        )}
+
+        {/* Interactive message rendering */}
+        {msg.type === "interactive" && msg.metadata && (
+          <div>
+            {msg.metadata.header && (
+              <p className="text-sm font-bold mb-1">{msg.metadata.header}</p>
+            )}
+            <p className="text-sm whitespace-pre-wrap">{msg.metadata.body || msg.content}</p>
+            {msg.metadata.footer && (
+              <p className="text-[11px] text-muted-foreground mt-1">{msg.metadata.footer}</p>
+            )}
+            {/* Reply buttons */}
+            {msg.metadata.buttons && msg.metadata.buttons.length > 0 && (
+              <div className={cn("mt-2 border-t", isOutbound ? "border-primary-foreground/20" : "border-border/40")}>
+                {msg.metadata.buttons.map((btn: any, i: number) => (
+                  <div key={i} className={cn("text-center py-1.5 text-xs font-medium", isOutbound ? "text-primary-foreground/80" : "text-primary", i < msg.metadata.buttons.length - 1 && (isOutbound ? "border-b border-primary-foreground/10" : "border-b border-border/30"))}>
+                    {btn.title}
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* List button */}
+            {msg.metadata.listButtonText && (
+              <div className={cn("mt-2 border-t text-center py-1.5 text-xs font-medium flex items-center justify-center gap-1", isOutbound ? "border-primary-foreground/20 text-primary-foreground/80" : "border-border/40 text-primary")}>
+                <ListOrdered className="h-3 w-3" />
+                {msg.metadata.listButtonText}
+              </div>
+            )}
+            {/* CTA buttons */}
+            {msg.metadata.ctaButtons && msg.metadata.ctaButtons.length > 0 && (
+              <div className={cn("mt-2 border-t", isOutbound ? "border-primary-foreground/20" : "border-border/40")}>
+                {msg.metadata.ctaButtons.map((btn: any, i: number) => (
+                  <div key={i} className={cn("text-center py-1.5 text-xs font-medium flex items-center justify-center gap-1", isOutbound ? "text-primary-foreground/80" : "text-primary")}>
+                    {btn.type === "url" ? <Link className="h-3 w-3" /> : <Phone className="h-3 w-3" />}
+                    {btn.title}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Timestamp + status */}
