@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { CheckCheck, Check, Clock, AlertCircle, ImageIcon, FileText, Mic, Download, Play, Pause, MousePointerClick, ListOrdered, Link, Phone, SmilePlus, RotateCcw } from "lucide-react";
+import { CheckCheck, Check, Clock, AlertCircle, ImageIcon, FileText, Mic, Download, Play, Pause, MousePointerClick, ListOrdered, Link, Phone, SmilePlus, RotateCcw, Trash2 } from "lucide-react";
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -151,11 +151,12 @@ const ReactionBadge = ({ emoji, isOutbound }: { emoji: string; isOutbound: boole
 );
 
 /** Renders a single chat message with rich media */
-const MessageBubble = ({ msg, onReact, onRetry }: { msg: Message; onReact?: (msgId: string, emoji: string) => void; onRetry?: (msg: Message) => void }) => {
+const MessageBubble = ({ msg, onReact, onRetry, onDelete }: { msg: Message; onReact?: (msgId: string, emoji: string) => void; onRetry?: (msg: Message) => void; onDelete?: (msg: Message) => void }) => {
   const isOutbound = msg.direction === "outbound";
   const isNote = msg.type === "note";
   const [hovered, setHovered] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const reaction = msg.metadata?.reaction as string | undefined;
 
   const handleReact = (emoji: string) => {
@@ -182,35 +183,76 @@ const MessageBubble = ({ msg, onReact, onRetry }: { msg: Message; onReact?: (msg
       onMouseLeave={() => { setHovered(false); }}
     >
       {/* Reaction button - shown on hover */}
-      {hovered && onReact && !isNote && (
+      {hovered && !isNote && (
         <div className={cn(
-          "absolute top-1/2 -translate-y-1/2 z-10",
+          "absolute top-1/2 -translate-y-1/2 z-10 flex items-center gap-0.5",
           isOutbound ? "left-0 -translate-x-full pr-1" : "right-0 translate-x-full pl-1"
         )}>
-          <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 rounded-full bg-card border border-border shadow-sm hover:bg-accent"
-              >
-                <SmilePlus className="h-3.5 w-3.5 text-muted-foreground" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-2" side={isOutbound ? "left" : "right"} align="center">
-              <div className="flex gap-1 flex-wrap max-w-[200px]">
-                {QUICK_EMOJIS.map((emoji) => (
-                  <button
-                    key={emoji}
-                    className="text-xl hover:scale-125 transition-transform p-1 rounded hover:bg-accent"
-                    onClick={() => handleReact(emoji)}
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-            </PopoverContent>
-          </Popover>
+          {/* Delete button for outbound messages */}
+          {isOutbound && onDelete && msg.external_id && !confirmDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 rounded-full bg-card border border-border shadow-sm hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => setConfirmDelete(true)}
+              title="Apagar mensagem"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
+          {/* Reaction button */}
+          {onReact && (
+            <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 rounded-full bg-card border border-border shadow-sm hover:bg-accent"
+                >
+                  <SmilePlus className="h-3.5 w-3.5 text-muted-foreground" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-2" side={isOutbound ? "left" : "right"} align="center">
+                <div className="flex gap-1 flex-wrap max-w-[200px]">
+                  {QUICK_EMOJIS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      className="text-xl hover:scale-125 transition-transform p-1 rounded hover:bg-accent"
+                      onClick={() => handleReact(emoji)}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+        </div>
+      )}
+
+      {/* Delete confirmation */}
+      {confirmDelete && (
+        <div className={cn(
+          "absolute top-1/2 -translate-y-1/2 z-20 flex items-center gap-1 bg-card border border-border rounded-lg shadow-lg px-2 py-1.5 animate-in fade-in zoom-in-95",
+          isOutbound ? "left-0 -translate-x-full pr-1" : "right-0 translate-x-full pl-1"
+        )}>
+          <span className="text-xs text-muted-foreground whitespace-nowrap">Apagar para todos?</span>
+          <Button
+            variant="destructive"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            onClick={() => { setConfirmDelete(false); onDelete?.(msg); }}
+          >
+            Sim
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            onClick={() => setConfirmDelete(false)}
+          >
+            Não
+          </Button>
         </div>
       )}
 
