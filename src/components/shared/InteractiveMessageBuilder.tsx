@@ -202,7 +202,7 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
 
       {value.type !== "none" && (
         <>
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="space-y-4">
             <div className="rounded-lg border border-border bg-background p-3">
               <Accordion type="multiple" defaultValue={["content", "config"]} className="space-y-0">
                 {/* ─── CONTENT SECTION ─── */}
@@ -475,80 +475,6 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
               </Accordion>
             </div>
 
-            <div className="hidden xl:block space-y-2 rounded-lg border border-border bg-muted/30 p-3 self-start">
-              <Label className="text-xs">Pré-visualização</Label>
-              <div className="rounded-lg bg-muted p-3">
-                <div className="inline-block max-w-full rounded-xl bg-success/15 overflow-hidden">
-                  {value.header && (
-                    <div className="px-4 pt-3 pb-1">
-                      <p className="text-sm font-bold">{value.header}</p>
-                    </div>
-                  )}
-                  <div className="px-4 py-2">
-                    <p className="text-sm whitespace-pre-wrap">{value.body || "..."}</p>
-                  </div>
-                  {value.footer && (
-                    <div className="px-4 pb-2">
-                      <p className="text-[11px] text-muted-foreground">{value.footer}</p>
-                    </div>
-                  )}
-
-                  {value.type === "buttons" && (value.buttons || []).length > 0 && (
-                    <div className="border-t border-border/30">
-                      {(value.buttons || []).map((btn) => (
-                        <div
-                          key={btn.id}
-                          className="text-center py-2 text-sm text-primary font-medium border-b border-border/20 last:border-0"
-                        >
-                          {btn.title || "..."}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {value.type === "list" && (
-                    <div className="border-t border-border/30">
-                      <div className="text-center py-2 text-sm text-primary font-medium flex items-center justify-center gap-1">
-                        <ListOrdered className="h-3.5 w-3.5" />
-                        {value.listButtonText || "Ver opções"}
-                      </div>
-                    </div>
-                  )}
-
-                  {value.type === "cta" && (value.ctaButtons || []).length > 0 && (
-                    <div className="border-t border-border/30">
-                      {(value.ctaButtons || []).map((btn) => (
-                        <div
-                          key={btn.id}
-                          className="text-center py-2 text-sm text-primary font-medium border-b border-border/20 last:border-0 flex items-center justify-center gap-1"
-                        >
-                          {btn.type === "url" ? <Link className="h-3 w-3" /> : <Phone className="h-3 w-3" />}
-                          {btn.title || "..."}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {value.type === "poll" && (value.pollOptions || []).length > 0 && (
-                    <div className="border-t border-border/30">
-                      <div className="px-4 py-2">
-                        <p className="text-xs font-bold flex items-center gap-1"><BarChart3 className="h-3 w-3" /> {value.pollName || "Enquete"}</p>
-                        {value.pollMultiSelect && <p className="text-[10px] text-muted-foreground">Múltipla escolha</p>}
-                      </div>
-                      {(value.pollOptions || []).map((opt) => (
-                        <div
-                          key={opt.id}
-                          className="px-4 py-1.5 text-xs border-t border-border/20 flex items-center gap-2"
-                        >
-                          <span className="h-3 w-3 rounded-full border border-primary/50 shrink-0" />
-                          {opt.title || "..."}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
           </div>
         </>
       )}
