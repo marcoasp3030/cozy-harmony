@@ -20,6 +20,59 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     );
 
+    const normalizeMsgId = (value: unknown): string => {
+      const raw = String(value || '').trim();
+      if (!raw) return '';
+      const parts = raw.split(':').filter(Boolean);
+      return parts.length > 1 ? parts[parts.length - 1] : raw;
+    };
+
+    /** Upsert a reaction into metadata.reactions array */
+    const upsertReaction = async (normalizedId: string, emoji: string, from: string) => {
+      let { data: msgs } = await supabase
+        .from('messages')
+        .select('id, metadata')
+        .eq('external_id', normalizedId)
+        .limit(1);
+
+      if (!msgs || msgs.length === 0) {
+        const fallback = await supabase
+          .from('messages')
+          .select('id, metadata')
+          .like('external_id', `%:${normalizedId}`)
+          .limit(1);
+        msgs = fallback.data || [];
+      }
+
+      if (!msgs || msgs.length === 0) {
+        console.log(`Message not found for reaction target: ${normalizedId}`);
+        return false;
+      }
+
+      const target = msgs[0];
+      const meta = (target.metadata as Record<string, unknown>) || {};
+      // Migrate legacy format
+      let reactions: { emoji: string; from: string; timestamp?: string }[] =
+        Array.isArray(meta.reactions) ? [...(meta.reactions as any[])] :
+        meta.reaction ? [{ emoji: meta.reaction as string, from: 'contact' }] : [];
+
+      if (emoji) {
+        // Remove existing reaction from same sender, then add new
+        reactions = reactions.filter((r) => r.from !== from);
+        reactions.push({ emoji, from, timestamp: new Date().toISOString() });
+      } else {
+        // Empty emoji = remove reaction from this sender
+        reactions = reactions.filter((r) => r.from !== from);
+      }
+
+      const updatedMeta = { ...meta, reactions };
+      delete updatedMeta.reaction; // clean legacy
+
+      await supabase.from('messages').update({ metadata: updatedMeta }).eq('id', target.id);
+      console.log(`Reaction ${emoji ? `"${emoji}" added` : 'removed'} by ${from} on message ${target.id}`);
+      return true;
+    };
+
     const body = await req.json();
     const eventType = body.EventType || body.event || body.type || '';
     console.log('Webhook received:', eventType, JSON.stringify(body).slice(0, 500));
@@ -35,43 +88,14 @@ serve(async (req) => {
         const reactionEmoji = reactionData.text || reactionData.emoji || reactionData.reaction || '';
         const targetKey = reactionData.key || reactionData.message || {};
         const targetMsgId = targetKey.id || targetKey.Id || reactionData.id || reactionData.targetMessageId || msg.messageid || '';
+        const isFromMe = msg.fromMe === true || msg.FromMe === true;
+        const senderPhone = String(msg.chatid || msg.sender_pn || '').replace(/@.*/, '').replace(/\D/g, '');
+        const from = isFromMe ? 'me' : (senderPhone || 'contact');
         
-        console.log(`Reaction via messages event: emoji="${reactionEmoji}", targetMsg="${targetMsgId}"`);
+        console.log(`Reaction via messages event: emoji="${reactionEmoji}", targetMsg="${targetMsgId}", from="${from}"`);
 
         if (targetMsgId) {
-          const normId = ((v: string) => {
-            const parts = v.trim().split(':').filter(Boolean);
-            return parts.length > 1 ? parts[parts.length - 1] : v.trim();
-          })(String(targetMsgId));
-
-          let { data: msgs } = await supabase
-            .from('messages')
-            .select('id, metadata')
-            .eq('external_id', normId)
-            .limit(1);
-
-          if (!msgs || msgs.length === 0) {
-            const fallback = await supabase
-              .from('messages')
-              .select('id, metadata')
-              .like('external_id', `%:${normId}`)
-              .limit(1);
-            msgs = fallback.data || [];
-          }
-
-          if (msgs && msgs.length > 0) {
-            const target = msgs[0];
-            const updatedMeta = { ...(target.metadata as Record<string, unknown> || {}) };
-            if (reactionEmoji) {
-              updatedMeta.reaction = reactionEmoji;
-            } else {
-              delete updatedMeta.reaction;
-            }
-            await supabase.from('messages').update({ metadata: updatedMeta }).eq('id', target.id);
-            console.log(`Reaction ${reactionEmoji ? 'added' : 'removed'} on message ${target.id}`);
-          } else {
-            console.log(`Message not found for reaction target: ${normId}`);
-          }
+          await upsertReaction(normalizeMsgId(targetMsgId), reactionEmoji, from);
         }
 
         return json({ success: true, type: 'reaction' });
@@ -348,50 +372,16 @@ serve(async (req) => {
       const reactionEmoji = reaction.text || reaction.emoji || reaction.reaction || '';
       const targetMsgId = reaction.id || reaction.messageId || reaction.key?.id || body.messageId || '';
       const fromMe = reaction.fromMe === true || body.fromMe === true;
+      const senderPhone = String(reaction.sender || reaction.participant || body.sender || '').replace(/@.*/, '').replace(/\D/g, '');
+      const from = fromMe ? 'me' : (senderPhone || 'contact');
 
-      console.log(`Reaction received: emoji="${reactionEmoji}", targetMsg="${targetMsgId}", fromMe=${fromMe}`);
+      console.log(`Reaction received: emoji="${reactionEmoji}", targetMsg="${targetMsgId}", from="${from}"`);
 
       if (!targetMsgId) {
         return json({ success: true, note: 'No target message ID for reaction' });
       }
 
-      const normalizeMsgId = (value: unknown): string => {
-        const raw = String(value || '').trim();
-        if (!raw) return '';
-        const parts = raw.split(':').filter(Boolean);
-        return parts.length > 1 ? parts[parts.length - 1] : raw;
-      };
-
-      const normalizedId = normalizeMsgId(targetMsgId);
-
-      // Find the message by external_id
-      let { data: msgs } = await supabase
-        .from('messages')
-        .select('id, metadata')
-        .eq('external_id', normalizedId)
-        .limit(1);
-
-      if (!msgs || msgs.length === 0) {
-        const fallback = await supabase
-          .from('messages')
-          .select('id, metadata')
-          .like('external_id', `%:${normalizedId}`)
-          .limit(1);
-        msgs = fallback.data || [];
-      }
-
-      if (msgs && msgs.length > 0) {
-        const msg = msgs[0];
-        const updatedMetadata = { ...(msg.metadata as Record<string, unknown> || {}), reaction: reactionEmoji || null };
-        // If emoji is empty, it means the reaction was removed
-        if (!reactionEmoji) delete updatedMetadata.reaction;
-
-        await supabase.from('messages').update({ metadata: updatedMetadata }).eq('id', msg.id);
-        console.log(`Reaction ${reactionEmoji ? 'added' : 'removed'} on message ${msg.id}`);
-      } else {
-        console.log(`Message not found for reaction target: ${normalizedId}`);
-      }
-
+      await upsertReaction(normalizeMsgId(targetMsgId), reactionEmoji, from);
       return json({ success: true });
     }
 

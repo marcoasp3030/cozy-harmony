@@ -142,15 +142,53 @@ const DocumentMessage = ({ url, content, isOutbound }: { url: string; content: s
   );
 };
 
-/** Emoji reaction badge */
-const ReactionBadge = ({ emoji, isOutbound }: { emoji: string; isOutbound: boolean }) => (
-  <span className={cn(
-    "absolute -bottom-3 text-sm bg-card border border-border rounded-full px-1.5 py-0.5 shadow-sm cursor-default select-none",
-    isOutbound ? "left-auto right-1" : "left-1"
-  )}>
-    {emoji}
-  </span>
-);
+/** Reaction item type */
+interface ReactionItem {
+  emoji: string;
+  from?: string;
+}
+
+/** Parse reactions from metadata — supports both legacy single `reaction` and new `reactions` array */
+const getReactions = (metadata: any): ReactionItem[] => {
+  if (!metadata) return [];
+  if (Array.isArray(metadata.reactions) && metadata.reactions.length > 0) {
+    return metadata.reactions;
+  }
+  if (metadata.reaction) {
+    return [{ emoji: metadata.reaction, from: metadata.reactionFrom || 'me' }];
+  }
+  return [];
+};
+
+/** Group reactions by emoji for display */
+const groupReactions = (reactions: ReactionItem[]): { emoji: string; count: number }[] => {
+  const map = new Map<string, number>();
+  for (const r of reactions) {
+    map.set(r.emoji, (map.get(r.emoji) || 0) + 1);
+  }
+  return Array.from(map.entries()).map(([emoji, count]) => ({ emoji, count }));
+};
+
+/** Emoji reaction badges */
+const ReactionBadges = ({ reactions, isOutbound }: { reactions: ReactionItem[]; isOutbound: boolean }) => {
+  const grouped = groupReactions(reactions);
+  if (grouped.length === 0) return null;
+  return (
+    <div className={cn(
+      "absolute -bottom-3 flex gap-0.5",
+      isOutbound ? "right-1" : "left-1"
+    )}>
+      {grouped.map(({ emoji, count }) => (
+        <span
+          key={emoji}
+          className="text-sm bg-card border border-border rounded-full px-1.5 py-0.5 shadow-sm cursor-default select-none flex items-center gap-0.5"
+        >
+          {emoji}{count > 1 && <span className="text-[10px] text-muted-foreground">{count}</span>}
+        </span>
+      ))}
+    </div>
+  );
+};
 
 /** Renders a single chat message with rich media */
 const MessageBubble = ({ msg, onReact, onRetry, onDelete }: { msg: Message; onReact?: (msgId: string, emoji: string) => void; onRetry?: (msg: Message) => void; onDelete?: (msg: Message) => void }) => {
@@ -159,7 +197,7 @@ const MessageBubble = ({ msg, onReact, onRetry, onDelete }: { msg: Message; onRe
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
-  const reaction = msg.metadata?.reaction as string | undefined;
+  const reactions = getReactions(msg.metadata);
 
   const handleReact = (emoji: string) => {
     setEmojiOpen(false);
@@ -197,7 +235,7 @@ const MessageBubble = ({ msg, onReact, onRetry, onDelete }: { msg: Message; onRe
         className={cn(
           "max-w-[75%] rounded-2xl px-3.5 py-2 relative",
           isOutbound ? "bg-primary text-primary-foreground rounded-br-md" : "bg-muted rounded-bl-md",
-          reaction && "mb-4"
+          reactions.length > 0 && "mb-4"
         )}
       >
         {/* WhatsApp-style dropdown chevron - inside the bubble, top right */}
@@ -371,8 +409,8 @@ const MessageBubble = ({ msg, onReact, onRetry, onDelete }: { msg: Message; onRe
           </button>
         )}
 
-        {/* Reaction badge */}
-        {reaction && <ReactionBadge emoji={reaction} isOutbound={isOutbound} />}
+        {/* Reaction badges */}
+        {reactions.length > 0 && <ReactionBadges reactions={reactions} isOutbound={isOutbound} />}
       </div>
     </div>
   );
