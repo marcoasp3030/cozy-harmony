@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { Wifi, WifiOff, CheckCircle2, Loader2, QrCode, Unplug, Save, Plus, Link2, ExternalLink, Copy, Check } from "lucide-react";
+import { Wifi, WifiOff, CheckCircle2, Loader2, QrCode, Unplug, Save, Plus, Link2, ExternalLink, Copy, Check, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -160,6 +161,40 @@ const WebhookConfig = () => {
               </span>
             ))}
           </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+const NotificationSoundToggle = () => {
+  const [enabled, setEnabled] = useState(() => {
+    const stored = localStorage.getItem("notification_sound_enabled");
+    return stored !== "false"; // default true
+  });
+
+  const toggle = (checked: boolean) => {
+    setEnabled(checked);
+    localStorage.setItem("notification_sound_enabled", String(checked));
+    toast.success(checked ? "Som de notificação ativado" : "Som de notificação desativado");
+  };
+
+  return (
+    <Card className="mt-4">
+      <CardHeader>
+        <CardTitle className="font-heading">Notificações</CardTitle>
+        <CardDescription>Configure alertas sonoros do sistema</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {enabled ? <Volume2 className="h-5 w-5 text-primary" /> : <VolumeX className="h-5 w-5 text-muted-foreground" />}
+            <div>
+              <Label className="text-sm font-medium">Som de notificação</Label>
+              <p className="text-xs text-muted-foreground">Tocar som ao receber novas mensagens no Inbox</p>
+            </div>
+          </div>
+          <Switch checked={enabled} onCheckedChange={toggle} />
         </div>
       </CardContent>
     </Card>
@@ -541,6 +576,8 @@ const SettingsPage = () => {
               <Button>Salvar</Button>
             </CardContent>
           </Card>
+
+          <NotificationSoundToggle />
         </TabsContent>
 
         <TabsContent value="users">

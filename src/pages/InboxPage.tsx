@@ -265,7 +265,8 @@ const InboxPage = () => {
           const msg = payload.new as Message;
           // Play sound for inbound messages
           if (msg.direction === "inbound") {
-            playNotificationSound();
+            const soundEnabled = localStorage.getItem("notification_sound_enabled") !== "false";
+            if (soundEnabled) playNotificationSound();
           }
           // If it's the current conversation, add to messages instantly
           if (selectedConv && msg.contact_id === selectedConv.contact_id) {
