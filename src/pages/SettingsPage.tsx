@@ -35,6 +35,7 @@ const SettingsPage = () => {
   const [instanceName, setInstanceName] = useState("");
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "connected" | "error">("idle");
   const [connectionInfo, setConnectionInfo] = useState<{ phone?: string; name?: string } | null>(null);
   const [qrCode, setQrCode] = useState<string | null>(null);
@@ -63,8 +64,30 @@ const SettingsPage = () => {
     load();
   }, [user]);
 
+  const markTouched = (field: string) => setTouched((p) => ({ ...p, [field]: true }));
+
+  const isValidUrl = (url: string) => {
+    try {
+      const u = new URL(url.trim());
+      return u.protocol === "https:" || u.protocol === "http:";
+    } catch {
+      return false;
+    }
+  };
+
+  const errors = {
+    baseUrl: touched.baseUrl && !baseUrl.trim() ? "URL é obrigatória" : touched.baseUrl && !isValidUrl(baseUrl) ? "URL inválida (ex: https://dominio.uazapi.com)" : "",
+    adminToken: touched.adminToken && !adminToken.trim() ? "Admin Token é obrigatório" : "",
+    instanceToken: touched.instanceToken && !instanceToken.trim() ? "Instance Token é obrigatório" : "",
+  };
+
   const saveConfig = async () => {
     if (!user) return;
+    setTouched({ baseUrl: true, adminToken: true, instanceToken: true });
+    if (!baseUrl.trim() || !isValidUrl(baseUrl)) {
+      toast.error("URL da instância inválida.");
+      return;
+    }
     setSaving(true);
     try {
       const config = {
@@ -225,21 +248,27 @@ const SettingsPage = () => {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>URL da Instância</Label>
+                <Label className={errors.baseUrl ? "text-destructive" : ""}>URL da Instância *</Label>
                 <Input
                   placeholder="https://seudominio.uazapi.com"
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
+                  onBlur={() => markTouched("baseUrl")}
+                  className={errors.baseUrl ? "border-destructive focus-visible:ring-destructive" : ""}
                 />
+                {errors.baseUrl && <p className="text-xs text-destructive">{errors.baseUrl}</p>}
               </div>
               <div className="space-y-2">
-                <Label>Admin Token</Label>
+                <Label className={errors.adminToken ? "text-destructive" : ""}>Admin Token *</Label>
                 <Input
                   type="password"
                   placeholder="Token de administrador"
                   value={adminToken}
                   onChange={(e) => setAdminToken(e.target.value)}
+                  onBlur={() => markTouched("adminToken")}
+                  className={errors.adminToken ? "border-destructive focus-visible:ring-destructive" : ""}
                 />
+                {errors.adminToken && <p className="text-xs text-destructive">{errors.adminToken}</p>}
               </div>
               <div className="space-y-2">
                 <Label>Nome da Instância</Label>
@@ -251,20 +280,25 @@ const SettingsPage = () => {
                 <p className="text-xs text-muted-foreground">Usado ao criar uma nova instância. Deixe vazio para gerar automaticamente.</p>
               </div>
               <div className="space-y-2">
-                <Label>Instance Token</Label>
+                <Label className={errors.instanceToken ? "text-destructive" : ""}>Instance Token *</Label>
                 <div className="flex gap-2">
                   <Input
                     type="password"
                     placeholder="Token da instância (ou crie automaticamente)"
                     value={instanceToken}
                     onChange={(e) => setInstanceToken(e.target.value)}
-                    className="flex-1"
+                    onBlur={() => markTouched("instanceToken")}
+                    className={`flex-1 ${errors.instanceToken ? "border-destructive focus-visible:ring-destructive" : ""}`}
                   />
                   <Button variant="outline" onClick={createInstance} disabled={creatingInstance} title="Criar instância e gerar token automaticamente">
                     {creatingInstance ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">Preencha manualmente ou clique em + para criar uma instância usando o Admin Token.</p>
+                {errors.instanceToken ? (
+                  <p className="text-xs text-destructive">{errors.instanceToken}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Preencha manualmente ou clique em + para criar uma instância usando o Admin Token.</p>
+                )}
               </div>
 
               <div className="flex flex-wrap gap-2">
