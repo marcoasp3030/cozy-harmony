@@ -40,6 +40,7 @@ import {
   Bar,
 } from "recharts";
 import { useNavigate } from "react-router-dom";
+import WhatsAppHealthPanel from "@/components/dashboard/WhatsAppHealthPanel";
 
 // ── SLA types & helpers ─────────────────────────────────────────────
 
@@ -483,6 +484,9 @@ const Dashboard = () => {
 
       {/* SLA Panel */}
       <SlaSummaryPanel />
+
+      {/* WhatsApp Health */}
+      <WhatsAppHealthPanel />
 
       {/* Charts */}
       <div className="grid gap-6 lg:grid-cols-3">
