@@ -1,0 +1,704 @@
+import { useState, useEffect, useCallback } from "react";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import {
+  CalendarIcon, ChevronLeft, ChevronRight, Users, FileText, Clock,
+  CheckCircle2, Loader2, Search, X, ImageIcon, Video, FileAudio, File,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Calendar } from "@/components/ui/calendar";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+
+type Step = "info" | "recipients" | "message" | "schedule" | "review";
+const STEPS: { key: Step; label: string; icon: React.ReactNode }[] = [
+  { key: "info", label: "Informações", icon: <FileText className="h-4 w-4" /> },
+  { key: "recipients", label: "Destinatários", icon: <Users className="h-4 w-4" /> },
+  { key: "message", label: "Mensagem", icon: <FileText className="h-4 w-4" /> },
+  { key: "schedule", label: "Agendamento", icon: <Clock className="h-4 w-4" /> },
+  { key: "review", label: "Revisão", icon: <CheckCircle2 className="h-4 w-4" /> },
+];
+
+interface Contact {
+  id: string;
+  name: string | null;
+  phone: string;
+}
+
+interface Tag {
+  id: string;
+  name: string;
+  color: string;
+}
+
+interface Template {
+  id: string;
+  name: string;
+  content: string;
+  type: string;
+  variables: string[] | null;
+}
+
+interface CampaignForm {
+  name: string;
+  description: string;
+  selectedContactIds: string[];
+  selectedTagIds: string[];
+  messageType: string;
+  messageContent: string;
+  mediaUrl: string;
+  templateId: string | null;
+  scheduleType: "now" | "scheduled";
+  scheduledAt: Date | undefined;
+}
+
+const initialForm: CampaignForm = {
+  name: "",
+  description: "",
+  selectedContactIds: [],
+  selectedTagIds: [],
+  messageType: "text",
+  messageContent: "",
+  mediaUrl: "",
+  templateId: null,
+  scheduleType: "now",
+  scheduledAt: undefined,
+};
+
+const messageTypeOptions = [
+  { value: "text", label: "Texto", icon: <FileText className="h-4 w-4" /> },
+  { value: "image", label: "Imagem", icon: <ImageIcon className="h-4 w-4" /> },
+  { value: "video", label: "Vídeo", icon: <Video className="h-4 w-4" /> },
+  { value: "audio", label: "Áudio", icon: <FileAudio className="h-4 w-4" /> },
+  { value: "document", label: "Documento", icon: <File className="h-4 w-4" /> },
+];
+
+export default function CreateCampaignDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreated?: () => void;
+}) {
+  const { user } = useAuth();
+  const [step, setStep] = useState<Step>("info");
+  const [form, setForm] = useState<CampaignForm>(initialForm);
+  const [saving, setSaving] = useState(false);
+
+  // Data
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [contactSearch, setContactSearch] = useState("");
+  const [loadingData, setLoadingData] = useState(false);
+
+  const stepIndex = STEPS.findIndex((s) => s.key === step);
+
+  // Load data on open
+  useEffect(() => {
+    if (!open) return;
+    setStep("info");
+    setForm(initialForm);
+    loadData();
+  }, [open]);
+
+  const loadData = async () => {
+    setLoadingData(true);
+    const [contactsRes, tagsRes, templatesRes] = await Promise.all([
+      supabase.from("contacts").select("id, name, phone").order("name"),
+      supabase.from("tags").select("id, name, color"),
+      supabase.from("templates").select("id, name, content, type, variables"),
+    ]);
+    setContacts(contactsRes.data || []);
+    setTags(tagsRes.data || []);
+    setTemplates(templatesRes.data || []);
+    setLoadingData(false);
+  };
+
+  const update = useCallback(
+    <K extends keyof CampaignForm>(key: K, value: CampaignForm[K]) =>
+      setForm((prev) => ({ ...prev, [key]: value })),
+    [],
+  );
+
+  const toggleContact = (id: string) => {
+    update(
+      "selectedContactIds",
+      form.selectedContactIds.includes(id)
+        ? form.selectedContactIds.filter((c) => c !== id)
+        : [...form.selectedContactIds, id],
+    );
+  };
+
+  const toggleTag = (id: string) => {
+    update(
+      "selectedTagIds",
+      form.selectedTagIds.includes(id)
+        ? form.selectedTagIds.filter((t) => t !== id)
+        : [...form.selectedTagIds, id],
+    );
+  };
+
+  const selectAll = () => {
+    update("selectedContactIds", filteredContacts.map((c) => c.id));
+  };
+
+  const deselectAll = () => {
+    update("selectedContactIds", []);
+  };
+
+  const applyTemplate = (templateId: string) => {
+    const tpl = templates.find((t) => t.id === templateId);
+    if (tpl) {
+      update("templateId", templateId);
+      update("messageContent", tpl.content);
+      update("messageType", tpl.type);
+    }
+  };
+
+  const filteredContacts = contacts.filter((c) => {
+    const q = contactSearch.toLowerCase();
+    return (
+      !q ||
+      (c.name?.toLowerCase().includes(q)) ||
+      c.phone.includes(q)
+    );
+  });
+
+  // Validation
+  const canGoNext = (): boolean => {
+    switch (step) {
+      case "info":
+        return form.name.trim().length > 0;
+      case "recipients":
+        return form.selectedContactIds.length > 0 || form.selectedTagIds.length > 0;
+      case "message":
+        return form.messageContent.trim().length > 0;
+      case "schedule":
+        return form.scheduleType === "now" || !!form.scheduledAt;
+      default:
+        return true;
+    }
+  };
+
+  const goNext = () => {
+    const idx = stepIndex;
+    if (idx < STEPS.length - 1) setStep(STEPS[idx + 1].key);
+  };
+
+  const goPrev = () => {
+    const idx = stepIndex;
+    if (idx > 0) setStep(STEPS[idx - 1].key);
+  };
+
+  const totalRecipients = form.selectedContactIds.length;
+
+  const handleCreate = async () => {
+    if (!user) return;
+    setSaving(true);
+    try {
+      // 1. Insert campaign
+      const { data: campaign, error: campErr } = await supabase
+        .from("campaigns")
+        .insert({
+          name: form.name.trim(),
+          description: form.description.trim() || null,
+          message_type: form.messageType,
+          message_content: form.messageContent.trim(),
+          media_url: form.mediaUrl.trim() || null,
+          status: form.scheduleType === "now" ? "draft" : "scheduled",
+          scheduled_at: form.scheduledAt ? form.scheduledAt.toISOString() : null,
+          created_by: user.id,
+          settings: {} as any,
+          stats: { total: totalRecipients, sent: 0, delivered: 0, read: 0, failed: 0 } as any,
+        })
+        .select("id")
+        .single();
+
+      if (campErr) throw campErr;
+
+      // 2. Insert campaign contacts
+      // Get contacts: direct + from tags
+      let allContactIds = new Set(form.selectedContactIds);
+
+      if (form.selectedTagIds.length > 0) {
+        const { data: tagContacts } = await supabase
+          .from("contact_tags")
+          .select("contact_id")
+          .in("tag_id", form.selectedTagIds);
+        tagContacts?.forEach((tc) => {
+          if (tc.contact_id) allContactIds.add(tc.contact_id);
+        });
+      }
+
+      // Fetch phones for all contacts
+      const { data: contactPhones } = await supabase
+        .from("contacts")
+        .select("id, phone")
+        .in("id", Array.from(allContactIds));
+
+      if (contactPhones && contactPhones.length > 0) {
+        const rows = contactPhones.map((c) => ({
+          campaign_id: campaign!.id,
+          contact_id: c.id,
+          phone: c.phone,
+          status: "pending",
+        }));
+
+        const { error: ccErr } = await supabase
+          .from("campaign_contacts")
+          .insert(rows);
+
+        if (ccErr) throw ccErr;
+
+        // Update stats total
+        await supabase
+          .from("campaigns")
+          .update({ stats: { total: contactPhones.length, sent: 0, delivered: 0, read: 0, failed: 0 } as any })
+          .eq("id", campaign!.id);
+      }
+
+      toast.success("Campanha criada com sucesso!");
+      onOpenChange(false);
+      onCreated?.();
+    } catch (err: any) {
+      toast.error("Erro ao criar campanha: " + (err.message || "Tente novamente"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col gap-0 p-0">
+        <DialogHeader className="px-6 pt-6 pb-4">
+          <DialogTitle className="font-heading text-xl">Nova Campanha</DialogTitle>
+        </DialogHeader>
+
+        {/* Stepper */}
+        <div className="flex items-center gap-1 px-6 pb-4">
+          {STEPS.map((s, i) => (
+            <div key={s.key} className="flex items-center gap-1 flex-1">
+              <button
+                onClick={() => i <= stepIndex && setStep(s.key)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+                  step === s.key
+                    ? "bg-primary text-primary-foreground"
+                    : i < stepIndex
+                    ? "bg-primary/15 text-primary cursor-pointer"
+                    : "bg-muted text-muted-foreground",
+                )}
+              >
+                {s.icon}
+                <span className="hidden sm:inline">{s.label}</span>
+              </button>
+              {i < STEPS.length - 1 && (
+                <div className={cn("h-0.5 flex-1 rounded", i < stepIndex ? "bg-primary/30" : "bg-muted")} />
+              )}
+            </div>
+          ))}
+        </div>
+
+        <Separator />
+
+        {/* Content */}
+        <ScrollArea className="flex-1 px-6 py-4" style={{ maxHeight: "55vh" }}>
+          {step === "info" && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Nome da Campanha *</Label>
+                <Input
+                  placeholder="Ex: Promoção de Verão"
+                  value={form.name}
+                  onChange={(e) => update("name", e.target.value)}
+                  maxLength={100}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Descrição</Label>
+                <Textarea
+                  placeholder="Descreva o objetivo da campanha (opcional)"
+                  value={form.description}
+                  onChange={(e) => update("description", e.target.value)}
+                  maxLength={500}
+                  rows={3}
+                />
+              </div>
+            </div>
+          )}
+
+          {step === "recipients" && (
+            <div className="space-y-4">
+              {/* Tags */}
+              {tags.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Selecionar por Tags</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {tags.map((tag) => (
+                      <Badge
+                        key={tag.id}
+                        variant={form.selectedTagIds.includes(tag.id) ? "default" : "outline"}
+                        className="cursor-pointer transition-colors"
+                        style={
+                          form.selectedTagIds.includes(tag.id)
+                            ? { backgroundColor: tag.color, color: "#fff" }
+                            : { borderColor: tag.color, color: tag.color }
+                        }
+                        onClick={() => toggleTag(tag.id)}
+                      >
+                        {tag.name}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <Separator />
+
+              {/* Contacts */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Contatos Individuais</Label>
+                  <div className="flex gap-2 text-xs">
+                    <button onClick={selectAll} className="text-primary hover:underline">
+                      Selecionar todos
+                    </button>
+                    <span className="text-muted-foreground">|</span>
+                    <button onClick={deselectAll} className="text-primary hover:underline">
+                      Limpar
+                    </button>
+                  </div>
+                </div>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar por nome ou telefone..."
+                    value={contactSearch}
+                    onChange={(e) => setContactSearch(e.target.value)}
+                    className="pl-9"
+                  />
+                  {contactSearch && (
+                    <button
+                      onClick={() => setContactSearch("")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2"
+                    >
+                      <X className="h-4 w-4 text-muted-foreground" />
+                    </button>
+                  )}
+                </div>
+                <ScrollArea className="h-48 rounded-lg border border-border">
+                  {loadingData ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : filteredContacts.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">Nenhum contato encontrado</p>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {filteredContacts.map((c) => (
+                        <label
+                          key={c.id}
+                          className="flex items-center gap-3 px-3 py-2 hover:bg-muted/50 cursor-pointer"
+                        >
+                          <Checkbox
+                            checked={form.selectedContactIds.includes(c.id)}
+                            onCheckedChange={() => toggleContact(c.id)}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate">{c.name || "Sem nome"}</p>
+                            <p className="text-xs text-muted-foreground">{c.phone}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </ScrollArea>
+                <p className="text-xs text-muted-foreground">
+                  {form.selectedContactIds.length} contato(s) selecionado(s)
+                  {form.selectedTagIds.length > 0 && ` + ${form.selectedTagIds.length} tag(s)`}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {step === "message" && (
+            <div className="space-y-4">
+              {/* Template selector */}
+              {templates.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Usar Template</Label>
+                  <Select
+                    value={form.templateId || ""}
+                    onValueChange={(v) => applyTemplate(v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione um template (opcional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {templates.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label>Tipo de Mensagem *</Label>
+                <div className="flex gap-2">
+                  {messageTypeOptions.map((opt) => (
+                    <Button
+                      key={opt.value}
+                      type="button"
+                      variant={form.messageType === opt.value ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => update("messageType", opt.value)}
+                      className="gap-1.5"
+                    >
+                      {opt.icon}
+                      {opt.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Conteúdo da Mensagem *</Label>
+                <Textarea
+                  placeholder="Digite sua mensagem... Use {{variavel}} para personalização"
+                  value={form.messageContent}
+                  onChange={(e) => update("messageContent", e.target.value)}
+                  maxLength={4096}
+                  rows={5}
+                  className="font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {form.messageContent.length}/4096 caracteres
+                </p>
+              </div>
+
+              {form.messageType !== "text" && (
+                <div className="space-y-2">
+                  <Label>URL da Mídia</Label>
+                  <Input
+                    placeholder="https://exemplo.com/imagem.jpg"
+                    value={form.mediaUrl}
+                    onChange={(e) => update("mediaUrl", e.target.value)}
+                  />
+                </div>
+              )}
+
+              {/* Preview */}
+              {form.messageContent && (
+                <div className="space-y-2">
+                  <Label>Pré-visualização</Label>
+                  <div className="rounded-lg bg-muted p-4">
+                    <div className="inline-block max-w-[80%] rounded-xl bg-success/15 px-4 py-2.5">
+                      <p className="text-sm whitespace-pre-wrap">{form.messageContent}</p>
+                      <p className="mt-1 text-right text-[10px] text-muted-foreground">
+                        {format(new Date(), "HH:mm")}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {step === "schedule" && (
+            <div className="space-y-4">
+              <Label>Quando enviar?</Label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    update("scheduleType", "now");
+                    update("scheduledAt", undefined);
+                  }}
+                  className={cn(
+                    "flex flex-col items-center gap-2 rounded-xl border-2 p-6 transition-colors",
+                    form.scheduleType === "now"
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:border-primary/50",
+                  )}
+                >
+                  <Clock className="h-8 w-8 text-primary" />
+                  <span className="font-medium">Enviar Agora</span>
+                  <span className="text-xs text-muted-foreground">
+                    A campanha será iniciada imediatamente
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => update("scheduleType", "scheduled")}
+                  className={cn(
+                    "flex flex-col items-center gap-2 rounded-xl border-2 p-6 transition-colors",
+                    form.scheduleType === "scheduled"
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:border-primary/50",
+                  )}
+                >
+                  <CalendarIcon className="h-8 w-8 text-primary" />
+                  <span className="font-medium">Agendar</span>
+                  <span className="text-xs text-muted-foreground">
+                    Escolha data e hora para envio
+                  </span>
+                </button>
+              </div>
+
+              {form.scheduleType === "scheduled" && (
+                <div className="space-y-2">
+                  <Label>Data e Hora</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start text-left font-normal",
+                          !form.scheduledAt && "text-muted-foreground",
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {form.scheduledAt
+                          ? format(form.scheduledAt, "PPP 'às' HH:mm", { locale: ptBR })
+                          : "Selecione a data"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={form.scheduledAt}
+                        onSelect={(d) => {
+                          if (d) {
+                            // Preserve current time or set default
+                            const existing = form.scheduledAt;
+                            if (existing) {
+                              d.setHours(existing.getHours(), existing.getMinutes());
+                            } else {
+                              d.setHours(9, 0);
+                            }
+                            update("scheduledAt", d);
+                          }
+                        }}
+                        disabled={(date) => date < new Date()}
+                        initialFocus
+                        className="p-3 pointer-events-auto"
+                      />
+                      {form.scheduledAt && (
+                        <div className="border-t px-4 py-3">
+                          <Label className="text-xs">Horário</Label>
+                          <Input
+                            type="time"
+                            value={form.scheduledAt ? format(form.scheduledAt, "HH:mm") : "09:00"}
+                            onChange={(e) => {
+                              const [h, m] = e.target.value.split(":").map(Number);
+                              const newDate = new Date(form.scheduledAt!);
+                              newDate.setHours(h, m);
+                              update("scheduledAt", newDate);
+                            }}
+                            className="mt-1"
+                          />
+                        </div>
+                      )}
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              )}
+            </div>
+          )}
+
+          {step === "review" && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-border divide-y divide-border">
+                <div className="px-4 py-3">
+                  <p className="text-xs text-muted-foreground">Nome</p>
+                  <p className="font-medium">{form.name}</p>
+                  {form.description && (
+                    <p className="text-sm text-muted-foreground mt-1">{form.description}</p>
+                  )}
+                </div>
+                <div className="px-4 py-3">
+                  <p className="text-xs text-muted-foreground">Destinatários</p>
+                  <p className="font-medium">
+                    {form.selectedContactIds.length} contato(s)
+                    {form.selectedTagIds.length > 0 && ` + ${form.selectedTagIds.length} tag(s)`}
+                  </p>
+                </div>
+                <div className="px-4 py-3">
+                  <p className="text-xs text-muted-foreground">Tipo</p>
+                  <p className="font-medium capitalize">{form.messageType}</p>
+                </div>
+                <div className="px-4 py-3">
+                  <p className="text-xs text-muted-foreground">Mensagem</p>
+                  <p className="text-sm whitespace-pre-wrap mt-1 line-clamp-4">{form.messageContent}</p>
+                </div>
+                <div className="px-4 py-3">
+                  <p className="text-xs text-muted-foreground">Envio</p>
+                  <p className="font-medium">
+                    {form.scheduleType === "now"
+                      ? "Imediato"
+                      : form.scheduledAt
+                      ? format(form.scheduledAt, "dd/MM/yyyy 'às' HH:mm")
+                      : "Agendado (sem data)"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </ScrollArea>
+
+        <Separator />
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-6 py-4">
+          <Button
+            variant="ghost"
+            onClick={stepIndex === 0 ? () => onOpenChange(false) : goPrev}
+          >
+            {stepIndex === 0 ? (
+              "Cancelar"
+            ) : (
+              <>
+                <ChevronLeft className="mr-1 h-4 w-4" />
+                Voltar
+              </>
+            )}
+          </Button>
+
+          {step === "review" ? (
+            <Button onClick={handleCreate} disabled={saving}>
+              {saving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+              )}
+              {form.scheduleType === "now" ? "Criar Campanha" : "Agendar Campanha"}
+            </Button>
+          ) : (
+            <Button onClick={goNext} disabled={!canGoNext()}>
+              Próximo
+              <ChevronRight className="ml-1 h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
