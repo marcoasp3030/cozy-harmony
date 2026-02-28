@@ -188,12 +188,13 @@ serve(async (req) => {
         return json({ success: false, error: 'webhookUrl é obrigatório.' });
       }
       const webhookEvents = events || [
-        'messages', 'messages.update', 'connection', 'contacts',
+        'messages', 'messages_update', 'connection', 'contacts',
         'presence', 'groups', 'chats', 'labels', 'call',
       ];
-      const result = await callUaz(baseUrl, '/webhook/set', 'token', tok, 'POST', {
+      const result = await callUaz(baseUrl, '/webhook', 'token', tok, 'POST', {
         url: webhookUrl,
         events: webhookEvents,
+        excludeMessages: ['wasSentByApi'],
       });
       if (!result.ok) {
         return json({
@@ -207,7 +208,7 @@ serve(async (req) => {
 
     // ── GET WEBHOOK ─────────────────────────────────────────
     if (action === 'get-webhook') {
-      const result = await callUaz(baseUrl, '/webhook/get', 'token', tok, 'GET');
+      const result = await callUaz(baseUrl, '/webhook', 'token', tok, 'GET');
       return json({ success: result.ok, ...result.data });
     }
 

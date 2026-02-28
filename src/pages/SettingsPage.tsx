@@ -41,8 +41,11 @@ const WebhookConfig = () => {
         const { data, error } = await supabase.functions.invoke("uazapi-instance", {
           body: { action: "get-webhook" },
         });
-        if (!error && data?.url) {
-          setCurrentWebhook(data.url);
+        if (!error && data) {
+          // Response is an array of webhooks or a single object
+          const webhooks = Array.isArray(data) ? data : (data.success === false ? [] : [data]);
+          const found = webhooks.find((w: any) => w.url);
+          if (found) setCurrentWebhook(found.url);
         }
       } catch {}
       setLoadingStatus(false);
