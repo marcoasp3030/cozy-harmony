@@ -156,6 +156,18 @@ serve(async (req) => {
       return json({ success: true, instanceToken: newToken, instanceName: createdName, data: d });
     }
 
+    // Reload instance token from DB if empty (may have been updated by create-instance)
+    if (!config.instanceToken && instanceId) {
+      const { data: freshInst } = await supabase
+        .from('whatsapp_instances')
+        .select('instance_token')
+        .eq('id', instanceId)
+        .single();
+      if (freshInst && (freshInst as any).instance_token) {
+        config.instanceToken = (freshInst as any).instance_token;
+      }
+    }
+
     if (!config.instanceToken) return json({ success: false, error: 'Instance Token não configurado.' });
     const tok = config.instanceToken;
 

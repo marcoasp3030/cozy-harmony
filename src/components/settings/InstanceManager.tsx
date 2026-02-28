@@ -77,6 +77,27 @@ const InstanceCard = ({ instance, onUpdate, onSetDefault, onDelete, onRename }: 
     setLoadingQr(true);
     setQrCode(null);
     try {
+      // If no instance token, try to create instance first
+      if (!instance.instance_token) {
+        toast.info("Criando instância na UazAPI...");
+        const { data: createData, error: createError } = await supabase.functions.invoke("uazapi-instance", {
+          body: { action: "create-instance", instanceId: instance.id, instanceName: instance.instance_name || instance.name },
+        });
+        if (createError) throw createError;
+        if (createData?.instanceToken) {
+          await supabase.from("whatsapp_instances").update({
+            instance_token: createData.instanceToken,
+            instance_name: createData.instanceName || instance.instance_name || instance.name,
+          } as any).eq("id", instance.id);
+          onUpdate();
+          toast.success("Instância criada! Gerando QR Code...");
+        } else if (createData?.error) {
+          toast.error(extractError(createData, "Erro ao criar instância"), { duration: 8000 });
+          setLoadingQr(false);
+          return;
+        }
+      }
+
       const { data, error } = await supabase.functions.invoke("uazapi-instance", {
         body: { action: "connect", instanceId: instance.id },
       });
