@@ -418,7 +418,7 @@ export default function CreateCampaignDialog({
         <Separator />
 
         {/* Content */}
-        <ScrollArea className="flex-1 px-6 py-4" style={{ maxHeight: "80vh" }}>
+        <ScrollArea className="flex-1 px-6 py-4 [&>[data-radix-scroll-area-viewport]]:!overflow-y-scroll" style={{ maxHeight: "80vh" }}>
           {step === "info" && (
             <div className="space-y-4">
               <div className="space-y-2">
