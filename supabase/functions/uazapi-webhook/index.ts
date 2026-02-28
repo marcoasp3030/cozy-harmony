@@ -95,7 +95,7 @@ serve(async (req) => {
       // Find or create conversation
       let { data: conversation } = await supabase
         .from('conversations')
-        .select('id, unread_count')
+        .select('id, unread_count, status')
         .eq('contact_id', contact.id)
         .single();
 
@@ -113,12 +113,19 @@ serve(async (req) => {
         conversation = newConv;
         console.log('Created new conversation:', conversation?.id);
       } else {
+        const updateData: Record<string, unknown> = {
+          last_message_at: new Date().toISOString(),
+          unread_count: (conversation.unread_count || 0) + 1,
+        };
+        // Reopen only if conversation was resolved
+        if (conversation.status === 'resolved') {
+          updateData.status = 'open';
+          updateData.funnel_stage_id = null;
+          console.log('Reopening resolved conversation:', conversation.id);
+        }
         await supabase
           .from('conversations')
-          .update({
-            last_message_at: new Date().toISOString(),
-            unread_count: (conversation.unread_count || 0) + 1,
-          })
+          .update(updateData)
           .eq('id', conversation.id);
       }
 
