@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   Plus, Trash2, Star, Loader2, QrCode, Wifi, WifiOff,
-  CheckCircle2, RefreshCw, Smartphone, Clock, Unplug,
+  CheckCircle2, RefreshCw, Smartphone, Clock, Unplug, Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,9 +28,10 @@ interface InstanceCardProps {
   onUpdate: () => void;
   onSetDefault: (id: string) => void;
   onDelete: (id: string) => void;
+  onRename: (id: string, name: string) => Promise<void>;
 }
 
-const InstanceCard = ({ instance, onUpdate, onSetDefault, onDelete }: InstanceCardProps) => {
+const InstanceCard = ({ instance, onUpdate, onSetDefault, onDelete, onRename }: InstanceCardProps) => {
   const [checking, setChecking] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "checking" | "connected" | "disconnected" | "error">(
     instance.status === "connected" ? "connected" : "idle"
@@ -41,6 +42,8 @@ const InstanceCard = ({ instance, onUpdate, onSetDefault, onDelete }: InstanceCa
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [loadingQr, setLoadingQr] = useState(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(instance.name);
 
   const checkStatus = async () => {
     setChecking(true);
@@ -120,8 +123,44 @@ const InstanceCard = ({ instance, onUpdate, onSetDefault, onDelete }: InstanceCa
     <Card className={`border-2 ${statusColor}`}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <CardTitle className="text-base font-heading">{instance.name}</CardTitle>
+          <div className="flex items-center gap-2 min-w-0">
+            {editing ? (
+              <div className="flex items-center gap-1">
+                <Input
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="h-7 text-sm w-40"
+                  autoFocus
+                  onKeyDown={async (e) => {
+                    if (e.key === "Enter" && editName.trim()) {
+                      await onRename(instance.id, editName.trim());
+                      setEditing(false);
+                    }
+                    if (e.key === "Escape") {
+                      setEditName(instance.name);
+                      setEditing(false);
+                    }
+                  }}
+                  onBlur={async () => {
+                    if (editName.trim() && editName.trim() !== instance.name) {
+                      await onRename(instance.id, editName.trim());
+                    } else {
+                      setEditName(instance.name);
+                    }
+                    setEditing(false);
+                  }}
+                />
+              </div>
+            ) : (
+              <CardTitle className="text-base font-heading cursor-pointer" onClick={() => setEditing(true)} title="Clique para editar">
+                {instance.name}
+              </CardTitle>
+            )}
+            {!editing && (
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditing(true)} title="Editar nome">
+                <Pencil className="h-3 w-3" />
+              </Button>
+            )}
             {instance.is_default && (
               <Badge variant="secondary" className="text-[10px] gap-1">
                 <Star className="h-3 w-3 fill-current" /> Padrão
@@ -206,7 +245,7 @@ const InstanceCard = ({ instance, onUpdate, onSetDefault, onDelete }: InstanceCa
 
 export default function InstanceManager() {
   const { user } = useAuth();
-  const { instances, loading, load, addInstance, deleteInstance, setDefault } = useWhatsAppInstances();
+  const { instances, loading, load, addInstance, updateInstance, deleteInstance, setDefault } = useWhatsAppInstances();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -360,6 +399,11 @@ export default function InstanceManager() {
               onUpdate={load}
               onSetDefault={handleSetDefault}
               onDelete={handleDelete}
+              onRename={async (id, name) => {
+                const { error } = await updateInstance(id, { name } as any);
+                if (error) toast.error("Erro ao renomear.");
+                else toast.success("Nome atualizado.");
+              }}
             />
           ))}
         </div>
