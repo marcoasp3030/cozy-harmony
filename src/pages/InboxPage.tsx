@@ -365,6 +365,34 @@ const InboxPage = () => {
     }
   };
 
+  // React to a message with emoji
+  const handleReact = async (msgId: string, emoji: string) => {
+    const msg = messages.find((m) => m.id === msgId);
+    if (!msg) return;
+
+    // Update metadata locally first
+    const updatedMetadata = { ...(msg.metadata || {}), reaction: emoji };
+    setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, metadata: updatedMetadata } : m));
+
+    // Update in DB
+    await supabase.from("messages").update({ metadata: updatedMetadata } as any).eq("id", msgId);
+
+    // Send via UazAPI if message has external_id
+    if (msg.external_id) {
+      try {
+        await supabase.functions.invoke("uazapi-reaction", {
+          body: {
+            messageExternalId: msg.external_id,
+            emoji,
+            instanceId: selectedInstanceId || defaultInstance?.id || undefined,
+          },
+        });
+      } catch (err: any) {
+        console.error("Erro ao enviar reação:", err);
+      }
+    }
+  };
+
   // Send recorded audio as PTT
   const handleSendAudio = async (audioUrl: string, durationSecs: number) => {
     if (!contact) return;
@@ -662,7 +690,7 @@ const InboxPage = () => {
                         <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">{group.date}</span>
                       </div>
                       {group.messages.map((msg) => (
-                        <MessageBubble key={msg.id} msg={msg} />
+                        <MessageBubble key={msg.id} msg={msg} onReact={handleReact} />
                       ))}
                     </div>
                   ))}

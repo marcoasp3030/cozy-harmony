@@ -1,7 +1,8 @@
 import { cn } from "@/lib/utils";
-import { CheckCheck, Check, Clock, AlertCircle, ImageIcon, FileText, Mic, Download, Play, Pause, MousePointerClick, ListOrdered, Link, Phone } from "lucide-react";
+import { CheckCheck, Check, Clock, AlertCircle, ImageIcon, FileText, Mic, Download, Play, Pause, MousePointerClick, ListOrdered, Link, Phone, SmilePlus } from "lucide-react";
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 interface Message {
   id: string;
@@ -28,6 +29,8 @@ const statusIcon = (status: string | null) => {
 
 const formatMessageTime = (dateStr: string) =>
   new Date(dateStr).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "👏", "🎉", "👎"];
 
 /** Audio player component */
 const AudioPlayer = ({ src, isOutbound }: { src: string; isOutbound: boolean }) => {
@@ -137,10 +140,28 @@ const DocumentMessage = ({ url, content, isOutbound }: { url: string; content: s
   );
 };
 
+/** Emoji reaction badge */
+const ReactionBadge = ({ emoji, isOutbound }: { emoji: string; isOutbound: boolean }) => (
+  <span className={cn(
+    "absolute -bottom-3 text-sm bg-card border border-border rounded-full px-1.5 py-0.5 shadow-sm cursor-default select-none",
+    isOutbound ? "left-auto right-1" : "left-1"
+  )}>
+    {emoji}
+  </span>
+);
+
 /** Renders a single chat message with rich media */
-const MessageBubble = ({ msg }: { msg: Message }) => {
+const MessageBubble = ({ msg, onReact }: { msg: Message; onReact?: (msgId: string, emoji: string) => void }) => {
   const isOutbound = msg.direction === "outbound";
   const isNote = msg.type === "note";
+  const [hovered, setHovered] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const reaction = msg.metadata?.reaction as string | undefined;
+
+  const handleReact = (emoji: string) => {
+    setEmojiOpen(false);
+    onReact?.(msg.id, emoji);
+  };
 
   if (isNote) {
     return (
@@ -155,11 +176,49 @@ const MessageBubble = ({ msg }: { msg: Message }) => {
   }
 
   return (
-    <div className={cn("flex mb-1", isOutbound ? "justify-end" : "justify-start")}>
+    <div
+      className={cn("flex mb-1 group relative", isOutbound ? "justify-end" : "justify-start")}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => { setHovered(false); }}
+    >
+      {/* Reaction button - shown on hover */}
+      {hovered && onReact && !isNote && (
+        <div className={cn(
+          "absolute top-1/2 -translate-y-1/2 z-10",
+          isOutbound ? "left-0 -translate-x-full pr-1" : "right-0 translate-x-full pl-1"
+        )}>
+          <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 rounded-full bg-card border border-border shadow-sm hover:bg-accent"
+              >
+                <SmilePlus className="h-3.5 w-3.5 text-muted-foreground" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-2" side={isOutbound ? "left" : "right"} align="center">
+              <div className="flex gap-1 flex-wrap max-w-[200px]">
+                {QUICK_EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    className="text-xl hover:scale-125 transition-transform p-1 rounded hover:bg-accent"
+                    onClick={() => handleReact(emoji)}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+      )}
+
       <div
         className={cn(
-          "max-w-[75%] rounded-2xl px-3.5 py-2",
-          isOutbound ? "bg-primary text-primary-foreground rounded-br-md" : "bg-muted rounded-bl-md"
+          "max-w-[75%] rounded-2xl px-3.5 py-2 relative",
+          isOutbound ? "bg-primary text-primary-foreground rounded-br-md" : "bg-muted rounded-bl-md",
+          reaction && "mb-4"
         )}
       >
         {/* Media content */}
@@ -206,7 +265,6 @@ const MessageBubble = ({ msg }: { msg: Message }) => {
             {msg.metadata.footer && (
               <p className="text-[11px] text-muted-foreground mt-1">{msg.metadata.footer}</p>
             )}
-            {/* Reply buttons */}
             {msg.metadata.buttons && msg.metadata.buttons.length > 0 && (
               <div className={cn("mt-2 border-t", isOutbound ? "border-primary-foreground/20" : "border-border/40")}>
                 {msg.metadata.buttons.map((btn: any, i: number) => (
@@ -216,14 +274,12 @@ const MessageBubble = ({ msg }: { msg: Message }) => {
                 ))}
               </div>
             )}
-            {/* List button */}
             {msg.metadata.listButtonText && (
               <div className={cn("mt-2 border-t text-center py-1.5 text-xs font-medium flex items-center justify-center gap-1", isOutbound ? "border-primary-foreground/20 text-primary-foreground/80" : "border-border/40 text-primary")}>
                 <ListOrdered className="h-3 w-3" />
                 {msg.metadata.listButtonText}
               </div>
             )}
-            {/* CTA buttons */}
             {msg.metadata.ctaButtons && msg.metadata.ctaButtons.length > 0 && (
               <div className={cn("mt-2 border-t", isOutbound ? "border-primary-foreground/20" : "border-border/40")}>
                 {msg.metadata.ctaButtons.map((btn: any, i: number) => (
@@ -245,6 +301,9 @@ const MessageBubble = ({ msg }: { msg: Message }) => {
           <span className="text-[10px]">{formatMessageTime(msg.created_at)}</span>
           {isOutbound && statusIcon(msg.status)}
         </div>
+
+        {/* Reaction badge */}
+        {reaction && <ReactionBadge emoji={reaction} isOutbound={isOutbound} />}
       </div>
     </div>
   );
