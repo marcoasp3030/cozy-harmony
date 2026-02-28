@@ -33,6 +33,11 @@ import {
   GitBranchPlus,
   Palette,
   Tag as TagIcon,
+  AlertTriangle,
+  ArrowUp,
+  ArrowRight,
+  ArrowDown,
+  Shield,
 } from "lucide-react";
 import { useState, useMemo, useEffect, useCallback } from "react";
 
@@ -68,6 +73,8 @@ interface Conversation {
   notes: string | null;
   funnel_id?: string | null;
   funnel_stage_id?: string | null;
+  priority?: string;
+  sla_hours?: number | null;
   contact?: Contact;
   lastMessage?: Message;
 }
@@ -118,6 +125,41 @@ const PRESET_COLORS = [
   "#14b8a6", "#06b6d4", "#0ea5e9",
   "#6b7280", "#78716c", "#64748b",
 ];
+
+const PRIORITIES = [
+  { value: "urgent", label: "Urgente", icon: AlertTriangle, color: "#ef4444" },
+  { value: "high", label: "Alta", icon: ArrowUp, color: "#f97316" },
+  { value: "normal", label: "Normal", icon: ArrowRight, color: "#6b7280" },
+  { value: "low", label: "Baixa", icon: ArrowDown, color: "#3b82f6" },
+] as const;
+
+const SLA_OPTIONS = [
+  { value: null, label: "Sem SLA" },
+  { value: 1, label: "1 hora" },
+  { value: 2, label: "2 horas" },
+  { value: 4, label: "4 horas" },
+  { value: 8, label: "8 horas" },
+  { value: 24, label: "24 horas" },
+  { value: 48, label: "48 horas" },
+];
+
+const getPriorityConfig = (priority: string) =>
+  PRIORITIES.find((p) => p.value === priority) || PRIORITIES[2];
+
+const getSlaStatus = (lastMessageAt: string | null, slaHours: number | null): { label: string; overdue: boolean; remaining: string } | null => {
+  if (!slaHours || !lastMessageAt) return null;
+  const elapsed = (Date.now() - new Date(lastMessageAt).getTime()) / 3600000;
+  const remaining = slaHours - elapsed;
+  const overdue = remaining <= 0;
+  let remainingLabel: string;
+  if (overdue) {
+    const abs = Math.abs(remaining);
+    remainingLabel = abs < 1 ? `${Math.round(abs * 60)}min atrás` : abs < 24 ? `${Math.round(abs)}h atrás` : `${Math.round(abs / 24)}d atrás`;
+  } else {
+    remainingLabel = remaining < 1 ? `${Math.round(remaining * 60)}min` : remaining < 24 ? `${Math.round(remaining)}h` : `${Math.round(remaining / 24)}d`;
+  }
+  return { label: overdue ? "SLA Excedido" : "SLA Restante", overdue, remaining: remainingLabel };
+};
 
 const formatTime = (dateStr: string) => {
   const d = new Date(dateStr);
@@ -221,6 +263,8 @@ const KanbanCard = ({
   onSelect,
   onMove,
   onTagsChanged,
+  onPriorityChange,
+  onSlaChange,
 }: {
   conv: Conversation;
   col: Column;
@@ -232,10 +276,15 @@ const KanbanCard = ({
   onSelect: (id: string) => void;
   onMove: (id: string, col: Column) => void;
   onTagsChanged: () => void;
+  onPriorityChange: (convId: string, priority: string) => void;
+  onSlaChange: (convId: string, slaHours: number | null) => void;
 }) => {
   const waitHours = getWaitHours(conv.last_message_at);
   const urgency = getUrgency(waitHours, col.notifyAfterHours);
   const hasUnread = (conv.unread_count ?? 0) > 0;
+  const priorityConfig = getPriorityConfig(conv.priority || "normal");
+  const PriorityIcon = priorityConfig.icon;
+  const slaStatus = getSlaStatus(conv.last_message_at, conv.sla_hours ?? null);
 
   return (
     <div
@@ -250,6 +299,7 @@ const KanbanCard = ({
         urgency === "critical" && "border-l-[3px] border-l-destructive bg-destructive/5",
         urgency === "warning" && "border-l-[3px] border-l-amber-400",
         urgency === "normal" && "border-border/50",
+        slaStatus?.overdue && "ring-1 ring-destructive/30",
         draggedId === conv.id && "opacity-30 scale-95 rotate-1"
       )}
     >
@@ -277,9 +327,21 @@ const KanbanCard = ({
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-1">
-            <span className="text-sm font-semibold truncate leading-tight">
-              {conv.contact?.name || conv.contact?.phone || "Desconhecido"}
-            </span>
+            <div className="flex items-center gap-1.5 min-w-0">
+              {conv.priority && conv.priority !== "normal" && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PriorityIcon className="h-3.5 w-3.5 shrink-0" style={{ color: priorityConfig.color }} />
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">
+                    Prioridade: {priorityConfig.label}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              <span className="text-sm font-semibold truncate leading-tight">
+                {conv.contact?.name || conv.contact?.phone || "Desconhecido"}
+              </span>
+            </div>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
@@ -296,6 +358,63 @@ const KanbanCard = ({
                   <Eye className="h-3.5 w-3.5" /> Abrir conversa
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
+
+                {/* Priority selector */}
+                <div className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1.5 flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3" /> Prioridade
+                  </p>
+                  <div className="flex gap-1">
+                    {PRIORITIES.map((p) => {
+                      const Icon = p.icon;
+                      return (
+                        <button
+                          key={p.value}
+                          onClick={() => onPriorityChange(conv.id, p.value)}
+                          className={cn(
+                            "flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-all",
+                            (conv.priority || "normal") === p.value
+                              ? "ring-1 ring-offset-1 ring-primary/50"
+                              : "hover:bg-accent"
+                          )}
+                          style={{
+                            backgroundColor: (conv.priority || "normal") === p.value ? `${p.color}15` : undefined,
+                            color: (conv.priority || "normal") === p.value ? p.color : undefined,
+                          }}
+                        >
+                          <Icon className="h-3 w-3" />
+                          {p.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <DropdownMenuSeparator />
+
+                {/* SLA selector */}
+                <div className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1.5 flex items-center gap-1">
+                    <Shield className="h-3 w-3" /> SLA
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {SLA_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.label}
+                        onClick={() => onSlaChange(conv.id, opt.value)}
+                        className={cn(
+                          "px-2 py-1 rounded-md text-[10px] font-medium transition-all",
+                          (conv.sla_hours ?? null) === opt.value
+                            ? "bg-primary/10 text-primary ring-1 ring-primary/30"
+                            : "hover:bg-accent text-muted-foreground"
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <DropdownMenuSeparator />
+
                 {/* Tag management inline */}
                 <div className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
                   <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1.5 flex items-center gap-1">
@@ -342,6 +461,25 @@ const KanbanCard = ({
               {conv.last_message_at ? formatTime(conv.last_message_at) : ""}
             </span>
             <div className="flex items-center gap-1.5">
+              {/* SLA indicator */}
+              {slaStatus && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold",
+                        slaStatus.overdue ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+                      )}
+                    >
+                      <Shield className="h-3 w-3" />
+                      {slaStatus.remaining}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">
+                    {slaStatus.label}: {slaStatus.remaining}
+                  </TooltipContent>
+                </Tooltip>
+              )}
               {urgency !== "normal" && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -517,6 +655,18 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
     onReload();
   };
 
+  const handlePriorityChange = useCallback(async (convId: string, priority: string) => {
+    const { error } = await supabase.from("conversations").update({ priority } as any).eq("id", convId);
+    if (error) toast.error("Erro ao definir prioridade");
+    else { toast.success(`Prioridade: ${getPriorityConfig(priority).label}`); onReload(); }
+  }, [onReload]);
+
+  const handleSlaChange = useCallback(async (convId: string, slaHours: number | null) => {
+    const { error } = await supabase.from("conversations").update({ sla_hours: slaHours } as any).eq("id", convId);
+    if (error) toast.error("Erro ao definir SLA");
+    else { toast.success(slaHours ? `SLA: ${slaHours}h` : "SLA removido"); onReload(); }
+  }, [onReload]);
+
   return (
     <div className="flex flex-col h-[calc(100vh-220px)] gap-3">
       {/* ─── Toolbar ─── */}
@@ -668,6 +818,8 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
                         onSelect={onSelectConversation}
                         onMove={moveToColumn}
                         onTagsChanged={loadContactTags}
+                        onPriorityChange={handlePriorityChange}
+                        onSlaChange={handleSlaChange}
                       />
                     ))
                   )}

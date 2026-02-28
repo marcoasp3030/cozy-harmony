@@ -252,6 +252,8 @@ export type Database = {
           id: string
           last_message_at: string | null
           notes: string | null
+          priority: string
+          sla_hours: number | null
           status: string
           unread_count: number | null
           updated_at: string
@@ -265,6 +267,8 @@ export type Database = {
           id?: string
           last_message_at?: string | null
           notes?: string | null
+          priority?: string
+          sla_hours?: number | null
           status?: string
           unread_count?: number | null
           updated_at?: string
@@ -278,6 +282,8 @@ export type Database = {
           id?: string
           last_message_at?: string | null
           notes?: string | null
+          priority?: string
+          sla_hours?: number | null
           status?: string
           unread_count?: number | null
           updated_at?: string

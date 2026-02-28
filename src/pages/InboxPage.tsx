@@ -38,6 +38,8 @@ interface Conversation {
   last_message_at: string | null;
   notes: string | null;
   assigned_to: string | null;
+  priority?: string;
+  sla_hours?: number | null;
   contact?: Contact;
   lastMessage?: Message;
 }
