@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, Send, Paperclip, Phone, MoreVertical, CheckCheck, Check, Clock, AlertCircle, ImageIcon, FileText, Mic, LayoutTemplate } from "lucide-react";
+import { Search, Send, Paperclip, Phone, MoreVertical, CheckCheck, Check, Clock, AlertCircle, ImageIcon, FileText, Mic, LayoutTemplate, Kanban, List } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -12,6 +12,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import KanbanView from "@/components/inbox/KanbanView";
 
 interface Contact {
   id: string;
@@ -104,6 +106,7 @@ const InboxPage = () => {
   const [templates, setTemplates] = useState<{ id: string; name: string; content: string; category: string | null }[]>([]);
   const [templateSearch, setTemplateSearch] = useState("");
   const [templateOpen, setTemplateOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"list" | "kanban">("list");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const selectedConv = conversations.find((c) => c.id === selectedConvId);
@@ -345,11 +348,31 @@ const InboxPage = () => {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="font-heading text-2xl font-bold">Inbox</h1>
-        <p className="text-sm text-muted-foreground">Atenda seus clientes em tempo real</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="font-heading text-2xl font-bold">Inbox</h1>
+          <p className="text-sm text-muted-foreground">Atenda seus clientes em tempo real</p>
+        </div>
+        <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && setViewMode(v as "list" | "kanban")} className="border border-border rounded-lg p-0.5">
+          <ToggleGroupItem value="list" aria-label="Visão lista" className="h-8 w-8 p-0 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+            <List className="h-4 w-4" />
+          </ToggleGroupItem>
+          <ToggleGroupItem value="kanban" aria-label="Visão kanban" className="h-8 w-8 p-0 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+            <Kanban className="h-4 w-4" />
+          </ToggleGroupItem>
+        </ToggleGroup>
       </div>
 
+      {viewMode === "kanban" ? (
+        <KanbanView
+          conversations={filteredConversations}
+          onSelectConversation={(id) => {
+            setSelectedConvId(id);
+            setViewMode("list");
+          }}
+          onReload={loadConversations}
+        />
+      ) : (
       <div className="grid h-[calc(100vh-220px)] grid-cols-12 gap-4">
         {/* Conversation List */}
         <Card className="col-span-3 flex flex-col overflow-hidden">
@@ -720,6 +743,7 @@ const InboxPage = () => {
           )}
         </Card>
       </div>
+      )}
     </div>
   );
 };
