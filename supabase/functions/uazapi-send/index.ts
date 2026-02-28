@@ -115,58 +115,49 @@ serve(async (req) => {
       endpoint = '/send/text';
       sendBody.text = text;
     } else if (type === 'interactive' && interactive) {
-      // Build interactive message payload for UazAPI
-      endpoint = '/send/interactive';
-      const interactivePayload: Record<string, unknown> = {};
+      // Use UazAPI /send/menu endpoint for interactive messages
+      endpoint = '/send/menu';
 
       if (interactive.type === 'buttons') {
-        interactivePayload.type = 'button';
-        interactivePayload.body = { text: interactive.body || text || '' };
-        if (interactive.header) interactivePayload.header = { type: 'text', text: interactive.header };
-        if (interactive.footer) interactivePayload.footer = { text: interactive.footer };
-        interactivePayload.action = {
-          buttons: (interactive.buttons || []).slice(0, 3).map((btn: any, i: number) => ({
-            type: 'reply',
-            reply: { id: btn.id || String(i + 1), title: btn.title?.slice(0, 20) || `Opção ${i + 1}` },
-          })),
-        };
+        sendBody.type = 'button';
+        sendBody.text = interactive.body || text || '';
+        if (interactive.footer) sendBody.footerText = interactive.footer;
+        sendBody.choices = (interactive.buttons || []).slice(0, 3).map((btn: any, i: number) => {
+          const title = btn.title?.slice(0, 20) || `Opção ${i + 1}`;
+          const id = btn.id || String(i + 1);
+          return `${title}|${id}`;
+        });
       } else if (interactive.type === 'list') {
-        interactivePayload.type = 'list';
-        interactivePayload.body = { text: interactive.body || text || '' };
-        if (interactive.header) interactivePayload.header = { type: 'text', text: interactive.header };
-        if (interactive.footer) interactivePayload.footer = { text: interactive.footer };
-        interactivePayload.action = {
-          button: interactive.listButtonText || 'Ver opções',
-          sections: (interactive.listSections || []).map((section: any) => ({
-            title: section.title,
-            rows: (section.rows || []).map((row: any) => ({
-              id: row.id,
-              title: row.title?.slice(0, 24) || 'Item',
-              description: row.description?.slice(0, 72) || undefined,
-            })),
-          })),
-        };
+        sendBody.type = 'list';
+        sendBody.text = interactive.body || text || '';
+        sendBody.listButton = interactive.listButtonText || 'Ver opções';
+        if (interactive.footer) sendBody.footerText = interactive.footer;
+        const choices: string[] = [];
+        for (const section of (interactive.listSections || [])) {
+          choices.push(`[${section.title}]`);
+          for (const row of (section.rows || [])) {
+            const title = row.title?.slice(0, 24) || 'Item';
+            const id = row.id || title;
+            const desc = row.description?.slice(0, 72) || '';
+            choices.push(desc ? `${title}|${id}|${desc}` : `${title}|${id}`);
+          }
+        }
+        sendBody.choices = choices;
       } else if (interactive.type === 'cta') {
-        // CTA buttons (URL/phone) - use template-based approach or fallback to text with links
-        interactivePayload.type = 'cta_url';
-        interactivePayload.body = { text: interactive.body || text || '' };
-        if (interactive.header) interactivePayload.header = { type: 'text', text: interactive.header };
-        if (interactive.footer) interactivePayload.footer = { text: interactive.footer };
-        interactivePayload.action = {
-          buttons: (interactive.ctaButtons || []).map((btn: any) => ({
-            type: btn.type === 'phone' ? 'phone_number' : 'url',
-            ...(btn.type === 'phone'
-              ? { phone_number: btn.value, title: btn.title }
-              : { url: btn.value, title: btn.title }),
-          })),
-        };
+        sendBody.type = 'button';
+        sendBody.text = interactive.body || text || '';
+        if (interactive.footer) sendBody.footerText = interactive.footer;
+        sendBody.choices = (interactive.ctaButtons || []).map((btn: any) => {
+          const title = btn.title || 'Link';
+          if (btn.type === 'phone') return `${title}|call:${btn.value}`;
+          return `${title}|${btn.value}`;
+        });
       }
-
-      sendBody.interactive = interactivePayload;
     } else if (type === 'poll' && interactive) {
-      endpoint = '/send/poll';
-      sendBody.name = interactive.pollName || 'Enquete';
-      sendBody.options = (interactive.pollOptions || []).map((o: any) => o.title).filter(Boolean);
+      endpoint = '/send/menu';
+      sendBody.type = 'poll';
+      sendBody.text = interactive.pollName || 'Enquete';
+      sendBody.choices = (interactive.pollOptions || []).map((o: any) => o.title).filter(Boolean);
       sendBody.selectableCount = interactive.pollMultiSelect ? 0 : 1;
     } else {
       endpoint = '/send/media';
