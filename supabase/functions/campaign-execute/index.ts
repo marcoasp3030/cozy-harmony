@@ -338,17 +338,27 @@ serve(async (req) => {
 
           // Extract message ID from various UazAPI response formats:
           // { key: { id: "3EB0..." } }
+          // { messageid: "3EB0..." }
           // { messageId: "3EB0..." }
-          // { id: "3EB0..." }
+          // { id: "5511...:3EB0..." }
           // { message: { key: { id: "3EB0..." } } }
           // { data: { key: { id: "3EB0..." } } }
           const extractMsgId = (d: any): string | null => {
             if (!d) return null;
-            return d.key?.id || d.messageId || d.id ||
+            return d.messageid || d.messageId || d.key?.id ||
               d.message?.key?.id || d.data?.key?.id ||
-              d.message?.id || d.data?.id || null;
+              d.message?.id || d.data?.id || d.id || null;
           };
-          const messageId = extractMsgId(resData);
+
+          const normalizeMsgId = (value: unknown): string | null => {
+            if (!value) return null;
+            const raw = String(value).trim();
+            if (!raw) return null;
+            const parts = raw.split(':').filter(Boolean);
+            return parts.length > 1 ? parts[parts.length - 1] : raw;
+          };
+
+          const messageId = normalizeMsgId(extractMsgId(resData));
 
           if (res.ok && resData.error === undefined) {
             sent++;
