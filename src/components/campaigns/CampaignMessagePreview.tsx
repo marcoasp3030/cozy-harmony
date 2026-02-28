@@ -2,6 +2,27 @@ import { type InteractiveMessage } from "@/components/shared/InteractiveMessageB
 import { Badge } from "@/components/ui/badge";
 import { ImageIcon, Video, FileAudio, File, ExternalLink, Phone, List, BarChart3 } from "lucide-react";
 
+const SAMPLE_VARIABLES: Record<string, string> = {
+  nome: "Maria Silva",
+  telefone: "(11) 99999-8888",
+  email: "maria@exemplo.com",
+  empresa: "Empresa ABC",
+  cidade: "São Paulo",
+  produto: "Plano Premium",
+  valor: "R$ 99,90",
+  data: "28/02/2026",
+  link: "https://exemplo.com",
+  cupom: "DESCONTO20",
+};
+
+/** Replace {{variable}} placeholders with sample data */
+const replaceVariables = (text: string): string => {
+  return text.replace(/\{\{(\w+)\}\}/g, (match, key) => {
+    const lower = key.toLowerCase();
+    return SAMPLE_VARIABLES[lower] ?? match;
+  });
+};
+
 interface CampaignMessagePreviewProps {
   messageType: string;
   messageContent: string;
@@ -16,7 +37,14 @@ export default function CampaignMessagePreview({
   interactive,
 }: CampaignMessagePreviewProps) {
   const hasInteractive = interactive.type !== "none";
-  const bodyText = hasInteractive ? (interactive.body || messageContent) : messageContent;
+  const rawBody = hasInteractive ? (interactive.body || messageContent) : messageContent;
+  const bodyText = replaceVariables(rawBody);
+  const headerText = hasInteractive && interactive.header ? replaceVariables(interactive.header) : "";
+  const footerText = hasInteractive && interactive.footer ? replaceVariables(interactive.footer) : "";
+
+  // Detect variables used
+  const allText = rawBody + (interactive.header || "") + (interactive.footer || "");
+  const usedVars = [...allText.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]);
 
   return (
     <div className="flex flex-col items-center gap-4">
@@ -68,7 +96,7 @@ export default function CampaignMessagePreview({
 
                 {/* Header (interactive) */}
                 {hasInteractive && interactive.header && (
-                  <p className="text-xs font-bold text-foreground mb-1">{interactive.header}</p>
+                  <p className="text-xs font-bold text-foreground mb-1">{headerText}</p>
                 )}
 
                 {/* Body text */}
@@ -80,7 +108,7 @@ export default function CampaignMessagePreview({
 
                 {/* Footer (interactive) */}
                 {hasInteractive && interactive.footer && (
-                  <p className="text-[11px] text-muted-foreground mt-1">{interactive.footer}</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">{footerText}</p>
                 )}
 
                 {/* Timestamp */}
@@ -174,6 +202,25 @@ export default function CampaignMessagePreview({
         )}
         {mediaUrl && <Badge variant="outline" className="text-xs">Com mídia</Badge>}
       </div>
+
+      {/* Variable mapping legend */}
+      {usedVars.length > 0 && (
+        <div className="w-full max-w-[340px] rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
+          <p className="text-xs font-medium text-muted-foreground">Variáveis detectadas (dados de exemplo):</p>
+          <div className="flex flex-wrap gap-1.5">
+            {usedVars.map((v, i) => {
+              const lower = v.toLowerCase();
+              const sample = SAMPLE_VARIABLES[lower];
+              return (
+                <Badge key={i} variant="secondary" className="text-[10px] font-mono gap-1">
+                  {`{{${v}}}`}
+                  {sample && <span className="text-primary">→ {sample}</span>}
+                </Badge>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
