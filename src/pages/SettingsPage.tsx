@@ -397,18 +397,18 @@ const SettingsPage = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div>
-        <h1 className="font-heading text-2xl font-bold">Configurações</h1>
-        <p className="text-sm text-muted-foreground">Gerencie as configurações do sistema</p>
+        <h1 className="font-heading text-xl md:text-2xl font-bold">Configurações</h1>
+        <p className="text-xs md:text-sm text-muted-foreground">Gerencie as configurações do sistema</p>
       </div>
 
       <Tabs defaultValue="connection" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="connection">Conexão UazAPI</TabsTrigger>
-          <TabsTrigger value="company">Empresa</TabsTrigger>
-          <TabsTrigger value="users">Usuários</TabsTrigger>
-          <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
+        <TabsList className="w-full flex overflow-x-auto">
+          <TabsTrigger value="connection" className="text-xs md:text-sm">Conexão</TabsTrigger>
+          <TabsTrigger value="company" className="text-xs md:text-sm">Empresa</TabsTrigger>
+          <TabsTrigger value="users" className="text-xs md:text-sm">Usuários</TabsTrigger>
+          <TabsTrigger value="webhooks" className="text-xs md:text-sm">Webhooks</TabsTrigger>
         </TabsList>
 
         <TabsContent value="connection" className="space-y-4">
