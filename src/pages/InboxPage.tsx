@@ -491,15 +491,30 @@ const InboxPage = () => {
     const msg = messages.find((m) => m.id === msgId);
     if (!msg) return;
 
-    // Update metadata locally first
-    const updatedMetadata = { ...(msg.metadata || {}), reaction: emoji };
+    // Build reactions array (support legacy format)
+    const meta = msg.metadata || {};
+    const existingReactions: { emoji: string; from: string; timestamp?: string }[] =
+      Array.isArray(meta.reactions) ? [...meta.reactions] : meta.reaction ? [{ emoji: meta.reaction, from: 'me' }] : [];
+
+    // Toggle: if same emoji from 'me' already exists, remove it; otherwise add
+    const myIdx = existingReactions.findIndex((r) => r.emoji === emoji && r.from === 'me');
+    if (myIdx >= 0) {
+      existingReactions.splice(myIdx, 1);
+    } else {
+      existingReactions.push({ emoji, from: 'me', timestamp: new Date().toISOString() });
+    }
+
+    const updatedMetadata = { ...meta, reactions: existingReactions };
+    // Clean up legacy field
+    delete updatedMetadata.reaction;
+
     setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, metadata: updatedMetadata } : m));
 
     // Update in DB
     await supabase.from("messages").update({ metadata: updatedMetadata } as any).eq("id", msgId);
 
-    // Send via UazAPI if message has external_id
-    if (msg.external_id) {
+    // Send via UazAPI if message has external_id (only when adding, not removing)
+    if (msg.external_id && myIdx < 0) {
       try {
         await supabase.functions.invoke("uazapi-reaction", {
           body: {
