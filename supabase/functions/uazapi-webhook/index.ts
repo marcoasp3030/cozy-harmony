@@ -155,25 +155,70 @@ serve(async (req) => {
       return json({ success: true });
     }
 
-    // ── STATUS UPDATES (UazAPI format) ────────────────────────
-    if (eventType === 'messages_update') {
-      const evt = body.event;
-      if (!evt) return json({ success: true, note: 'No event data' });
+    // ── STATUS UPDATES (UazAPI v2 format) ────────────────────
+    // UazAPI can send status in multiple formats:
+    // 1. { EventType: "messages_update", event: { Type: "Delivered", MessageIDs: [...] } }
+    // 2. { event: "message.status", status: "delivered", messageId: "..." }
+    // 3. { type: "ack", ack: 3, id: "..." }  (WhatsApp ack levels: 1=sent, 2=delivered, 3=read)
+    // 4. { EventType: "messages_update", data: [{ id: "...", status: "delivered" }] }
+    if (eventType === 'messages_update' || eventType === 'message.status' || eventType === 'ack' || eventType === 'status') {
+      // Collect message IDs and their status
+      const updates: { msgId: string; status: string }[] = [];
 
-      const statusType = evt.Type || evt.type || body.state || '';
-      const messageIds = evt.MessageIDs || evt.messageIDs || [];
+      // Format 1: event.Type + event.MessageIDs
+      const evt = body.event && typeof body.event === 'object' ? body.event : null;
+      if (evt) {
+        const statusType = evt.Type || evt.type || evt.status || '';
+        const messageIds = evt.MessageIDs || evt.messageIDs || evt.messageIds || [];
+        if (messageIds.length > 0 && statusType) {
+          for (const id of messageIds) {
+            updates.push({ msgId: id, status: statusType });
+          }
+        }
+      }
 
+      // Format 2: body.status + body.messageId
+      if (body.messageId && (body.status || body.state)) {
+        updates.push({ msgId: body.messageId, status: body.status || body.state });
+      }
+
+      // Format 3: WhatsApp ack levels
+      if (body.ack !== undefined && (body.id || body.messageId)) {
+        const ackMap: Record<number, string> = { 1: 'sent', 2: 'delivered', 3: 'read' };
+        const ackStatus = ackMap[body.ack] || '';
+        if (ackStatus) {
+          updates.push({ msgId: body.id || body.messageId, status: ackStatus });
+        }
+      }
+
+      // Format 4: data array
+      if (Array.isArray(body.data)) {
+        for (const item of body.data) {
+          if (item.id && item.status) {
+            updates.push({ msgId: item.id, status: item.status });
+          }
+        }
+      }
+
+      // Normalize status strings
       const statusMap: Record<string, string> = {
         'Sent': 'sent', 'Delivered': 'delivered', 'Read': 'read',
-        'Played': 'played', 'Error': 'error',
+        'Played': 'read', 'Error': 'error',
         'sent': 'sent', 'delivered': 'delivered', 'read': 'read',
-        'played': 'played', 'error': 'error',
+        'played': 'read', 'error': 'error',
+        'DELIVERY_ACK': 'delivered', 'READ': 'read', 'SENT': 'sent',
+        'server': 'sent', 'device': 'delivered', 'played': 'read',
       };
-      const statusStr = statusMap[statusType] || 'sent';
 
-      console.log(`Status update: ${statusType} -> ${statusStr} for ${messageIds.length} messages`);
+      console.log(`Status updates to process: ${updates.length}`, JSON.stringify(updates).slice(0, 300));
 
-      for (const msgId of messageIds) {
+      const affectedCampaignIds = new Set<string>();
+
+      for (const { msgId, status: rawStatus } of updates) {
+        const statusStr = statusMap[rawStatus] || rawStatus;
+        if (!statusStr || statusStr === 'error') continue;
+
+        // Update messages table
         await supabase
           .from('messages')
           .update({ status: statusStr })
@@ -183,16 +228,47 @@ serve(async (req) => {
         if (statusStr === 'delivered' || statusStr === 'read') {
           const updateData: Record<string, string> = { status: statusStr };
           if (statusStr === 'delivered') updateData.delivered_at = new Date().toISOString();
-          if (statusStr === 'read') updateData.read_at = new Date().toISOString();
+          if (statusStr === 'read') {
+            updateData.read_at = new Date().toISOString();
+            // Also set delivered_at if not already set
+            updateData.delivered_at = new Date().toISOString();
+          }
 
-          await supabase
+          const { data: updatedRows } = await supabase
             .from('campaign_contacts')
             .update(updateData)
-            .eq('message_id', msgId);
+            .eq('message_id', msgId)
+            .select('campaign_id');
+
+          if (updatedRows && updatedRows.length > 0) {
+            for (const row of updatedRows) {
+              if (row.campaign_id) affectedCampaignIds.add(row.campaign_id);
+            }
+          }
         }
       }
 
-      return json({ success: true, processed: messageIds.length });
+      // Recalculate stats for affected campaigns
+      for (const campId of affectedCampaignIds) {
+        const { data: allContacts } = await supabase
+          .from('campaign_contacts')
+          .select('status')
+          .eq('campaign_id', campId);
+
+        if (allContacts) {
+          const stats = {
+            total: allContacts.length,
+            sent: allContacts.filter((c: any) => ['sent', 'delivered', 'read'].includes(c.status)).length,
+            delivered: allContacts.filter((c: any) => ['delivered', 'read'].includes(c.status)).length,
+            read: allContacts.filter((c: any) => c.status === 'read').length,
+            failed: allContacts.filter((c: any) => c.status === 'failed').length,
+          };
+          await supabase.from('campaigns').update({ stats }).eq('id', campId);
+          console.log(`Updated campaign ${campId} stats:`, JSON.stringify(stats));
+        }
+      }
+
+      return json({ success: true, processed: updates.length, campaignsUpdated: affectedCampaignIds.size });
     }
 
     // ── OTHER EVENTS (chats, connection, etc.) ────────────────

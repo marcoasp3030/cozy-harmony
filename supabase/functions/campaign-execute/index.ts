@@ -372,8 +372,8 @@ serve(async (req) => {
 
       const stats = {
         total: statsData?.length || 0,
-        sent: statsData?.filter((c: any) => c.status === 'sent').length || 0,
-        delivered: statsData?.filter((c: any) => c.status === 'delivered').length || 0,
+        sent: statsData?.filter((c: any) => ['sent', 'delivered', 'read'].includes(c.status)).length || 0,
+        delivered: statsData?.filter((c: any) => ['delivered', 'read'].includes(c.status)).length || 0,
         read: statsData?.filter((c: any) => c.status === 'read').length || 0,
         failed: statsData?.filter((c: any) => c.status === 'failed').length || 0,
       };
