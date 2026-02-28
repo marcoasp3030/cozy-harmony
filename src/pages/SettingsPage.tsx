@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Wifi, WifiOff, CheckCircle2, Loader2, QrCode, Unplug, Save, Plus, Link2, ExternalLink, Copy, Check, Volume2, VolumeX, Brain, Eye, EyeOff, Sparkles, FileText, Image, Mic, Video, MessageSquare, Wrench } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Wifi, WifiOff, CheckCircle2, Loader2, QrCode, Unplug, Save, Plus, Link2, ExternalLink, Copy, Check, Volume2, VolumeX, Brain, Eye, EyeOff, Sparkles, FileText, Image, Mic, Video, MessageSquare, Wrench, RefreshCw, Smartphone, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -486,13 +486,41 @@ const SettingsPage = () => {
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
-  const [connectionStatus, setConnectionStatus] = useState<"idle" | "connected" | "error">("idle");
-  const [connectionInfo, setConnectionInfo] = useState<{ phone?: string; name?: string } | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<"idle" | "checking" | "connected" | "disconnected" | "error">("idle");
+  const [connectionInfo, setConnectionInfo] = useState<{ phone?: string; name?: string; status?: string; battery?: number } | null>(null);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [loadingQr, setLoadingQr] = useState(false);
   const [creatingInstance, setCreatingInstance] = useState(false);
+  const [lastChecked, setLastChecked] = useState<Date | null>(null);
 
-  // Load saved settings
+  // Auto-check connection status
+  const checkConnectionStatus = async () => {
+    setConnectionStatus("checking");
+    try {
+      const { data, error } = await supabase.functions.invoke("uazapi-instance", {
+        body: { action: "test" },
+      });
+      if (error) throw error;
+      if (data.connected) {
+        setConnectionStatus("connected");
+        setConnectionInfo({
+          phone: data.phone || data.instance?.user?.id?.replace("@s.whatsapp.net", "") || undefined,
+          name: data.name || data.instance?.user?.name || data.pushname || undefined,
+          status: data.status || data.state || "connected",
+          battery: data.battery ?? data.instance?.battery ?? undefined,
+        });
+      } else {
+        setConnectionStatus("disconnected");
+        setConnectionInfo(null);
+      }
+    } catch {
+      setConnectionStatus("error");
+      setConnectionInfo(null);
+    }
+    setLastChecked(new Date());
+  };
+
+  // Load saved settings & auto-check
   useEffect(() => {
     if (!user) return;
     const load = async () => {
@@ -509,6 +537,11 @@ const SettingsPage = () => {
         setAdminToken(config.adminToken || "");
         setInstanceToken(config.instanceToken || "");
         setInstanceName(config.instanceName || "");
+
+        // Auto-check if config has the minimum required fields
+        if (config.baseUrl && config.instanceToken) {
+          checkConnectionStatus();
+        }
       }
     };
     load();
@@ -568,34 +601,12 @@ const SettingsPage = () => {
       toast.error("Preencha a URL e o Instance Token primeiro.");
       return;
     }
-
-    // Save before testing
     await saveConfig();
-
     setTesting(true);
-    setConnectionStatus("idle");
-    setConnectionInfo(null);
-
-    try {
-      const { data, error } = await supabase.functions.invoke("uazapi-instance", {
-        body: { action: "test" },
-      });
-
-      if (error) throw error;
-
-      if (data.connected) {
-        setConnectionStatus("connected");
-        setConnectionInfo({ phone: data.phone, name: data.name });
-        toast.success("Conexão estabelecida com sucesso!");
-      } else {
-        setConnectionStatus("error");
-        toast.error(extractError(data, "Falha na conexão"), { duration: 8000 });
-      }
-    } catch (err: any) {
-      setConnectionStatus("error");
-      toast.error("Erro ao testar: " + (err.message || "Verifique os dados"), { duration: 8000 });
-    } finally {
-      setTesting(false);
+    await checkConnectionStatus();
+    setTesting(false);
+    if (connectionStatus === "connected") {
+      toast.success("Conexão estabelecida com sucesso!");
     }
   };
 
@@ -771,39 +782,114 @@ const SettingsPage = () => {
             </CardContent>
           </Card>
 
-          {/* Connection Status */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="font-heading">Status da Conexão</CardTitle>
+          {/* Connection Status — prominent card */}
+          <Card className={`border-2 ${
+            connectionStatus === "connected" ? "border-emerald-500/30" :
+            connectionStatus === "disconnected" || connectionStatus === "error" ? "border-destructive/30" :
+            "border-border"
+          }`}>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="font-heading">Status da Conexão WhatsApp</CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => checkConnectionStatus()}
+                  disabled={connectionStatus === "checking"}
+                  className="h-8 gap-1.5 text-xs"
+                >
+                  {connectionStatus === "checking" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  )}
+                  Atualizar
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center gap-4">
-                {connectionStatus === "connected" ? (
-                  <div className="flex items-center gap-3 rounded-lg bg-success/10 px-4 py-3 flex-1">
-                    <Wifi className="h-5 w-5 text-success" />
-                    <div>
-                      <p className="text-sm font-medium text-success">Conectado</p>
-                      {connectionInfo?.phone && (
-                        <p className="text-xs text-muted-foreground">{connectionInfo.phone}</p>
-                      )}
-                      {connectionInfo?.name && (
-                        <p className="text-xs text-muted-foreground">{connectionInfo.name}</p>
+              {/* Main status indicator */}
+              {connectionStatus === "checking" ? (
+                <div className="flex items-center gap-4 rounded-xl border border-border bg-muted/50 p-5">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Verificando conexão...</p>
+                    <p className="text-xs text-muted-foreground">Consultando o status da instância</p>
+                  </div>
+                </div>
+              ) : connectionStatus === "connected" ? (
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-5">
+                  <div className="flex items-center gap-4">
+                    <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10">
+                      <Smartphone className="h-6 w-6 text-emerald-500" />
+                      <span className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-card bg-emerald-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-base font-semibold text-emerald-600 dark:text-emerald-400">Conectado</p>
+                        <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                          Online
+                        </span>
+                      </div>
+                      {(connectionInfo?.name || connectionInfo?.phone) && (
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                          {connectionInfo.name && (
+                            <p className="text-sm text-foreground font-medium">{connectionInfo.name}</p>
+                          )}
+                          {connectionInfo.phone && (
+                            <p className="text-sm text-muted-foreground">📱 {connectionInfo.phone}</p>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
-                ) : connectionStatus === "error" ? (
-                  <div className="flex items-center gap-3 rounded-lg bg-destructive/10 px-4 py-3 flex-1">
-                    <WifiOff className="h-5 w-5 text-destructive" />
-                    <p className="text-sm font-medium text-destructive">Desconectado</p>
+                  {lastChecked && (
+                    <div className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground border-t border-emerald-500/10 pt-3">
+                      <Clock className="h-3 w-3" />
+                      Última verificação: {lastChecked.toLocaleTimeString("pt-BR")}
+                    </div>
+                  )}
+                </div>
+              ) : connectionStatus === "disconnected" || connectionStatus === "error" ? (
+                <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-5">
+                  <div className="flex items-center gap-4">
+                    <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+                      <WifiOff className="h-6 w-6 text-destructive" />
+                      <span className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-card bg-destructive" />
+                    </div>
+                    <div>
+                      <p className="text-base font-semibold text-destructive">Desconectado</p>
+                      <p className="text-sm text-muted-foreground">
+                        O WhatsApp não está conectado. Gere um QR Code para conectar.
+                      </p>
+                    </div>
                   </div>
-                ) : (
-                  <div className="flex items-center gap-3 rounded-lg bg-muted px-4 py-3 flex-1">
-                    <WifiOff className="h-5 w-5 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">Status desconhecido. Teste a conexão.</p>
+                  {lastChecked && (
+                    <div className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground border-t border-destructive/10 pt-3">
+                      <Clock className="h-3 w-3" />
+                      Última verificação: {lastChecked.toLocaleTimeString("pt-BR")}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-border bg-muted/30 p-5">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                      <WifiOff className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Sem configuração</p>
+                      <p className="text-xs text-muted-foreground">
+                        Configure as credenciais acima para verificar o status.
+                      </p>
+                    </div>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
+              {/* Actions */}
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" onClick={getQrCode} disabled={loadingQr}>
                   {loadingQr ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <QrCode className="mr-2 h-4 w-4" />}
