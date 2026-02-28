@@ -1,17 +1,26 @@
-import { useState, useEffect } from "react";
-import { Plus, Play, Pause, BarChart3, Loader2 } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Plus, Play, Pause, BarChart3, Loader2, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import CreateCampaignDialog from "@/components/campaigns/CreateCampaignDialog";
+
+interface CampaignStats {
+  total: number;
+  sent: number;
+  delivered: number;
+  read: number;
+  failed: number;
+}
 
 interface Campaign {
   id: string;
   name: string;
   status: string;
-  stats: { total: number; sent: number; delivered: number; read: number; failed: number } | null;
+  stats: CampaignStats | null;
   created_at: string;
 }
 
@@ -28,20 +37,70 @@ const Campaigns = () => {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [executing, setExecuting] = useState<Record<string, boolean>>({});
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const loadCampaigns = async () => {
-    setLoading(true);
+  const loadCampaigns = useCallback(async () => {
     const { data } = await supabase
       .from("campaigns")
       .select("id, name, status, stats, created_at")
       .order("created_at", { ascending: false });
-    setCampaigns((data as Campaign[]) || []);
-    setLoading(false);
-  };
+    setCampaigns((data as unknown as Campaign[]) || []);
+  }, []);
 
   useEffect(() => {
-    loadCampaigns();
-  }, []);
+    setLoading(true);
+    loadCampaigns().finally(() => setLoading(false));
+  }, [loadCampaigns]);
+
+  // Poll while any campaign is running
+  useEffect(() => {
+    const hasRunning = campaigns.some((c) => c.status === "running");
+    if (hasRunning) {
+      pollingRef.current = setInterval(loadCampaigns, 3000);
+    } else if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, [campaigns, loadCampaigns]);
+
+  const executeCampaign = async (campaignId: string, action: "start" | "resume" | "pause") => {
+    setExecuting((prev) => ({ ...prev, [campaignId]: true }));
+    try {
+      const { data, error } = await supabase.functions.invoke("campaign-execute", {
+        body: { action, campaignId },
+      });
+
+      if (error) throw error;
+
+      if (data?.error) {
+        toast.error(data.error);
+      } else if (action === "pause") {
+        toast.info("Campanha pausada.");
+      } else {
+        const remaining = data?.remaining ?? 0;
+        if (remaining > 0) {
+          toast.success(
+            `Lote processado: ${data.sent} enviadas, ${data.failed} falhas. Restam ${remaining}.`,
+            { duration: 5000 },
+          );
+          // Auto-continue next batch
+          setTimeout(() => executeCampaign(campaignId, "resume"), 1000);
+        } else {
+          toast.success("Campanha concluída!");
+        }
+      }
+
+      await loadCampaigns();
+    } catch (err: any) {
+      toast.error("Erro: " + (err.message || "Tente novamente"));
+    } finally {
+      setExecuting((prev) => ({ ...prev, [campaignId]: false }));
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -75,9 +134,10 @@ const Campaigns = () => {
       ) : (
         <div className="grid gap-4">
           {campaigns.map((campaign) => {
-            const s = (campaign.stats as any) || { total: 0, sent: 0, delivered: 0, read: 0, failed: 0 };
-            const progress = s.total > 0 ? (s.sent / s.total) * 100 : 0;
+            const s = (campaign.stats as CampaignStats) || { total: 0, sent: 0, delivered: 0, read: 0, failed: 0 };
+            const progress = s.total > 0 ? ((s.sent + s.failed) / s.total) * 100 : 0;
             const config = statusConfig[campaign.status] || statusConfig.draft;
+            const isExec = executing[campaign.id];
 
             return (
               <Card key={campaign.id} className="transition-all duration-200 hover:shadow-md">
@@ -90,17 +150,47 @@ const Campaigns = () => {
                       <Badge variant="secondary" className={config.className}>
                         {config.label}
                       </Badge>
+                      {campaign.status === "running" && (
+                        <Loader2 className="h-4 w-4 animate-spin text-success" />
+                      )}
                     </div>
                     <div className="flex gap-2">
+                      {(campaign.status === "draft" || campaign.status === "scheduled") && (
+                        <Button
+                          size="sm"
+                          onClick={() => executeCampaign(campaign.id, "start")}
+                          disabled={isExec}
+                        >
+                          {isExec ? (
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          ) : (
+                            <Play className="mr-1 h-3 w-3" />
+                          )}
+                          Iniciar
+                        </Button>
+                      )}
                       {campaign.status === "running" && (
-                        <Button size="sm" variant="outline">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => executeCampaign(campaign.id, "pause")}
+                          disabled={isExec}
+                        >
                           <Pause className="mr-1 h-3 w-3" />
                           Pausar
                         </Button>
                       )}
                       {campaign.status === "paused" && (
-                        <Button size="sm" variant="outline">
-                          <Play className="mr-1 h-3 w-3" />
+                        <Button
+                          size="sm"
+                          onClick={() => executeCampaign(campaign.id, "resume")}
+                          disabled={isExec}
+                        >
+                          {isExec ? (
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          ) : (
+                            <RotateCw className="mr-1 h-3 w-3" />
+                          )}
                           Retomar
                         </Button>
                       )}
@@ -115,7 +205,7 @@ const Campaigns = () => {
                     <div className="mb-2 flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Progresso</span>
                       <span className="font-medium">
-                        {progress.toFixed(0)}% ({s.sent}/{s.total})
+                        {progress.toFixed(0)}% ({s.sent + s.failed}/{s.total})
                       </span>
                     </div>
                     <Progress value={progress} className="h-2" />
