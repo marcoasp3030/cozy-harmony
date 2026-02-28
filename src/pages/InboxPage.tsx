@@ -395,6 +395,65 @@ const InboxPage = () => {
     }
   };
 
+  // Retry a failed message
+  const handleRetry = useCallback(async (msg: Message) => {
+    if (!contact) return;
+    // Remove the failed message from UI
+    setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+    // Delete from DB if it was persisted
+    if (!msg.id.startsWith("temp-")) {
+      await supabase.from("messages").delete().eq("id", msg.id);
+    }
+    // Re-compose and re-send
+    const tempId = `temp-${Date.now()}`;
+    const optimistic: Message = { ...msg, id: tempId, status: "sending", created_at: new Date().toISOString() };
+    setMessages((prev) => [...prev, optimistic]);
+    pendingTempIdsRef.current.add(tempId);
+
+    try {
+      const sendBody: Record<string, any> = {
+        type: msg.type === "interactive" ? "interactive" : msg.type,
+        number: contact.phone,
+        instanceId: selectedInstanceId || defaultInstance?.id || undefined,
+      };
+
+      if (msg.type === "interactive" && msg.metadata) {
+        sendBody.interactive = msg.metadata;
+        sendBody.text = msg.metadata.body || msg.content;
+      } else if (msg.type === "text") {
+        sendBody.text = msg.content;
+      } else {
+        sendBody.mediaUrl = msg.media_url;
+        if (msg.content) sendBody.caption = msg.content;
+      }
+
+      const { data, error } = await supabase.functions.invoke("uazapi-send", { body: sendBody });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      const externalId = data?.key?.id || data?.messageId || null;
+      await supabase.from("messages").insert({
+        contact_id: contact.id,
+        direction: "outbound",
+        type: msg.type,
+        content: msg.content,
+        media_url: msg.media_url,
+        status: "sent",
+        external_id: externalId,
+        metadata: msg.metadata,
+      } as any);
+
+      setTimeout(() => {
+        pendingTempIdsRef.current.delete(tempId);
+        setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, status: "sent" } : m));
+      }, 3000);
+    } catch (err: any) {
+      pendingTempIdsRef.current.delete(tempId);
+      setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, status: "error" } : m));
+      toast.error("Erro ao reenviar: " + (err.message || "Tente novamente"));
+    }
+  }, [contact, selectedInstanceId, defaultInstance?.id]);
+
   // React to a message with emoji
   const handleReact = async (msgId: string, emoji: string) => {
     const msg = messages.find((m) => m.id === msgId);
@@ -720,7 +779,7 @@ const InboxPage = () => {
                         <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">{group.date}</span>
                       </div>
                       {group.messages.map((msg) => (
-                        <MessageBubble key={msg.id} msg={msg} onReact={handleReact} />
+                        <MessageBubble key={msg.id} msg={msg} onReact={handleReact} onRetry={handleRetry} />
                       ))}
                     </div>
                   ))}
