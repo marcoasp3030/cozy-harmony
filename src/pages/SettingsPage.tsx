@@ -489,16 +489,67 @@ const WhatsAppApiConfig = () => {
   useEffect(() => {
     if (!user) return;
     const load = async () => {
+      // Try loading new global config
       const { data } = await supabase
         .from("settings")
         .select("value")
         .eq("user_id", user.id)
         .eq("key", "uazapi_global")
         .single();
+
       if (data?.value) {
         const v = data.value as any;
         setBaseUrl(v.baseUrl || "");
         setAdminToken(v.adminToken || "");
+        setLoaded(true);
+        return;
+      }
+
+      // Migrate from legacy uazapi_config
+      const { data: legacy } = await supabase
+        .from("settings")
+        .select("value")
+        .eq("user_id", user.id)
+        .eq("key", "uazapi_config")
+        .single();
+
+      if (legacy?.value) {
+        const v = legacy.value as any;
+        const migratedBaseUrl = v.baseUrl || "";
+        const migratedAdminToken = v.adminToken || "";
+        if (migratedBaseUrl) {
+          setBaseUrl(migratedBaseUrl);
+          setAdminToken(migratedAdminToken);
+          // Save as new global config
+          await supabase
+            .from("settings")
+            .upsert(
+              { user_id: user.id, key: "uazapi_global", value: { baseUrl: migratedBaseUrl, adminToken: migratedAdminToken } as any },
+              { onConflict: "user_id,key" }
+            );
+          // Also migrate instance if legacy had instanceToken
+          const instanceToken = v.instanceToken || "";
+          const instanceName = v.instanceName || "";
+          if (instanceToken) {
+            const { data: existing } = await supabase
+              .from("whatsapp_instances")
+              .select("id")
+              .eq("user_id", user.id)
+              .limit(1);
+            if (!existing || existing.length === 0) {
+              await supabase.from("whatsapp_instances").insert({
+                user_id: user.id,
+                name: instanceName || "WhatsApp (migrado)",
+                base_url: migratedBaseUrl,
+                admin_token: migratedAdminToken,
+                instance_token: instanceToken,
+                instance_name: instanceName,
+                is_default: true,
+              } as any);
+            }
+          }
+          toast.success("Configuração legada migrada automaticamente!");
+        }
       }
       setLoaded(true);
     };
