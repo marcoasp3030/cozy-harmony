@@ -613,11 +613,12 @@ export default function CreateCampaignDialog({
               <Separator />
 
               {/* Interactive message builder */}
-              <InteractiveMessageBuilder
-                value={form.interactive}
-                onChange={(v) => update("interactive", v)}
-                compact
-              />
+              <div className="rounded-lg border border-border bg-muted/20 p-4">
+                <InteractiveMessageBuilder
+                  value={form.interactive}
+                  onChange={(v) => update("interactive", v)}
+                />
+              </div>
             </div>
           )}
 

@@ -83,12 +83,12 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
   const update = <K extends keyof InteractiveMessage>(key: K, val: InteractiveMessage[K]) =>
     onChange({ ...value, [key]: val });
 
-  const typeOptions: { value: InteractiveType; label: string; icon: React.ReactNode; desc: string }[] = [
-    { value: "none", label: "Texto simples", icon: null, desc: "Mensagem normal" },
-    { value: "buttons", label: "Botões", icon: <MousePointerClick className="h-4 w-4" />, desc: "Até 3 botões de resposta rápida" },
-    { value: "list", label: "Lista", icon: <ListOrdered className="h-4 w-4" />, desc: "Menu expansível com seções" },
-    { value: "cta", label: "CTA (URL/Tel)", icon: <Link className="h-4 w-4" />, desc: "Botões com link ou telefone" },
-    { value: "poll", label: "Enquete", icon: <BarChart3 className="h-4 w-4" />, desc: "Votação com múltiplas opções" },
+  const typeOptions: { value: InteractiveType; label: string; icon: React.ReactNode; desc: string; color: string }[] = [
+    { value: "none", label: "Nenhuma", icon: null, desc: "Texto simples", color: "text-muted-foreground" },
+    { value: "buttons", label: "Botões", icon: <MousePointerClick className="h-5 w-5" />, desc: "Até 3 respostas rápidas", color: "text-blue-500" },
+    { value: "list", label: "Lista", icon: <ListOrdered className="h-5 w-5" />, desc: "Menu com seções", color: "text-emerald-500" },
+    { value: "cta", label: "CTA", icon: <Link className="h-5 w-5" />, desc: "Link ou telefone", color: "text-orange-500" },
+    { value: "poll", label: "Enquete", icon: <BarChart3 className="h-5 w-5" />, desc: "Votação", color: "text-violet-500" },
   ];
 
   // ─── BUTTONS ───
@@ -155,8 +155,9 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
     <div className="space-y-4">
       {/* Type selector */}
       <div className="space-y-2">
-        <Label>Tipo de mensagem interativa</Label>
-        <div className={cn("grid gap-2", compact ? "grid-cols-2" : "grid-cols-4")}>
+        <Label className="text-sm font-semibold">Mensagem Interativa</Label>
+        <p className="text-xs text-muted-foreground">Adicione botões, listas ou enquetes à sua mensagem</p>
+        <div className="flex flex-wrap gap-2">
           {typeOptions.map((opt) => (
             <button
               key={opt.value}
@@ -172,14 +173,17 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
                 onChange(newVal);
               }}
               className={cn(
-                "flex flex-col items-center gap-1.5 rounded-lg border-2 p-3 text-xs transition-colors",
+                "flex items-center gap-2 rounded-lg border-2 px-3 py-2 text-xs transition-all",
                 value.type === opt.value
-                  ? "border-primary bg-primary/5 text-primary"
-                  : "border-border hover:border-primary/40",
+                  ? "border-primary bg-primary/5 text-primary shadow-sm"
+                  : "border-border hover:border-primary/40 hover:bg-muted/50",
               )}
             >
-              {opt.icon}
-              <span className="font-medium">{opt.label}</span>
+              {opt.icon && <span className={cn(opt.color)}>{opt.icon}</span>}
+              <div className="text-left">
+                <span className="font-medium">{opt.label}</span>
+                {!compact && <p className="text-[10px] text-muted-foreground leading-tight">{opt.desc}</p>}
+              </div>
             </button>
           ))}
         </div>
