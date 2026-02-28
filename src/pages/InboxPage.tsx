@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Search, Send, Phone, MoreVertical, Kanban, List, StickyNote, LayoutTemplate, Slash, ArrowLeft, Brain, Loader2, Sparkles, FileText as SummarizeIcon } from "lucide-react";
 import { MediaUploader, AttachmentPreview, uploadMediaFile } from "@/components/inbox/MediaUploader";
 import type { MediaAttachment } from "@/components/inbox/MediaUploader";
+import AudioRecorder from "@/components/inbox/AudioRecorder";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -335,6 +336,32 @@ const InboxPage = () => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+    }
+  };
+
+  // Send recorded audio as PTT
+  const handleSendAudio = async (audioUrl: string, durationSecs: number) => {
+    if (!contact) return;
+    try {
+      const { data, error } = await supabase.functions.invoke("uazapi-send", {
+        body: { type: "ptt", number: contact.phone, mediaUrl: audioUrl },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      const externalId = data?.key?.id || data?.messageId || null;
+      await supabase.from("messages").insert({
+        contact_id: contact.id,
+        direction: "outbound",
+        type: "audio",
+        content: `Áudio (${Math.floor(durationSecs / 60)}:${(durationSecs % 60).toString().padStart(2, "0")})`,
+        media_url: audioUrl,
+        status: "sent",
+        external_id: externalId,
+      });
+      await supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", selectedConvId);
+    } catch (err: any) {
+      toast.error("Erro ao enviar áudio: " + (err.message || "Tente novamente"));
     }
   };
 
@@ -745,17 +772,21 @@ const InboxPage = () => {
                     )}
                     rows={1}
                   />
-                  <Button
-                    size="icon"
-                    className={cn("shrink-0", isNoteMode && "bg-warning hover:bg-warning/90")}
-                    onClick={handleSend}
-                    disabled={(!newMessage.trim() && !mediaAttachment) || sending}
-                  >
-                    <Send className="h-4 w-4" />
-                  </Button>
+                  {(newMessage.trim() || mediaAttachment || isNoteMode) ? (
+                    <Button
+                      size="icon"
+                      className={cn("shrink-0", isNoteMode && "bg-warning hover:bg-warning/90")}
+                      onClick={handleSend}
+                      disabled={(!newMessage.trim() && !mediaAttachment) || sending}
+                    >
+                      <Send className="h-4 w-4" />
+                    </Button>
+                  ) : (
+                    <AudioRecorder onSend={handleSendAudio} disabled={sending} />
+                  )}
                 </div>
                 <p className="text-[10px] text-muted-foreground mt-1.5 px-1">
-                  <kbd className="rounded bg-muted px-1 font-mono">📎</kbd> anexar • <kbd className="rounded bg-muted px-1 font-mono">/</kbd> atalhos • <kbd className="rounded bg-muted px-1 font-mono">Enter</kbd> enviar{aiProvider && " • ✨ IA"}
+                  <kbd className="rounded bg-muted px-1 font-mono">📎</kbd> anexar • <kbd className="rounded bg-muted px-1 font-mono">🎤</kbd> áudio • <kbd className="rounded bg-muted px-1 font-mono">/</kbd> atalhos • <kbd className="rounded bg-muted px-1 font-mono">Enter</kbd> enviar{aiProvider && " • ✨ IA"}
                 </p>
               </div>
             </>
