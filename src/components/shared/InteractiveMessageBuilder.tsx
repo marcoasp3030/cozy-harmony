@@ -154,10 +154,12 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
   return (
     <div className="space-y-4">
       {/* Type selector */}
-      <div className="space-y-2">
-        <Label className="text-sm font-semibold">Mensagem Interativa</Label>
-        <p className="text-xs text-muted-foreground">Adicione botões, listas ou enquetes à sua mensagem</p>
-        <div className="flex flex-wrap gap-2">
+      <div className="space-y-3">
+        <div>
+          <Label className="text-sm font-semibold">Mensagem Interativa</Label>
+          <p className="text-xs text-muted-foreground mt-0.5">Adicione botões, listas ou enquetes à sua mensagem</p>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {typeOptions.map((opt) => (
             <button
               key={opt.value}
@@ -173,16 +175,16 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
                 onChange(newVal);
               }}
               className={cn(
-                "flex items-center gap-2 rounded-lg border-2 px-3 py-2 text-xs transition-all",
+                "flex flex-col items-center gap-1.5 rounded-xl border-2 p-3 text-center transition-all min-h-[72px] justify-center",
                 value.type === opt.value
                   ? "border-primary bg-primary/5 text-primary shadow-sm"
                   : "border-border hover:border-primary/40 hover:bg-muted/50",
               )}
             >
               {opt.icon && <span className={cn(opt.color)}>{opt.icon}</span>}
-              <div className="text-left">
-                <span className="font-medium">{opt.label}</span>
-                {!compact && <p className="text-[10px] text-muted-foreground leading-tight">{opt.desc}</p>}
+              <div>
+                <p className="text-xs font-semibold leading-tight">{opt.label}</p>
+                <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">{opt.desc}</p>
               </div>
             </button>
           ))}
