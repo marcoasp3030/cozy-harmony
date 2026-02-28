@@ -31,6 +31,7 @@ import { toast } from "sonner";
 import StageActionsEditor, { type StageAction } from "@/components/funnels/StageActionsEditor";
 import ScoringRulesEditor from "@/components/funnels/ScoringRulesEditor";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import SmartFunnelSettings from "@/components/funnels/SmartFunnelSettings";
 
 interface Funnel {
   id: string;
@@ -564,19 +565,7 @@ const FunnelsPage = () => {
                       <ScoringRulesEditor funnelId={funnel.id} />
                     </TabsContent>
                     <TabsContent value="ai">
-                      <div className="space-y-3">
-                        <div className="rounded-lg border border-border bg-muted/30 p-4 text-center">
-                          <Brain className="h-8 w-8 mx-auto mb-2 text-primary/60" />
-                          <p className="text-sm font-medium">Classificação por IA</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            A IA analisa cada mensagem recebida e sugere movimentações no funil com base na intenção detectada 
-                            (interesse, dúvida, reclamação, compra, etc). As sugestões aparecem como badges no Inbox.
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-2">
-                            Modelo: Gemini Flash Lite • Confiança mínima: 70% • Modo híbrido (sugestão para o atendente aceitar)
-                          </p>
-                        </div>
-                      </div>
+                      <SmartFunnelSettings />
                     </TabsContent>
                   </Tabs>
                 </CardContent>
