@@ -137,7 +137,7 @@ serve(async (req) => {
         content: messageContent || null,
         media_url: mediaUrl,
         status: 'received',
-        metadata: { pushName, chat, profilePic },
+        metadata: { pushName, remoteJid: rawJid, profilePic },
       });
 
       if (msgError) {
