@@ -77,20 +77,30 @@ const Campaigns = () => {
       if (error) throw error;
 
       if (data?.error) {
-        toast.error(data.error);
+        // Show specific anti-block messages
+        if (data.code === "OUTSIDE_BUSINESS_HOURS") {
+          toast.warning("⏰ " + data.error, { duration: 8000 });
+        } else if (data.code === "DAILY_LIMIT_REACHED") {
+          toast.warning(`🛡️ ${data.error}`, { duration: 8000 });
+        } else {
+          toast.error(data.error);
+        }
       } else if (action === "pause") {
         toast.info("Campanha pausada.");
+      } else if (data?.autoPaused) {
+        toast.warning(`⚠️ ${data.autoPausedReason}`, { duration: 10000 });
       } else {
         const remaining = data?.remaining ?? 0;
         if (remaining > 0) {
+          const cooldown = (data?.cooldownSec || 15) * 1000;
           toast.success(
-            `Lote processado: ${data.sent} enviadas, ${data.failed} falhas. Restam ${remaining}.`,
-            { duration: 5000 },
+            `🛡️ Lote processado: ${data.sent} enviadas, ${data.failed} falhas. Restam ${remaining}. Aguardando ${data.cooldownSec || 15}s...`,
+            { duration: cooldown },
           );
-          // Auto-continue next batch
-          setTimeout(() => executeCampaign(campaignId, "resume"), 1000);
+          // Auto-continue with cooldown between batches
+          setTimeout(() => executeCampaign(campaignId, "resume"), cooldown);
         } else {
-          toast.success("Campanha concluída!");
+          toast.success("✅ Campanha concluída!");
         }
       }
 
