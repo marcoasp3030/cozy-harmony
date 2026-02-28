@@ -161,7 +161,9 @@ serve(async (req) => {
         }
 
         try {
-          const res = await fetch(`${baseUrl}/send/${messageType}`, {
+          const sendUrl = `${baseUrl}/send/${messageType}`;
+          console.log(`Sending to: ${sendUrl}`, JSON.stringify(sendBody));
+          const res = await fetch(sendUrl, {
             method: 'POST',
             headers: {
               'token': config.instanceToken,
@@ -170,7 +172,9 @@ serve(async (req) => {
             body: JSON.stringify(sendBody),
           });
 
-          const resData = await res.json().catch(() => ({}));
+          const resText = await res.text();
+          console.log(`Response ${res.status}: ${resText.slice(0, 500)}`);
+          const resData = (() => { try { return JSON.parse(resText); } catch { return { raw: resText }; } })();
 
           if (res.ok && resData.error === undefined) {
             sent++;
