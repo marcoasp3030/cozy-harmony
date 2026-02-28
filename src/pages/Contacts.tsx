@@ -1,8 +1,9 @@
 import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Upload, Search, MoreHorizontal, Tag, Trash2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -20,32 +21,35 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-
-const mockContacts = [
-  { id: "1", name: "João Silva", phone: "5511999990001", tags: ["Cliente", "VIP"], lastMessage: "2 horas atrás" },
-  { id: "2", name: "Maria Santos", phone: "5511999990002", tags: ["Lead"], lastMessage: "1 dia atrás" },
-  { id: "3", name: "Pedro Oliveira", phone: "5511999990003", tags: ["Cliente"], lastMessage: "3 dias atrás" },
-  { id: "4", name: "Ana Costa", phone: "5511999990004", tags: ["Prospect", "Quente"], lastMessage: "5 horas atrás" },
-  { id: "5", name: "Carlos Lima", phone: "5511999990005", tags: ["Cliente"], lastMessage: "1 semana atrás" },
-];
-
-const formatPhone = (phone: string) => {
-  const match = phone.match(/^(\d{2})(\d{2})(\d{5})(\d{4})$/);
-  if (match) return `+${match[1]} (${match[2]}) ${match[3]}-${match[4]}`;
-  return phone;
-};
-
-const tagColors: Record<string, string> = {
-  Cliente: "bg-primary/15 text-primary",
-  VIP: "bg-warning/15 text-warning",
-  Lead: "bg-info/15 text-info",
-  Prospect: "bg-secondary/15 text-secondary",
-  Quente: "bg-destructive/15 text-destructive",
-};
+import { Skeleton } from "@/components/ui/skeleton";
+import { supabase } from "@/integrations/supabase/client";
+import { formatPhoneDisplay } from "@/lib/validators";
+import ImportContactsDialog from "@/components/contacts/ImportContactsDialog";
 
 const Contacts = () => {
   const [selected, setSelected] = useState<string[]>([]);
   const [search, setSearch] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
+  const queryClient = useQueryClient();
+
+  const { data: contacts = [], isLoading } = useQuery({
+    queryKey: ["contacts", search],
+    queryFn: async () => {
+      let query = supabase
+        .from("contacts")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(200);
+
+      if (search.trim()) {
+        query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data;
+    },
+  });
 
   const toggleSelect = (id: string) => {
     setSelected((prev) =>
@@ -54,14 +58,10 @@ const Contacts = () => {
   };
 
   const toggleAll = () => {
-    setSelected(selected.length === mockContacts.length ? [] : mockContacts.map((c) => c.id));
+    setSelected(
+      selected.length === contacts.length ? [] : contacts.map((c) => c.id)
+    );
   };
-
-  const filtered = mockContacts.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.phone.includes(search)
-  );
 
   return (
     <div className="space-y-6">
@@ -73,7 +73,7 @@ const Contacts = () => {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => setImportOpen(true)}>
             <Upload className="mr-2 h-4 w-4" />
             Importar
           </Button>
@@ -123,81 +123,103 @@ const Contacts = () => {
               <TableRow>
                 <TableHead className="w-12">
                   <Checkbox
-                    checked={selected.length === mockContacts.length}
+                    checked={contacts.length > 0 && selected.length === contacts.length}
                     onCheckedChange={toggleAll}
                   />
                 </TableHead>
                 <TableHead>Contato</TableHead>
                 <TableHead>Telefone</TableHead>
-                <TableHead>Tags</TableHead>
-                <TableHead>Última Mensagem</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Criado em</TableHead>
                 <TableHead className="w-12" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((contact) => (
-                <TableRow key={contact.id}>
-                  <TableCell>
-                    <Checkbox
-                      checked={selected.includes(contact.id)}
-                      onCheckedChange={() => toggleSelect(contact.id)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <Avatar className="h-8 w-8">
-                        <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                          {contact.name
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")
-                            .slice(0, 2)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="font-medium">{contact.name}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="font-mono text-sm">
-                    {formatPhone(contact.phone)}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      {contact.tags.map((tag) => (
-                        <Badge
-                          key={tag}
-                          variant="secondary"
-                          className={tagColors[tag] || ""}
-                        >
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {contact.lastMessage}
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem>Ver detalhes</DropdownMenuItem>
-                        <DropdownMenuItem>Enviar mensagem</DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive">
-                          Excluir
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+              {isLoading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell><Skeleton className="h-4 w-4" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-36" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-4" /></TableCell>
+                  </TableRow>
+                ))
+              ) : contacts.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                    Nenhum contato encontrado. Importe uma lista para começar.
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                contacts.map((contact) => {
+                  const initials = (contact.name || contact.phone)
+                    .split(" ")
+                    .map((n: string) => n[0])
+                    .join("")
+                    .slice(0, 2)
+                    .toUpperCase();
+
+                  return (
+                    <TableRow key={contact.id}>
+                      <TableCell>
+                        <Checkbox
+                          checked={selected.includes(contact.id)}
+                          onCheckedChange={() => toggleSelect(contact.id)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <Avatar className="h-8 w-8">
+                            <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                              {initials}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="font-medium">
+                            {contact.name || "Sem nome"}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {formatPhoneDisplay(contact.phone)}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {contact.email || "-"}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {new Date(contact.created_at).toLocaleDateString("pt-BR")}
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem>Ver detalhes</DropdownMenuItem>
+                            <DropdownMenuItem>Enviar mensagem</DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive">
+                              Excluir
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
+
+      <ImportContactsDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImportComplete={() => queryClient.invalidateQueries({ queryKey: ["contacts"] })}
+      />
     </div>
   );
 };
