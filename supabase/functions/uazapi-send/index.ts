@@ -46,7 +46,7 @@ serve(async (req) => {
       });
     }
 
-    const validTypes = ['text', 'image', 'video', 'audio', 'document', 'ptt', 'sticker', 'contact', 'location', 'interactive'];
+    const validTypes = ['text', 'image', 'video', 'audio', 'document', 'ptt', 'sticker', 'contact', 'location', 'interactive', 'poll'];
     if (!validTypes.includes(type)) {
       return new Response(JSON.stringify({ error: `Tipo inválido. Use: ${validTypes.join(', ')}` }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -163,6 +163,11 @@ serve(async (req) => {
       }
 
       sendBody.interactive = interactivePayload;
+    } else if (type === 'poll' && interactive) {
+      endpoint = '/send/poll';
+      sendBody.name = interactive.pollName || 'Enquete';
+      sendBody.options = (interactive.pollOptions || []).map((o: any) => o.title).filter(Boolean);
+      sendBody.selectableCount = interactive.pollMultiSelect ? 0 : 1;
     } else {
       endpoint = '/send/media';
       sendBody.type = type;
