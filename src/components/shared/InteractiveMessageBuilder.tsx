@@ -159,7 +159,7 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
           <Label className="text-sm font-semibold">Mensagem Interativa</Label>
           <p className="text-xs text-muted-foreground mt-0.5">Adicione botões, listas ou enquetes à sua mensagem</p>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
           {typeOptions.map((opt) => (
             <button
               key={opt.value}
