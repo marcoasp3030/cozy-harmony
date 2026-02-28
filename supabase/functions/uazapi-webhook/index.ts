@@ -293,6 +293,59 @@ serve(async (req) => {
       return json({ success: true, processed: updates.length, campaignsUpdated: affectedCampaignIds.size });
     }
 
+    // ── REACTION EVENTS ─────────────────────────────────────
+    if (eventType === 'messages.reaction' || eventType === 'reaction' || eventType === 'message.reaction') {
+      const reaction = body.reaction || body.message?.reaction || body.data || {};
+      const reactionEmoji = reaction.text || reaction.emoji || reaction.reaction || '';
+      const targetMsgId = reaction.id || reaction.messageId || reaction.key?.id || body.messageId || '';
+      const fromMe = reaction.fromMe === true || body.fromMe === true;
+
+      console.log(`Reaction received: emoji="${reactionEmoji}", targetMsg="${targetMsgId}", fromMe=${fromMe}`);
+
+      if (!targetMsgId) {
+        return json({ success: true, note: 'No target message ID for reaction' });
+      }
+
+      const normalizeMsgId = (value: unknown): string => {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        const parts = raw.split(':').filter(Boolean);
+        return parts.length > 1 ? parts[parts.length - 1] : raw;
+      };
+
+      const normalizedId = normalizeMsgId(targetMsgId);
+
+      // Find the message by external_id
+      let { data: msgs } = await supabase
+        .from('messages')
+        .select('id, metadata')
+        .eq('external_id', normalizedId)
+        .limit(1);
+
+      if (!msgs || msgs.length === 0) {
+        const fallback = await supabase
+          .from('messages')
+          .select('id, metadata')
+          .like('external_id', `%:${normalizedId}`)
+          .limit(1);
+        msgs = fallback.data || [];
+      }
+
+      if (msgs && msgs.length > 0) {
+        const msg = msgs[0];
+        const updatedMetadata = { ...(msg.metadata as Record<string, unknown> || {}), reaction: reactionEmoji || null };
+        // If emoji is empty, it means the reaction was removed
+        if (!reactionEmoji) delete updatedMetadata.reaction;
+
+        await supabase.from('messages').update({ metadata: updatedMetadata }).eq('id', msg.id);
+        console.log(`Reaction ${reactionEmoji ? 'added' : 'removed'} on message ${msg.id}`);
+      } else {
+        console.log(`Message not found for reaction target: ${normalizedId}`);
+      }
+
+      return json({ success: true });
+    }
+
     // ── OTHER EVENTS (chats, connection, etc.) ────────────────
     console.log('Unhandled event type:', eventType);
     return json({ success: true, event: eventType, note: 'Event not handled' });
