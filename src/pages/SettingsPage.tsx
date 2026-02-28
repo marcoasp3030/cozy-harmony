@@ -9,6 +9,18 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 
+/** Extract a readable error message from edge function response */
+const extractError = (data: any, fallback: string): string => {
+  if (!data) return fallback;
+  const detail = data.details
+    ? typeof data.details === "string"
+      ? data.details
+      : JSON.stringify(data.details, null, 2)
+    : "";
+  const mainError = data.error || data.message || "";
+  return detail ? `${mainError}\n\nDetalhes: ${detail}` : mainError || fallback;
+};
+
 const SettingsPage = () => {
   const { user } = useAuth();
   const [baseUrl, setBaseUrl] = useState("");
@@ -91,11 +103,11 @@ const SettingsPage = () => {
         toast.success("Conexão estabelecida com sucesso!");
       } else {
         setConnectionStatus("error");
-        toast.error(data.error || "Falha na conexão");
+        toast.error(extractError(data, "Falha na conexão"), { duration: 8000 });
       }
     } catch (err: any) {
       setConnectionStatus("error");
-      toast.error("Erro ao testar: " + (err.message || "Verifique os dados"));
+      toast.error("Erro ao testar: " + (err.message || "Verifique os dados"), { duration: 8000 });
     } finally {
       setTesting(false);
     }
@@ -116,11 +128,13 @@ const SettingsPage = () => {
       if (data.qrcode) {
         setQrCode(data.qrcode);
         toast.success("QR Code gerado! Escaneie com seu WhatsApp.");
+      } else if (data.error) {
+        toast.error(extractError(data, "Erro ao gerar QR"), { duration: 8000 });
       } else {
         toast.info(data.status || "Instância já conectada ou QR não disponível.");
       }
     } catch (err: any) {
-      toast.error("Erro ao gerar QR: " + (err.message || "Tente novamente"));
+      toast.error("Erro ao gerar QR: " + (err.message || "Tente novamente"), { duration: 8000 });
     } finally {
       setLoadingQr(false);
     }
@@ -133,8 +147,10 @@ const SettingsPage = () => {
       });
 
       if (error) throw error;
-      setConnectionStatus("idle");
-      setConnectionInfo(null);
+      if (data.error) {
+        toast.error(extractError(data, "Erro ao desconectar"), { duration: 8000 });
+        return;
+      }
       setQrCode(null);
       toast.success("Desconectado com sucesso.");
     } catch (err: any) {
@@ -158,12 +174,12 @@ const SettingsPage = () => {
         setInstanceToken(data.instanceToken);
         toast.success("Instância criada! Token preenchido automaticamente.");
       } else if (data.error) {
-        toast.error(data.error);
+        toast.error(extractError(data, "Erro ao criar instância"), { duration: 8000 });
       } else {
         toast.info("Instância criada, mas nenhum token retornado. Verifique o painel da UazAPI.");
       }
     } catch (err: any) {
-      toast.error("Erro ao criar instância: " + (err.message || "Tente novamente"));
+      toast.error("Erro ao criar instância: " + (err.message || "Tente novamente"), { duration: 8000 });
     } finally {
       setCreatingInstance(false);
     }
