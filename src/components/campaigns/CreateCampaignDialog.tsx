@@ -74,6 +74,9 @@ interface CampaignForm {
   warmUpEnabled: boolean;
   contentVariation: boolean;
   maxConsecutiveFailures: number;
+  // Recurrence
+  recurrenceEnabled: boolean;
+  recurrenceType: "daily" | "weekly" | "monthly";
 }
 
 const initialForm: CampaignForm = {
@@ -95,6 +98,8 @@ const initialForm: CampaignForm = {
   warmUpEnabled: false,
   contentVariation: true,
   maxConsecutiveFailures: 5,
+  recurrenceEnabled: false,
+  recurrenceType: "weekly",
 };
 
 const messageTypeOptions = [
@@ -152,6 +157,8 @@ export default function CreateCampaignDialog({
         warmUpEnabled: s.warmUpEnabled ?? initialForm.warmUpEnabled,
         contentVariation: s.contentVariation ?? initialForm.contentVariation,
         maxConsecutiveFailures: s.maxConsecutiveFailures ?? initialForm.maxConsecutiveFailures,
+        recurrenceEnabled: !!s.recurrence,
+        recurrenceType: s.recurrence?.type || "weekly",
       });
     } else {
       setForm(initialForm);
@@ -275,6 +282,7 @@ export default function CreateCampaignDialog({
           businessHourEnd: 20,
           timezoneOffset: -3,
           warmUpDayLimit: 50,
+          ...(form.recurrenceEnabled ? { recurrence: { type: form.recurrenceType } } : {}),
         } as any,
       };
 
@@ -694,6 +702,38 @@ export default function CreateCampaignDialog({
                         )}
                       </PopoverContent>
                     </Popover>
+                  </div>
+                )}
+
+                {form.scheduleType === "scheduled" && (
+                  <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium">🔄 Campanha Recorrente</p>
+                        <p className="text-xs text-muted-foreground">Repetir automaticamente esta campanha</p>
+                      </div>
+                      <Switch checked={form.recurrenceEnabled} onCheckedChange={(v) => update("recurrenceEnabled", v)} />
+                    </div>
+                    {form.recurrenceEnabled && (
+                      <div className="space-y-2">
+                        <Label className="text-xs">Frequência</Label>
+                        <Select value={form.recurrenceType} onValueChange={(v) => update("recurrenceType", v as any)}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="daily">Diária</SelectItem>
+                            <SelectItem value="weekly">Semanal</SelectItem>
+                            <SelectItem value="monthly">Mensal</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          {form.recurrenceType === "daily" && "A campanha será executada todos os dias no horário agendado."}
+                          {form.recurrenceType === "weekly" && "A campanha será executada toda semana no mesmo dia e horário."}
+                          {form.recurrenceType === "monthly" && "A campanha será executada todo mês no mesmo dia e horário."}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
