@@ -1,0 +1,213 @@
+import { cn } from "@/lib/utils";
+import { CheckCheck, Check, Clock, AlertCircle, ImageIcon, FileText, Mic, Download, Play, Pause } from "lucide-react";
+import { useState, useRef } from "react";
+import { Button } from "@/components/ui/button";
+
+interface Message {
+  id: string;
+  contact_id: string | null;
+  direction: string;
+  type: string;
+  content: string | null;
+  media_url: string | null;
+  status: string | null;
+  created_at: string;
+  external_id: string | null;
+  metadata?: any;
+}
+
+const statusIcon = (status: string | null) => {
+  switch (status) {
+    case "read": case "played": return <CheckCheck className="h-3.5 w-3.5 text-info" />;
+    case "delivered": return <CheckCheck className="h-3.5 w-3.5 text-muted-foreground" />;
+    case "sent": return <Check className="h-3.5 w-3.5 text-muted-foreground" />;
+    case "error": case "failed": return <AlertCircle className="h-3.5 w-3.5 text-destructive" />;
+    default: return <Clock className="h-3 w-3 text-muted-foreground" />;
+  }
+};
+
+const formatMessageTime = (dateStr: string) =>
+  new Date(dateStr).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+/** Audio player component */
+const AudioPlayer = ({ src, isOutbound }: { src: string; isOutbound: boolean }) => {
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  const toggle = () => {
+    if (!audioRef.current) return;
+    if (playing) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play();
+    }
+    setPlaying(!playing);
+  };
+
+  const formatDuration = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  };
+
+  return (
+    <div className="flex items-center gap-2 min-w-[180px]">
+      <audio
+        ref={audioRef}
+        src={src}
+        onTimeUpdate={() => {
+          if (audioRef.current) setProgress(audioRef.current.currentTime);
+        }}
+        onLoadedMetadata={() => {
+          if (audioRef.current) setDuration(audioRef.current.duration);
+        }}
+        onEnded={() => { setPlaying(false); setProgress(0); }}
+      />
+      <Button
+        variant="ghost"
+        size="icon"
+        className={cn("h-8 w-8 rounded-full shrink-0", isOutbound ? "text-primary-foreground hover:bg-primary-foreground/20" : "text-foreground hover:bg-accent")}
+        onClick={toggle}
+      >
+        {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+      </Button>
+      <div className="flex-1 space-y-1">
+        <div className="h-1 rounded-full bg-current/20 overflow-hidden">
+          <div
+            className="h-full rounded-full bg-current/60 transition-all"
+            style={{ width: duration > 0 ? `${(progress / duration) * 100}%` : "0%" }}
+          />
+        </div>
+        <span className="text-[10px] opacity-70">{duration > 0 ? formatDuration(progress || duration) : "0:00"}</span>
+      </div>
+    </div>
+  );
+};
+
+/** Image with lightbox */
+const ImageMessage = ({ src }: { src: string }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <>
+      <img
+        src={src}
+        alt="Imagem"
+        className="max-w-full max-h-[300px] rounded-lg cursor-pointer hover:opacity-90 transition-opacity object-cover"
+        onClick={() => setExpanded(true)}
+        loading="lazy"
+      />
+      {expanded && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setExpanded(false)}
+        >
+          <img src={src} alt="Imagem ampliada" className="max-w-[90vw] max-h-[90vh] rounded-lg object-contain" />
+        </div>
+      )}
+    </>
+  );
+};
+
+/** Document preview */
+const DocumentMessage = ({ url, content, isOutbound }: { url: string; content: string | null; isOutbound: boolean }) => {
+  const filename = content || url.split("/").pop() || "Documento";
+  const isPdf = url.toLowerCase().endsWith(".pdf");
+
+  return (
+    <div className="space-y-1">
+      <div className={cn(
+        "flex items-center gap-2 rounded-lg p-2",
+        isOutbound ? "bg-primary-foreground/10" : "bg-accent"
+      )}>
+        <FileText className="h-8 w-8 shrink-0 opacity-60" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">{filename}</p>
+          <p className="text-[10px] opacity-60">{isPdf ? "PDF" : "Documento"}</p>
+        </div>
+        <a href={url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+          <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
+            <Download className="h-3.5 w-3.5" />
+          </Button>
+        </a>
+      </div>
+    </div>
+  );
+};
+
+/** Renders a single chat message with rich media */
+const MessageBubble = ({ msg }: { msg: Message }) => {
+  const isOutbound = msg.direction === "outbound";
+  const isNote = msg.type === "note";
+
+  if (isNote) {
+    return (
+      <div className="flex justify-center mb-2">
+        <div className="max-w-[80%] rounded-lg bg-warning/10 border border-warning/20 px-3 py-2">
+          <p className="text-xs font-medium text-warning mb-0.5">📝 Nota interna</p>
+          <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+          <p className="text-[10px] text-muted-foreground mt-1 text-right">{formatMessageTime(msg.created_at)}</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn("flex mb-1", isOutbound ? "justify-end" : "justify-start")}>
+      <div
+        className={cn(
+          "max-w-[75%] rounded-2xl px-3.5 py-2",
+          isOutbound ? "bg-primary text-primary-foreground rounded-br-md" : "bg-muted rounded-bl-md"
+        )}
+      >
+        {/* Media content */}
+        {msg.media_url && (
+          <div className="mb-1.5">
+            {msg.type === "image" ? (
+              <ImageMessage src={msg.media_url} />
+            ) : msg.type === "audio" || msg.type === "ptt" ? (
+              <AudioPlayer src={msg.media_url} isOutbound={isOutbound} />
+            ) : msg.type === "video" ? (
+              <video
+                src={msg.media_url}
+                controls
+                className="max-w-full max-h-[300px] rounded-lg"
+                preload="metadata"
+              />
+            ) : msg.type === "document" ? (
+              <DocumentMessage url={msg.media_url} content={msg.content} isOutbound={isOutbound} />
+            ) : msg.type === "sticker" ? (
+              <img src={msg.media_url} alt="Sticker" className="max-w-[150px] max-h-[150px]" loading="lazy" />
+            ) : (
+              <div className="flex items-center gap-2 text-xs opacity-75">
+                <FileText className="h-3.5 w-3.5" />
+                <a href={msg.media_url} target="_blank" rel="noopener noreferrer" className="underline">
+                  {msg.type}
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Text content (skip for documents that show filename already) */}
+        {msg.content && !(msg.type === "document" && msg.media_url) && (
+          <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+        )}
+
+        {/* Timestamp + status */}
+        <div className={cn(
+          "flex items-center justify-end gap-1 mt-0.5",
+          isOutbound ? "text-primary-foreground/60" : "text-muted-foreground"
+        )}>
+          <span className="text-[10px]">{formatMessageTime(msg.created_at)}</span>
+          {isOutbound && statusIcon(msg.status)}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default MessageBubble;
+export type { Message };
