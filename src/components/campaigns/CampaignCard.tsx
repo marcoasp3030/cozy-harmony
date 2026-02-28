@@ -35,6 +35,7 @@ export interface Campaign {
   media_url: string | null;
   instance_id: string | null;
   settings: any;
+  scheduled_at: string | null;
 }
 
 export const statusConfig: Record<string, { label: string; className: string }> = {

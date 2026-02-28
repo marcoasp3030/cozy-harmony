@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Plus, Loader2 } from "lucide-react";
+import { Plus, Loader2, List, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import CreateCampaignDialog from "@/components/campaigns/CreateCampaignDialog";
 import CampaignCard, { type Campaign } from "@/components/campaigns/CampaignCard";
 import CampaignFilters from "@/components/campaigns/CampaignFilters";
+import CampaignCalendar from "@/components/campaigns/CampaignCalendar";
 
 const Campaigns = () => {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -21,7 +23,7 @@ const Campaigns = () => {
   const loadCampaigns = useCallback(async () => {
     const { data } = await supabase
       .from("campaigns")
-      .select("id, name, status, stats, created_at, description, message_type, message_content, media_url, instance_id, settings")
+      .select("id, name, status, stats, created_at, description, message_type, message_content, media_url, instance_id, settings, scheduled_at")
       .order("created_at", { ascending: false });
     setCampaigns((data as unknown as Campaign[]) || []);
   }, []);
@@ -164,49 +166,73 @@ const Campaigns = () => {
         </Button>
       </div>
 
-      {!loading && campaigns.length > 0 && (
-        <CampaignFilters
-          search={search}
-          onSearchChange={setSearch}
-          statusFilter={statusFilter}
-          onStatusFilterChange={setStatusFilter}
-        />
-      )}
-
       {loading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
-      ) : campaigns.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <p className="text-muted-foreground">Nenhuma campanha criada ainda.</p>
-            <Button variant="outline" className="mt-4" onClick={handleNewCampaign}>
-              <Plus className="mr-2 h-4 w-4" />
-              Criar primeira campanha
-            </Button>
-          </CardContent>
-        </Card>
-      ) : filteredCampaigns.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <p className="text-muted-foreground">Nenhuma campanha encontrada com os filtros aplicados.</p>
-          </CardContent>
-        </Card>
       ) : (
-        <div className="grid gap-4">
-          {filteredCampaigns.map((campaign) => (
-            <CampaignCard
-              key={campaign.id}
-              campaign={campaign}
-              executing={!!executing[campaign.id]}
-              onExecute={executeCampaign}
-              onEdit={handleEdit}
-              onDuplicate={handleDuplicate}
-              onDeleted={loadCampaigns}
+        <Tabs defaultValue="list" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="list" className="gap-1.5">
+              <List className="h-4 w-4" />
+              Lista
+            </TabsTrigger>
+            <TabsTrigger value="calendar" className="gap-1.5">
+              <CalendarDays className="h-4 w-4" />
+              Calendário
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="list" className="space-y-4">
+            {campaigns.length > 0 && (
+              <CampaignFilters
+                search={search}
+                onSearchChange={setSearch}
+                statusFilter={statusFilter}
+                onStatusFilterChange={setStatusFilter}
+              />
+            )}
+
+            {campaigns.length === 0 ? (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                  <p className="text-muted-foreground">Nenhuma campanha criada ainda.</p>
+                  <Button variant="outline" className="mt-4" onClick={handleNewCampaign}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Criar primeira campanha
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : filteredCampaigns.length === 0 ? (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                  <p className="text-muted-foreground">Nenhuma campanha encontrada com os filtros aplicados.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-4">
+                {filteredCampaigns.map((campaign) => (
+                  <CampaignCard
+                    key={campaign.id}
+                    campaign={campaign}
+                    executing={!!executing[campaign.id]}
+                    onExecute={executeCampaign}
+                    onEdit={handleEdit}
+                    onDuplicate={handleDuplicate}
+                    onDeleted={loadCampaigns}
+                  />
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="calendar">
+            <CampaignCalendar
+              campaigns={campaigns}
+              onCampaignClick={handleEdit}
             />
-          ))}
-        </div>
+          </TabsContent>
+        </Tabs>
       )}
 
       <CreateCampaignDialog
