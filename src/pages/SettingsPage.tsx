@@ -478,9 +478,119 @@ const LlmApiConfig = () => {
   );
 };
 
+const WhatsAppApiConfig = () => {
+  const { user } = useAuth();
+  const [baseUrl, setBaseUrl] = useState("");
+  const [adminToken, setAdminToken] = useState("");
+  const [showAdminToken, setShowAdminToken] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    const load = async () => {
+      const { data } = await supabase
+        .from("settings")
+        .select("value")
+        .eq("user_id", user.id)
+        .eq("key", "uazapi_global")
+        .single();
+      if (data?.value) {
+        const v = data.value as any;
+        setBaseUrl(v.baseUrl || "");
+        setAdminToken(v.adminToken || "");
+      }
+      setLoaded(true);
+    };
+    load();
+  }, [user]);
+
+  const handleSave = async () => {
+    if (!user) return;
+    if (!baseUrl.trim()) {
+      toast.error("URL da UazAPI é obrigatória.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("settings")
+        .upsert(
+          { user_id: user.id, key: "uazapi_global", value: { baseUrl: baseUrl.trim(), adminToken: adminToken.trim() } as any },
+          { onConflict: "user_id,key" }
+        );
+      if (error) throw error;
+      toast.success("Configuração da API WhatsApp salva com sucesso!");
+    } catch (err: any) {
+      toast.error("Erro ao salvar: " + (err.message || "Tente novamente"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const maskKey = (k: string) => k.length > 8 ? k.slice(0, 4) + "••••••••" + k.slice(-4) : "••••••••";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="font-heading">API WhatsApp (UazAPI)</CardTitle>
+        <CardDescription>
+          Configure a URL e o Admin Token da sua UazAPI. Essas informações são compartilhadas entre todas as instâncias.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label>URL da UazAPI *</Label>
+          <Input
+            placeholder="https://seudominio.uazapi.com"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Endereço base da sua instalação UazAPI
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Admin Token *</Label>
+          <div className="relative">
+            <Input
+              type={showAdminToken ? "text" : "password"}
+              placeholder="Token de administrador da UazAPI"
+              value={adminToken}
+              onChange={(e) => setAdminToken(e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={() => setShowAdminToken(!showAdminToken)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              {showAdminToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Necessário para criar e gerenciar instâncias automaticamente
+          </p>
+        </div>
+
+        <Button onClick={handleSave} disabled={saving || !baseUrl.trim()}>
+          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+          Salvar Configuração
+        </Button>
+
+        {loaded && baseUrl && adminToken && (
+          <div className="flex items-center gap-2 text-xs text-success">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Configurado — Admin Token: {maskKey(adminToken)}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 const SettingsPage = () => {
   const { user } = useAuth();
-
 
   return (
     <div className="space-y-4 md:space-y-6">
@@ -489,14 +599,19 @@ const SettingsPage = () => {
         <p className="text-xs md:text-sm text-muted-foreground">Gerencie as configurações do sistema</p>
       </div>
 
-      <Tabs defaultValue="connection" className="space-y-4">
+      <Tabs defaultValue="apiwhatsapp" className="space-y-4">
         <TabsList className="w-full flex overflow-x-auto">
-          <TabsTrigger value="connection" className="text-xs md:text-sm">Conexão</TabsTrigger>
+          <TabsTrigger value="apiwhatsapp" className="text-xs md:text-sm">API WhatsApp</TabsTrigger>
+          <TabsTrigger value="connection" className="text-xs md:text-sm">Instâncias</TabsTrigger>
           <TabsTrigger value="apillm" className="text-xs md:text-sm">API LLM</TabsTrigger>
           <TabsTrigger value="company" className="text-xs md:text-sm">Empresa</TabsTrigger>
           <TabsTrigger value="users" className="text-xs md:text-sm">Usuários</TabsTrigger>
           <TabsTrigger value="webhooks" className="text-xs md:text-sm">Webhooks</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="apiwhatsapp" className="space-y-4">
+          <WhatsAppApiConfig />
+        </TabsContent>
 
         <TabsContent value="connection" className="space-y-4">
           <InstanceManager />

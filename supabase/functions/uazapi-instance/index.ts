@@ -53,6 +53,21 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const { action, instanceName, instanceId } = body;
 
+    // ── RESOLVE GLOBAL CONFIG (uazapi_global from settings) ──
+    let globalBaseUrl = '';
+    let globalAdminToken = '';
+    const { data: globalSettings } = await supabase
+      .from('settings')
+      .select('value')
+      .eq('user_id', userId)
+      .eq('key', 'uazapi_global')
+      .single();
+    if (globalSettings?.value) {
+      const gv = globalSettings.value as any;
+      globalBaseUrl = gv.baseUrl || '';
+      globalAdminToken = gv.adminToken || '';
+    }
+
     // ── RESOLVE CONFIG: from whatsapp_instances table or legacy settings ──
     let config: { baseUrl: string; adminToken: string; instanceToken: string; instanceName?: string } = {
       baseUrl: '', adminToken: '', instanceToken: '',
@@ -68,8 +83,8 @@ serve(async (req) => {
         .single();
       if (inst) {
         config = {
-          baseUrl: (inst as any).base_url || '',
-          adminToken: (inst as any).admin_token || '',
+          baseUrl: (inst as any).base_url || globalBaseUrl,
+          adminToken: (inst as any).admin_token || globalAdminToken,
           instanceToken: (inst as any).instance_token || '',
           instanceName: (inst as any).instance_name || '',
         };
@@ -86,8 +101,8 @@ serve(async (req) => {
       if (instances && instances.length > 0) {
         const inst = instances[0] as any;
         config = {
-          baseUrl: inst.base_url || '',
-          adminToken: inst.admin_token || '',
+          baseUrl: inst.base_url || globalBaseUrl,
+          adminToken: inst.admin_token || globalAdminToken,
           instanceToken: inst.instance_token || '',
           instanceName: inst.instance_name || '',
         };
@@ -102,14 +117,18 @@ serve(async (req) => {
         if (settings?.value) {
           const v = settings.value as any;
           config = {
-            baseUrl: v.baseUrl || '',
-            adminToken: v.adminToken || '',
+            baseUrl: v.baseUrl || globalBaseUrl,
+            adminToken: v.adminToken || globalAdminToken,
             instanceToken: v.instanceToken || '',
             instanceName: v.instanceName || '',
           };
         }
       }
     }
+
+    // Fallback to global config if instance had no base_url
+    if (!config.baseUrl) config.baseUrl = globalBaseUrl;
+    if (!config.adminToken) config.adminToken = globalAdminToken;
 
     if (!config.baseUrl) return json({ success: false, error: 'URL da UazAPI não configurada.' });
 

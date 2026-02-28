@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
-  Plus, Trash2, Star, Loader2, QrCode, Wifi, WifiOff, Save, Unplug,
-  CheckCircle2, RefreshCw, Smartphone, Clock, Eye, EyeOff,
+  Plus, Trash2, Star, Loader2, QrCode, Wifi, WifiOff,
+  CheckCircle2, RefreshCw, Smartphone, Clock, Unplug,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useWhatsAppInstances, type WhatsAppInstance } from "@/hooks/useWhatsAppInstances";
+import { useAuth } from "@/hooks/useAuth";
 
 const extractError = (data: any, fallback: string): string => {
   if (!data) return fallback;
@@ -54,7 +55,6 @@ const InstanceCard = ({ instance, onUpdate, onSetDefault, onDelete }: InstanceCa
         const phone = data.phone || data.instance?.user?.id?.replace("@s.whatsapp.net", "") || undefined;
         const name = data.name || data.instance?.user?.name || data.pushname || undefined;
         setConnectionInfo({ phone, name });
-        // Update instance status in DB
         await supabase.from("whatsapp_instances").update({ status: "connected", phone: phone || null, device_name: name || null } as any).eq("id", instance.id);
       } else {
         setConnectionStatus("disconnected");
@@ -153,7 +153,6 @@ const InstanceCard = ({ instance, onUpdate, onSetDefault, onDelete }: InstanceCa
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {/* Info */}
         {connectionStatus === "connected" && connectionInfo && (
           <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/15 p-3 flex items-center gap-3">
             <Smartphone className="h-5 w-5 text-emerald-500" />
@@ -165,7 +164,6 @@ const InstanceCard = ({ instance, onUpdate, onSetDefault, onDelete }: InstanceCa
         )}
 
         <div className="text-xs text-muted-foreground space-y-0.5">
-          <p>URL: <span className="font-mono">{instance.base_url}</span></p>
           {instance.instance_name && <p>Instância: {instance.instance_name}</p>}
         </div>
 
@@ -176,7 +174,6 @@ const InstanceCard = ({ instance, onUpdate, onSetDefault, onDelete }: InstanceCa
           </div>
         )}
 
-        {/* Actions */}
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={connectQr} disabled={loadingQr}>
             {loadingQr ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <QrCode className="mr-1 h-3 w-3" />}
@@ -208,39 +205,78 @@ const InstanceCard = ({ instance, onUpdate, onSetDefault, onDelete }: InstanceCa
 };
 
 export default function InstanceManager() {
-  const { instances, loading, load, addInstance, updateInstance, deleteInstance, setDefault } = useWhatsAppInstances();
+  const { user } = useAuth();
+  const { instances, loading, load, addInstance, deleteInstance, setDefault } = useWhatsAppInstances();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newBaseUrl, setNewBaseUrl] = useState("");
-  const [newAdminToken, setNewAdminToken] = useState("");
-  const [newInstanceToken, setNewInstanceToken] = useState("");
-  const [newInstanceName, setNewInstanceName] = useState("");
-  const [showToken, setShowToken] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const handleAdd = async () => {
-    if (!newName.trim() || !newBaseUrl.trim()) {
-      toast.error("Nome e URL são obrigatórios.");
+    if (!newName.trim()) {
+      toast.error("Nome da instância é obrigatório.");
       return;
     }
+    if (!user) return;
+
     setSaving(true);
-    const result = await addInstance({
-      name: newName.trim(),
-      base_url: newBaseUrl.trim(),
-      admin_token: newAdminToken.trim(),
-      instance_token: newInstanceToken.trim(),
-      instance_name: newInstanceName.trim(),
-    });
-    if (result?.error) {
-      toast.error("Erro ao adicionar: " + result.error.message);
-    } else {
-      toast.success("Instância adicionada!");
+    try {
+      // Load global config
+      const { data: settings } = await supabase
+        .from("settings")
+        .select("value")
+        .eq("user_id", user.id)
+        .eq("key", "uazapi_global")
+        .single();
+
+      const globalConfig = settings?.value as any;
+      if (!globalConfig?.baseUrl || !globalConfig?.adminToken) {
+        toast.error("Configure a URL e o Admin Token na aba 'API WhatsApp' primeiro.");
+        setSaving(false);
+        return;
+      }
+
+      // First, create instance record in DB
+      const result = await addInstance({
+        name: newName.trim(),
+        base_url: globalConfig.baseUrl,
+        admin_token: globalConfig.adminToken,
+        instance_token: "",
+        instance_name: newName.trim(),
+      });
+
+      if (result?.error) {
+        toast.error("Erro ao salvar instância: " + result.error.message);
+        setSaving(false);
+        return;
+      }
+
+      const instanceId = (result?.data as any)?.id;
+
+      // Call create-instance on UazAPI to auto-generate instance token
+      const { data: createData, error: createError } = await supabase.functions.invoke("uazapi-instance", {
+        body: { action: "create-instance", instanceId, instanceName: newName.trim() },
+      });
+
+      if (createError) {
+        toast.warning("Instância salva, mas não foi possível criar na UazAPI automaticamente. Verifique a configuração.");
+      } else if (createData?.error) {
+        toast.warning("Instância salva. Aviso da UazAPI: " + extractError(createData, ""));
+      } else if (createData?.instanceToken) {
+        // Update instance token in DB
+        await supabase.from("whatsapp_instances").update({
+          instance_token: createData.instanceToken,
+          instance_name: createData.instanceName || newName.trim(),
+        } as any).eq("id", instanceId);
+        toast.success("Instância criada e configurada automaticamente!");
+      } else {
+        toast.success("Instância adicionada!");
+      }
+
+      await load();
       setDialogOpen(false);
       setNewName("");
-      setNewBaseUrl("");
-      setNewAdminToken("");
-      setNewInstanceToken("");
-      setNewInstanceName("");
+    } catch (err: any) {
+      toast.error("Erro: " + (err.message || "Tente novamente"));
     }
     setSaving(false);
   };
@@ -264,7 +300,7 @@ export default function InstanceManager() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="font-heading">Instâncias WhatsApp</CardTitle>
-              <CardDescription>Gerencie suas conexões WhatsApp via UazAPI</CardDescription>
+              <CardDescription>Gerencie suas conexões WhatsApp. A URL e Admin Token são configurados na aba "API WhatsApp".</CardDescription>
             </div>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
@@ -274,48 +310,24 @@ export default function InstanceManager() {
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Adicionar Instância WhatsApp</DialogTitle>
+                  <DialogTitle>Nova Instância WhatsApp</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label>Nome *</Label>
-                    <Input placeholder="Ex: Atendimento, Vendas..." value={newName} onChange={(e) => setNewName(e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>URL da UazAPI *</Label>
-                    <Input placeholder="https://seudominio.uazapi.com" value={newBaseUrl} onChange={(e) => setNewBaseUrl(e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Admin Token</Label>
-                    <Input type="password" placeholder="Token de administrador" value={newAdminToken} onChange={(e) => setNewAdminToken(e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Nome da Instância</Label>
-                    <Input placeholder="Nome na UazAPI (opcional)" value={newInstanceName} onChange={(e) => setNewInstanceName(e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Instance Token</Label>
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <Input
-                          type={showToken ? "text" : "password"}
-                          placeholder="Token da instância"
-                          value={newInstanceToken}
-                          onChange={(e) => setNewInstanceToken(e.target.value)}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowToken(!showToken)}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                        >
-                          {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </div>
+                    <Label>Nome da Instância *</Label>
+                    <Input
+                      placeholder="Ex: Atendimento, Vendas, Suporte..."
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      A instância será criada automaticamente na UazAPI com o token gerado pelo sistema.
+                    </p>
                   </div>
                   <Button onClick={handleAdd} disabled={saving} className="w-full">
                     {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                    Adicionar
+                    Criar Instância
                   </Button>
                 </div>
               </DialogContent>
@@ -333,7 +345,7 @@ export default function InstanceManager() {
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <Smartphone className="h-10 w-10 text-muted-foreground/30 mb-3" />
             <p className="text-muted-foreground">Nenhuma instância configurada.</p>
-            <p className="text-xs text-muted-foreground mt-1">Adicione uma instância WhatsApp para começar.</p>
+            <p className="text-xs text-muted-foreground mt-1">Configure a API WhatsApp primeiro e depois adicione instâncias.</p>
             <Button variant="outline" className="mt-4" onClick={() => setDialogOpen(true)}>
               <Plus className="mr-2 h-4 w-4" /> Adicionar primeira instância
             </Button>
