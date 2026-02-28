@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.campaign-execute]
 verify_jwt = false
+
+[functions.llm-reply]
+verify_jwt = false
