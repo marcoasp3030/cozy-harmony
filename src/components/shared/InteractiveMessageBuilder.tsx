@@ -195,8 +195,9 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
         <>
           <Separator />
 
-          {/* Header (optional) */}
-          <div className="space-y-1">
+          <div className="space-y-3 max-h-[48vh] overflow-y-auto pr-1">
+            {/* Header (optional) */}
+            <div className="space-y-1">
             <Label className="text-xs">Cabeçalho (opcional)</Label>
             <Input
               placeholder="Título da mensagem"
@@ -446,6 +447,7 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
               )}
             </div>
           )}
+          </div>
 
           {/* ─── PREVIEW ─── */}
           <Separator />
