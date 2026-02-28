@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, Send, Phone, MoreVertical, Kanban, List, StickyNote, LayoutTemplate, Slash, ArrowLeft, Brain, Loader2, Sparkles, FileText as SummarizeIcon, MousePointerClick } from "lucide-react";
+import { Search, Send, Phone, MoreVertical, Kanban, List, StickyNote, LayoutTemplate, Slash, ArrowLeft, Brain, Loader2, Sparkles, FileText as SummarizeIcon, MousePointerClick, X } from "lucide-react";
 import { MediaUploader, AttachmentPreview, uploadMediaFile } from "@/components/inbox/MediaUploader";
 import type { MediaAttachment } from "@/components/inbox/MediaUploader";
 import AudioRecorder from "@/components/inbox/AudioRecorder";
@@ -101,6 +101,7 @@ const InboxPage = () => {
   const [mediaUploading, setMediaUploading] = useState(false);
   const [interactiveOpen, setInteractiveOpen] = useState(false);
   const [interactiveMsg, setInteractiveMsg] = useState<InteractiveMessage>(getDefaultInteractive());
+  const [aiSuggestion, setAiSuggestion] = useState<{ stage_id: string; stage_name: string; stage_color: string; reason: string; intent: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pendingTempIdsRef = useRef<Set<string>>(new Set());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -244,6 +245,16 @@ const InboxPage = () => {
         if (msg.direction === "inbound") {
           const soundEnabled = localStorage.getItem("notification_sound_enabled") !== "false";
           if (soundEnabled) playNotificationSound();
+          // Trigger AI funnel suggestion
+          if (selectedConv && msg.contact_id === selectedConv.contact_id && msg.content) {
+            supabase.functions.invoke("smart-funnel", {
+              body: { conversation_id: selectedConv.id, message_content: msg.content, contact_name: selectedConv.contact?.name }
+            }).then(({ data }) => {
+              if (data?.suggestion) {
+                setAiSuggestion({ ...data.suggestion, reason: data.reason, intent: data.intent });
+              }
+            }).catch(() => {});
+          }
         }
         if (selectedConv && msg.contact_id === selectedConv.contact_id) {
           setMessages((prev) => {
@@ -834,6 +845,41 @@ const InboxPage = () => {
                   <div ref={messagesEndRef} />
                 </div>
               </ScrollArea>
+
+              {/* AI Funnel Suggestion Banner */}
+              {aiSuggestion && (
+                <div className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 animate-in slide-in-from-bottom-2">
+                  <Brain className="h-4 w-4 text-primary shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium">
+                      IA sugere mover para{" "}
+                      <span className="inline-flex items-center gap-1">
+                        <span className="h-2.5 w-2.5 rounded-full inline-block" style={{ backgroundColor: aiSuggestion.stage_color }} />
+                        <strong>{aiSuggestion.stage_name}</strong>
+                      </span>
+                    </p>
+                    <p className="text-[10px] text-muted-foreground truncate">{aiSuggestion.reason} • Intenção: {aiSuggestion.intent}</p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="h-7 text-xs shrink-0"
+                    onClick={async () => {
+                      if (selectedConvId) {
+                        await supabase.from("conversations").update({ funnel_stage_id: aiSuggestion.stage_id }).eq("id", selectedConvId);
+                        toast.success(`Movido para "${aiSuggestion.stage_name}"`);
+                        setAiSuggestion(null);
+                        loadConversations();
+                      }
+                    }}
+                  >
+                    Aceitar
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 text-xs shrink-0" onClick={() => setAiSuggestion(null)}>
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              )}
 
               {/* Slash command menu */}
               {slashMenuOpen && filteredSlashItems.length > 0 && (

@@ -264,6 +264,7 @@ export type Database = {
           last_message_at: string | null
           notes: string | null
           priority: string
+          score: number
           sla_hours: number | null
           status: string
           unread_count: number | null
@@ -279,6 +280,7 @@ export type Database = {
           last_message_at?: string | null
           notes?: string | null
           priority?: string
+          score?: number
           sla_hours?: number | null
           status?: string
           unread_count?: number | null
@@ -294,6 +296,7 @@ export type Database = {
           last_message_at?: string | null
           notes?: string | null
           priority?: string
+          score?: number
           sla_hours?: number | null
           status?: string
           unread_count?: number | null
@@ -325,7 +328,9 @@ export type Database = {
       }
       funnel_stages: {
         Row: {
+          actions: Json
           auto_move_on_reply: boolean
+          auto_move_stage_id: string | null
           color: string
           created_at: string
           funnel_id: string
@@ -333,9 +338,12 @@ export type Database = {
           name: string
           notify_after_hours: number | null
           position: number
+          score_threshold: number | null
         }
         Insert: {
+          actions?: Json
           auto_move_on_reply?: boolean
+          auto_move_stage_id?: string | null
           color?: string
           created_at?: string
           funnel_id: string
@@ -343,9 +351,12 @@ export type Database = {
           name: string
           notify_after_hours?: number | null
           position?: number
+          score_threshold?: number | null
         }
         Update: {
+          actions?: Json
           auto_move_on_reply?: boolean
+          auto_move_stage_id?: string | null
           color?: string
           created_at?: string
           funnel_id?: string
@@ -353,8 +364,16 @@ export type Database = {
           name?: string
           notify_after_hours?: number | null
           position?: number
+          score_threshold?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "funnel_stages_auto_move_stage_id_fkey"
+            columns: ["auto_move_stage_id"]
+            isOneToOne: false
+            referencedRelation: "funnel_stages"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "funnel_stages_funnel_id_fkey"
             columns: ["funnel_id"]
@@ -483,6 +502,47 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      scoring_rules: {
+        Row: {
+          condition: Json
+          created_at: string
+          description: string | null
+          event_type: string
+          funnel_id: string
+          id: string
+          is_active: boolean
+          points: number
+        }
+        Insert: {
+          condition?: Json
+          created_at?: string
+          description?: string | null
+          event_type?: string
+          funnel_id: string
+          id?: string
+          is_active?: boolean
+          points?: number
+        }
+        Update: {
+          condition?: Json
+          created_at?: string
+          description?: string | null
+          event_type?: string
+          funnel_id?: string
+          id?: string
+          is_active?: boolean
+          points?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scoring_rules_funnel_id_fkey"
+            columns: ["funnel_id"]
+            isOneToOne: false
+            referencedRelation: "funnels"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       settings: {
         Row: {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Pencil, Trash2, GripVertical, Save, X, Loader2, ArrowRight, Zap, Clock } from "lucide-react";
+import { Plus, Pencil, Trash2, GripVertical, Save, X, Loader2, ArrowRight, Zap, Clock, Brain, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,6 +28,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import StageActionsEditor, { type StageAction } from "@/components/funnels/StageActionsEditor";
+import ScoringRulesEditor from "@/components/funnels/ScoringRulesEditor";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface Funnel {
   id: string;
@@ -45,6 +48,9 @@ interface FunnelStage {
   position: number;
   auto_move_on_reply: boolean;
   notify_after_hours: number | null;
+  actions: StageAction[];
+  score_threshold: number | null;
+  auto_move_stage_id: string | null;
 }
 
 const STAGE_COLORS = [
@@ -200,6 +206,8 @@ const StageEditor = ({
         color: stage.color,
         auto_move_on_reply: stage.auto_move_on_reply,
         notify_after_hours: stage.notify_after_hours,
+        actions: stage.actions as any,
+        score_threshold: stage.score_threshold,
       })
       .eq("id", stage.id);
     if (error) {
@@ -262,49 +270,70 @@ const StageEditor = ({
             />
 
             {editingStage?.id === stage.id ? (
-              <div className="flex-1 flex items-center gap-2 flex-wrap">
-                <Input
-                  value={editingStage.name}
-                  onChange={(e) => setEditingStage({ ...editingStage, name: e.target.value })}
-                  className="h-8 text-sm flex-1 min-w-[120px]"
-                />
-                <div className="flex items-center gap-2">
+              <div className="flex-1 space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Input
+                    value={editingStage.name}
+                    onChange={(e) => setEditingStage({ ...editingStage, name: e.target.value })}
+                    className="h-8 text-sm flex-1 min-w-[120px]"
+                  />
                   <input
                     type="color"
                     value={editingStage.color}
                     onChange={(e) => setEditingStage({ ...editingStage, color: e.target.value })}
                     className="h-8 w-8 cursor-pointer rounded border-0"
                   />
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={editingStage.auto_move_on_reply}
+                      onCheckedChange={(v) => setEditingStage({ ...editingStage, auto_move_on_reply: v })}
+                    />
+                    <span className="text-xs text-muted-foreground">Auto-avançar</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="h"
+                      value={editingStage.notify_after_hours ?? ""}
+                      onChange={(e) =>
+                        setEditingStage({
+                          ...editingStage,
+                          notify_after_hours: e.target.value ? Number(e.target.value) : null,
+                        })
+                      }
+                      className="h-8 w-16 text-sm"
+                    />
+                    <span className="text-xs text-muted-foreground">Alertar (h)</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="pts"
+                      value={editingStage.score_threshold ?? ""}
+                      onChange={(e) =>
+                        setEditingStage({
+                          ...editingStage,
+                          score_threshold: e.target.value ? Number(e.target.value) : null,
+                        })
+                      }
+                      className="h-8 w-16 text-sm"
+                    />
+                    <span className="text-xs text-muted-foreground">Score mín.</span>
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={() => updateStage(editingStage)}>
+                    <Save className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setEditingStage(null)}>
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    checked={editingStage.auto_move_on_reply}
-                    onCheckedChange={(v) => setEditingStage({ ...editingStage, auto_move_on_reply: v })}
-                  />
-                  <span className="text-xs text-muted-foreground">Auto-avançar</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Input
-                    type="number"
-                    min="0"
-                    placeholder="h"
-                    value={editingStage.notify_after_hours ?? ""}
-                    onChange={(e) =>
-                      setEditingStage({
-                        ...editingStage,
-                        notify_after_hours: e.target.value ? Number(e.target.value) : null,
-                      })
-                    }
-                    className="h-8 w-16 text-sm"
-                  />
-                  <span className="text-xs text-muted-foreground">Alertar (h)</span>
-                </div>
-                <Button size="sm" variant="ghost" onClick={() => updateStage(editingStage)}>
-                  <Save className="h-3.5 w-3.5" />
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setEditingStage(null)}>
-                  <X className="h-3.5 w-3.5" />
-                </Button>
+                <StageActionsEditor
+                  actions={editingStage.actions || []}
+                  onChange={(actions) => setEditingStage({ ...editingStage, actions })}
+                  stages={sortedStages.map(s => ({ id: s.id, name: s.name, color: s.color }))}
+                />
               </div>
             ) : (
               <>
@@ -318,6 +347,16 @@ const StageEditor = ({
                   {stage.notify_after_hours && (
                     <Badge variant="outline" className="text-[10px] h-5 gap-1">
                       <Clock className="h-3 w-3" /> {stage.notify_after_hours}h
+                    </Badge>
+                  )}
+                  {stage.score_threshold && (
+                    <Badge variant="outline" className="text-[10px] h-5 gap-1">
+                      <TrendingUp className="h-3 w-3" /> ≥{stage.score_threshold}pts
+                    </Badge>
+                  )}
+                  {stage.actions && stage.actions.length > 0 && (
+                    <Badge variant="secondary" className="text-[10px] h-5 gap-1">
+                      {stage.actions.length} ações
                     </Badge>
                   )}
                 </div>
@@ -374,8 +413,10 @@ const FunnelsPage = () => {
     setFunnels((funnelData || []) as Funnel[]);
 
     const grouped: Record<string, FunnelStage[]> = {};
-    for (const s of (stageData || []) as FunnelStage[]) {
+    for (const s of (stageData || []) as unknown as FunnelStage[]) {
       if (!grouped[s.funnel_id]) grouped[s.funnel_id] = [];
+      // Ensure actions is always an array
+      s.actions = Array.isArray(s.actions) ? s.actions : [];
       grouped[s.funnel_id].push(s);
     }
     setStages(grouped);
@@ -500,11 +541,44 @@ const FunnelsPage = () => {
               </CardHeader>
               {isExpanded && (
                 <CardContent>
-                  <StageEditor
-                    funnelId={funnel.id}
-                    stages={funnelStages}
-                    onReload={loadData}
-                  />
+                  <Tabs defaultValue="stages" className="w-full">
+                    <TabsList className="mb-3">
+                      <TabsTrigger value="stages" className="text-xs gap-1">
+                        <ArrowRight className="h-3 w-3" /> Etapas
+                      </TabsTrigger>
+                      <TabsTrigger value="scoring" className="text-xs gap-1">
+                        <TrendingUp className="h-3 w-3" /> Scoring
+                      </TabsTrigger>
+                      <TabsTrigger value="ai" className="text-xs gap-1">
+                        <Brain className="h-3 w-3" /> IA
+                      </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="stages">
+                      <StageEditor
+                        funnelId={funnel.id}
+                        stages={funnelStages}
+                        onReload={loadData}
+                      />
+                    </TabsContent>
+                    <TabsContent value="scoring">
+                      <ScoringRulesEditor funnelId={funnel.id} />
+                    </TabsContent>
+                    <TabsContent value="ai">
+                      <div className="space-y-3">
+                        <div className="rounded-lg border border-border bg-muted/30 p-4 text-center">
+                          <Brain className="h-8 w-8 mx-auto mb-2 text-primary/60" />
+                          <p className="text-sm font-medium">Classificação por IA</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            A IA analisa cada mensagem recebida e sugere movimentações no funil com base na intenção detectada 
+                            (interesse, dúvida, reclamação, compra, etc). As sugestões aparecem como badges no Inbox.
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Modelo: Gemini Flash Lite • Confiança mínima: 70% • Modo híbrido (sugestão para o atendente aceitar)
+                          </p>
+                        </div>
+                      </div>
+                    </TabsContent>
+                  </Tabs>
                 </CardContent>
               )}
             </Card>
