@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Search, Send, Paperclip, Phone, MoreVertical, CheckCheck, Check, Clock, AlertCircle, ImageIcon, FileText, Mic, LayoutTemplate, Kanban, List } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -678,32 +679,39 @@ const InboxPage = () => {
                     className={cn(
                       "mt-1",
                       selectedConv?.status === "open" && "bg-success/15 text-success",
+                      selectedConv?.status === "in_progress" && "bg-info/15 text-info",
                       selectedConv?.status === "resolved" && "bg-muted text-muted-foreground",
                       selectedConv?.status === "waiting" && "bg-warning/15 text-warning"
                     )}
                   >
-                    {selectedConv?.status === "open" ? "Aberta" : selectedConv?.status === "resolved" ? "Resolvida" : "Aguardando"}
+                    {selectedConv?.status === "open" ? "Aberta" : selectedConv?.status === "in_progress" ? "Em Atendimento" : selectedConv?.status === "resolved" ? "Resolvida" : "Aguardando"}
                   </Badge>
                 </div>
 
                 {/* Actions */}
                 <div className="space-y-2 pt-2">
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    size="sm"
-                    onClick={async () => {
-                      const newStatus = selectedConv?.status === "open" ? "resolved" : "open";
+                  <Select
+                    value={selectedConv?.status || "open"}
+                    onValueChange={async (newStatus) => {
                       await supabase
                         .from("conversations")
                         .update({ status: newStatus })
                         .eq("id", selectedConvId);
-                      toast.success(newStatus === "resolved" ? "Conversa resolvida" : "Conversa reaberta");
+                      const labels: Record<string, string> = { open: "Aberta", in_progress: "Em Atendimento", waiting: "Aguardando", resolved: "Resolvida" };
+                      toast.success(`Status: ${labels[newStatus]}`);
                       loadConversations();
                     }}
                   >
-                    {selectedConv?.status === "open" ? "Marcar como Resolvida" : "Reabrir Conversa"}
-                  </Button>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="open">Aberta</SelectItem>
+                      <SelectItem value="in_progress">Em Atendimento</SelectItem>
+                      <SelectItem value="waiting">Aguardando</SelectItem>
+                      <SelectItem value="resolved">Resolvida</SelectItem>
+                    </SelectContent>
+                  </Select>
                   {contact.is_blocked ? (
                     <Button
                       variant="outline"

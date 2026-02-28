@@ -47,9 +47,10 @@ interface KanbanViewProps {
 }
 
 const columns = [
-  { id: "open", label: "Abertas", color: "bg-success", dotColor: "bg-success" },
-  { id: "waiting", label: "Aguardando", color: "bg-warning", dotColor: "bg-warning" },
-  { id: "resolved", label: "Resolvidas", color: "bg-muted-foreground", dotColor: "bg-muted-foreground" },
+  { id: "open", label: "Abertas", dotColor: "bg-success" },
+  { id: "in_progress", label: "Em Atendimento", dotColor: "bg-info" },
+  { id: "waiting", label: "Aguardando", dotColor: "bg-warning" },
+  { id: "resolved", label: "Resolvidas", dotColor: "bg-muted-foreground" },
 ];
 
 const formatTime = (dateStr: string) => {
@@ -121,7 +122,7 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
   };
 
   return (
-    <div className="grid h-[calc(100vh-220px)] grid-cols-3 gap-4">
+    <div className="grid h-[calc(100vh-220px)] grid-cols-4 gap-3">
       {columns.map((col) => {
         const items = conversations.filter((c) => c.status === col.id);
         const isDragOver = dragOverCol === col.id;
