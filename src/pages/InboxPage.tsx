@@ -505,6 +505,7 @@ const InboxPage = () => {
           body: {
             messageExternalId: msg.external_id,
             emoji,
+            number: contact?.phone,
             instanceId: selectedInstanceId || defaultInstance?.id || undefined,
           },
         });
