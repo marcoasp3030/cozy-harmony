@@ -30,66 +30,85 @@ serve(async (req) => {
     }
 
     const userId = claimsData.claims.sub as string;
-
     const body = await req.json();
-    const { type, number, text, mediaUrl, caption, filename, delay } = body;
+    const { type, number, text, mediaUrl, caption, filename, delay, instanceId } = body;
 
     if (!type || !number) {
       return new Response(JSON.stringify({ error: 'Campos "type" e "number" são obrigatórios.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Validate number format
     const cleanNumber = String(number).replace(/\D/g, '');
     if (cleanNumber.length < 10 || cleanNumber.length > 15) {
       return new Response(JSON.stringify({ error: 'Número de telefone inválido.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Validate type
     const validTypes = ['text', 'image', 'video', 'audio', 'document', 'ptt', 'sticker', 'contact', 'location'];
     if (!validTypes.includes(type)) {
       return new Response(JSON.stringify({ error: `Tipo inválido. Use: ${validTypes.join(', ')}` }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Validate text length
     if (type === 'text' && (!text || text.length > 4096)) {
       return new Response(JSON.stringify({ error: 'Texto é obrigatório e deve ter no máximo 4096 caracteres.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Get UazAPI config
-    const { data: settings } = await supabase
-      .from('settings')
-      .select('value')
-      .eq('user_id', userId)
-      .eq('key', 'uazapi_config')
-      .single();
+    // ── RESOLVE CONFIG: whatsapp_instances table or legacy settings ──
+    let config: { baseUrl: string; instanceToken: string } | null = null;
 
-    if (!settings?.value) {
+    if (instanceId) {
+      const { data: inst } = await supabase
+        .from('whatsapp_instances')
+        .select('base_url, instance_token')
+        .eq('id', instanceId)
+        .eq('user_id', userId)
+        .single();
+      if (inst) config = { baseUrl: (inst as any).base_url, instanceToken: (inst as any).instance_token };
+    }
+
+    if (!config) {
+      // Try default instance
+      const { data: instances } = await supabase
+        .from('whatsapp_instances')
+        .select('base_url, instance_token')
+        .eq('user_id', userId)
+        .order('is_default', { ascending: false })
+        .limit(1);
+
+      if (instances && instances.length > 0) {
+        const inst = instances[0] as any;
+        config = { baseUrl: inst.base_url, instanceToken: inst.instance_token };
+      } else {
+        // Legacy fallback
+        const { data: settings } = await supabase
+          .from('settings')
+          .select('value')
+          .eq('user_id', userId)
+          .eq('key', 'uazapi_config')
+          .single();
+        if (settings?.value) {
+          const v = settings.value as any;
+          config = { baseUrl: v.baseUrl, instanceToken: v.instanceToken };
+        }
+      }
+    }
+
+    if (!config?.baseUrl || !config?.instanceToken) {
       return new Response(JSON.stringify({ error: 'UazAPI não configurada.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const config = settings.value as { baseUrl: string; instanceToken: string };
     const baseUrl = config.baseUrl.replace(/\/+$/, '');
 
-    // Build request based on type
-    // UazAPI v2: text uses /send/text, all media uses /send/media with type + file fields
     let endpoint: string;
     let sendBody: Record<string, unknown> = { number: cleanNumber };
-
     if (delay && Number(delay) > 0) sendBody.delay = Number(delay);
 
     if (type === 'text') {
@@ -105,10 +124,7 @@ serve(async (req) => {
 
     const res = await fetch(`${baseUrl}${endpoint}`, {
       method: 'POST',
-      headers: {
-        'token': config.instanceToken,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'token': config.instanceToken, 'Content-Type': 'application/json' },
       body: JSON.stringify(sendBody),
     });
 
@@ -116,22 +132,19 @@ serve(async (req) => {
 
     if (!res.ok) {
       return new Response(JSON.stringify({ success: false, error: `UazAPI retornou status ${res.status}`, details: data }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     return new Response(JSON.stringify({ success: true, ...data }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Erro desconhecido';
     console.error('uazapi-send error:', message);
     return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 });

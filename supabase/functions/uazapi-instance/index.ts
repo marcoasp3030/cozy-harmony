@@ -19,24 +19,15 @@ serve(async (req) => {
     try { return raw ? JSON.parse(raw) : null; } catch { return { raw }; }
   };
 
-  // Call UazAPI with the documented auth header
   const callUaz = async (
-    baseUrl: string,
-    endpoint: string,
-    headerName: string,
-    token: string,
-    method: 'GET' | 'POST' | 'DELETE' = 'GET',
-    body?: Record<string, unknown>,
+    baseUrl: string, endpoint: string, headerName: string, token: string,
+    method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: Record<string, unknown>,
   ) => {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      [headerName]: token,
-    };
     const url = `${baseUrl}${endpoint}`;
     console.log(`UazAPI ${method} ${url} [header: ${headerName}]`);
     const res = await fetch(url, {
       method,
-      headers,
+      headers: { 'Content-Type': 'application/json', [headerName]: token },
       body: body ? JSON.stringify(body) : undefined,
     });
     const data = await parseJsonSafe(res);
@@ -46,9 +37,7 @@ serve(async (req) => {
 
   try {
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return json({ error: 'Unauthorized' }, 401);
-    }
+    if (!authHeader?.startsWith('Bearer ')) return json({ error: 'Unauthorized' }, 401);
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
@@ -58,161 +47,154 @@ serve(async (req) => {
 
     const jwtToken = authHeader.replace('Bearer ', '');
     const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(jwtToken);
-    if (claimsError || !claimsData?.claims) {
-      return json({ error: 'Unauthorized', detail: claimsError?.message }, 401);
-    }
+    if (claimsError || !claimsData?.claims) return json({ error: 'Unauthorized' }, 401);
 
     const userId = claimsData.claims.sub as string;
     const body = await req.json().catch(() => ({}));
-    const { action, instanceName } = body;
+    const { action, instanceName, instanceId } = body;
 
-    const { data: settings } = await supabase
-      .from('settings')
-      .select('value')
-      .eq('user_id', userId)
-      .eq('key', 'uazapi_config')
-      .single();
+    // ── RESOLVE CONFIG: from whatsapp_instances table or legacy settings ──
+    let config: { baseUrl: string; adminToken: string; instanceToken: string; instanceName?: string } = {
+      baseUrl: '', adminToken: '', instanceToken: '',
+    };
 
-    const config = (settings?.value || {}) as { baseUrl: string; adminToken: string; instanceToken: string; instanceName?: string };
+    if (instanceId) {
+      // Load specific instance
+      const { data: inst } = await supabase
+        .from('whatsapp_instances')
+        .select('*')
+        .eq('id', instanceId)
+        .eq('user_id', userId)
+        .single();
+      if (inst) {
+        config = {
+          baseUrl: (inst as any).base_url || '',
+          adminToken: (inst as any).admin_token || '',
+          instanceToken: (inst as any).instance_token || '',
+          instanceName: (inst as any).instance_name || '',
+        };
+      }
+    } else {
+      // Try default instance from new table first
+      const { data: instances } = await supabase
+        .from('whatsapp_instances')
+        .select('*')
+        .eq('user_id', userId)
+        .order('is_default', { ascending: false })
+        .limit(1);
 
-    if (!config.baseUrl) {
-      return json({ success: false, error: 'URL da UazAPI não configurada.' });
+      if (instances && instances.length > 0) {
+        const inst = instances[0] as any;
+        config = {
+          baseUrl: inst.base_url || '',
+          adminToken: inst.admin_token || '',
+          instanceToken: inst.instance_token || '',
+          instanceName: inst.instance_name || '',
+        };
+      } else {
+        // Legacy fallback: settings table
+        const { data: settings } = await supabase
+          .from('settings')
+          .select('value')
+          .eq('user_id', userId)
+          .eq('key', 'uazapi_config')
+          .single();
+        if (settings?.value) {
+          const v = settings.value as any;
+          config = {
+            baseUrl: v.baseUrl || '',
+            adminToken: v.adminToken || '',
+            instanceToken: v.instanceToken || '',
+            instanceName: v.instanceName || '',
+          };
+        }
+      }
     }
+
+    if (!config.baseUrl) return json({ success: false, error: 'URL da UazAPI não configurada.' });
 
     const baseUrl = config.baseUrl.replace(/\/+$/, '');
 
-    // ── CREATE INSTANCE (admin) ──────────────────────────────
+    // ── CREATE INSTANCE ──
     if (action === 'create-instance') {
-      if (!config.adminToken) {
-        return json({ success: false, error: 'Admin Token é obrigatório para criar instâncias.' });
-      }
-
+      if (!config.adminToken) return json({ success: false, error: 'Admin Token é obrigatório para criar instâncias.' });
       const name = instanceName || `inst_${userId.slice(0, 8)}`;
-
-      // UazAPI v2 docs: POST /instance/init with header "admintoken"
-      const result = await callUaz(baseUrl, '/instance/init', 'admintoken', config.adminToken, 'POST', {
-        instanceName: name,
-      });
-
-      if (!result.ok) {
-        return json({
-          success: false,
-          error: `Falha ao criar instância (${result.status})`,
-          debug: { endpoint: '/instance/init', header: 'admintoken', response: result.data },
-        });
-      }
+      const result = await callUaz(baseUrl, '/instance/init', 'admintoken', config.adminToken, 'POST', { instanceName: name });
+      if (!result.ok) return json({ success: false, error: `Falha ao criar instância (${result.status})`, debug: result.data });
 
       const d = result.data as any;
       const newToken = d?.token || d?.instance?.token || d?.data?.token || d?.hash || d?.apikey || '';
       const createdName = d?.instanceName || d?.instance?.instanceName || d?.name || name;
 
-      // Save token + instance name
-      const updatedConfig = { ...config, instanceToken: newToken || config.instanceToken, instanceName: createdName };
-      await supabase
-        .from('settings')
-        .upsert({ user_id: userId, key: 'uazapi_config', value: updatedConfig }, { onConflict: 'user_id,key' });
+      // Update instance in whatsapp_instances table if instanceId provided
+      if (instanceId) {
+        await supabase.from('whatsapp_instances').update({
+          instance_token: newToken || config.instanceToken,
+          instance_name: createdName,
+        } as any).eq('id', instanceId);
+      }
 
       return json({ success: true, instanceToken: newToken, instanceName: createdName, data: d });
     }
 
-    // ── Instance-level actions require instanceToken ──────────
-    if (!config.instanceToken) {
-      return json({ success: false, error: 'Instance Token não configurado. Crie uma instância primeiro.' });
-    }
-
-    // UazAPI v2 docs: instance endpoints use header "token"
+    if (!config.instanceToken) return json({ success: false, error: 'Instance Token não configurado.' });
     const tok = config.instanceToken;
 
-    // ── TEST / STATUS ────────────────────────────────────────
+    // ── TEST ──
     if (action === 'test') {
       const result = await callUaz(baseUrl, '/instance/status', 'token', tok, 'GET');
-
-      if (!result.ok) {
-        return json({ connected: false, error: `Status retornou ${result.status}`, debug: result.data });
-      }
-
+      if (!result.ok) return json({ connected: false, error: `Status retornou ${result.status}`, debug: result.data });
       return json({ connected: true, ...result.data });
     }
 
-    // ── CONNECT ──────────────────────────────────────────────
+    // ── CONNECT ──
     if (action === 'connect') {
-      // UazAPI v2 docs: POST /instance/connect with header "token"
       const result = await callUaz(baseUrl, '/instance/connect', 'token', tok, 'POST', {});
-
-      if (!result.ok) {
-        return json({
-          success: false,
-          error: `Falha ao conectar (${result.status})`,
-          debug: { endpoint: '/instance/connect', method: 'POST', header: 'token', response: result.data },
-        });
-      }
-
+      if (!result.ok) return json({ success: false, error: `Falha ao conectar (${result.status})`, debug: result.data });
       const d = result.data as any;
       const qr = d?.qrcode || d?.qrCode || d?.qr || d?.base64 || d?.data?.qrcode || null;
-
-      // If no QR in connect response, check status
       if (!qr) {
         const statusRes = await callUaz(baseUrl, '/instance/status', 'token', tok, 'GET');
         const sd = statusRes.data as any;
         const statusQr = sd?.qrcode || sd?.qrCode || sd?.qr || sd?.base64 || sd?.data?.qrcode || null;
         return json({ success: true, qrcode: statusQr, connectData: d, statusData: sd });
       }
-
       return json({ success: true, qrcode: qr, ...d });
     }
 
-    // ── QRCODE ───────────────────────────────────────────────
+    // ── QRCODE ──
     if (action === 'qrcode') {
       const result = await callUaz(baseUrl, '/instance/status', 'token', tok, 'GET');
-      if (!result.ok) {
-        return json({ success: false, error: `Falha ao obter QR (${result.status})`, debug: result.data });
-      }
+      if (!result.ok) return json({ success: false, error: `Falha ao obter QR (${result.status})`, debug: result.data });
       const d = result.data as any;
       const qr = d?.qrcode || d?.qrCode || d?.qr || d?.base64 || d?.data?.qrcode || null;
       return json({ success: true, qrcode: qr, ...d });
     }
 
-    // ── DISCONNECT ───────────────────────────────────────────
+    // ── DISCONNECT ──
     if (action === 'disconnect') {
       const result = await callUaz(baseUrl, '/instance/disconnect', 'token', tok, 'POST');
-      if (!result.ok) {
-        return json({ success: false, error: `Falha ao desconectar (${result.status})`, debug: result.data });
-      }
+      if (!result.ok) return json({ success: false, error: `Falha ao desconectar (${result.status})`, debug: result.data });
       return json({ success: true, ...result.data });
     }
 
-    // ── SET WEBHOOK ────────────────────────────────────────
+    // ── SET WEBHOOK ──
     if (action === 'set-webhook') {
       const { webhookUrl, events } = body;
-      if (!webhookUrl) {
-        return json({ success: false, error: 'webhookUrl é obrigatório.' });
-      }
-      const webhookEvents = events || [
-        'messages', 'messages_update', 'connection', 'contacts',
-        'presence', 'groups', 'chats', 'labels', 'call',
-      ];
-      const result = await callUaz(baseUrl, '/webhook', 'token', tok, 'POST', {
-        url: webhookUrl,
-        events: webhookEvents,
-        excludeMessages: ['wasSentByApi'],
-      });
-      if (!result.ok) {
-        return json({
-          success: false,
-          error: `Falha ao configurar webhook (${result.status})`,
-          debug: result.data,
-        });
-      }
+      if (!webhookUrl) return json({ success: false, error: 'webhookUrl é obrigatório.' });
+      const webhookEvents = events || ['messages', 'messages_update', 'connection', 'contacts', 'presence', 'groups', 'chats', 'labels', 'call'];
+      const result = await callUaz(baseUrl, '/webhook', 'token', tok, 'POST', { url: webhookUrl, events: webhookEvents, excludeMessages: ['wasSentByApi'] });
+      if (!result.ok) return json({ success: false, error: `Falha ao configurar webhook (${result.status})`, debug: result.data });
       return json({ success: true, ...result.data });
     }
 
-    // ── GET WEBHOOK ─────────────────────────────────────────
+    // ── GET WEBHOOK ──
     if (action === 'get-webhook') {
       const result = await callUaz(baseUrl, '/webhook', 'token', tok, 'GET');
       return json({ success: result.ok, ...result.data });
     }
 
-    return json({ error: 'Ação inválida. Use: create-instance, test, qrcode, connect, disconnect, set-webhook, get-webhook' }, 400);
+    return json({ error: 'Ação inválida.' }, 400);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Erro desconhecido';
     console.error('uazapi-instance error:', message);

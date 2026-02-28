@@ -1,4 +1,4 @@
-import { Bell, Moon, Sun, Search, LogOut, User, Menu, Smartphone, WifiOff, Loader2 } from "lucide-react";
+import { Bell, Moon, Sun, Search, LogOut, User, Menu, Smartphone, WifiOff, Wifi, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -19,9 +19,51 @@ interface AppHeaderProps {
 }
 
 const WhatsAppIndicator = () => {
-  const { status, info } = useWhatsAppStatus();
+  const { instances, status, info, loading } = useWhatsAppStatus();
   const navigate = useNavigate();
 
+  // Multi-instance mode
+  if (instances.length > 0) {
+    return (
+      <div className="flex items-center gap-0.5">
+        {instances.map((inst) => (
+          <Tooltip key={inst.id}>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => navigate("/settings")}
+                className="relative flex h-8 items-center gap-1 rounded-lg px-2 transition-colors hover:bg-accent"
+              >
+                {inst.status === "connected" ? (
+                  <>
+                    <Smartphone className="h-3.5 w-3.5 text-emerald-500" />
+                    <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-emerald-500 ring-1 ring-card" />
+                  </>
+                ) : (
+                  <>
+                    <WifiOff className="h-3.5 w-3.5 text-destructive" />
+                    <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-destructive ring-1 ring-card" />
+                  </>
+                )}
+                <span className="text-[10px] font-medium text-muted-foreground hidden sm:inline max-w-[60px] truncate">
+                  {inst.name}
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-[200px] text-center">
+              <p className="text-xs font-medium">{inst.name}</p>
+              <p className="text-[10px]">
+                {inst.status === "connected"
+                  ? `Conectado${inst.phone ? ` — ${inst.phone}` : ""}`
+                  : "Desconectado"}
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        ))}
+      </div>
+    );
+  }
+
+  // Legacy single instance
   const tooltipText =
     status === "connected"
       ? `WhatsApp conectado${info?.name ? ` — ${info.name}` : ""}${info?.phone ? ` (${info.phone})` : ""}`
@@ -98,11 +140,7 @@ const AppHeader = ({ onToggleSidebar }: AppHeaderProps) => {
         <WhatsAppIndicator />
 
         <Button variant="ghost" size="icon" onClick={toggleTheme}>
-          {theme === "dark" ? (
-            <Sun className="h-5 w-5" />
-          ) : (
-            <Moon className="h-5 w-5" />
-          )}
+          {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </Button>
 
         <Button variant="ghost" size="icon" className="relative">
@@ -114,21 +152,17 @@ const AppHeader = ({ onToggleSidebar }: AppHeaderProps) => {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="gap-2 pl-2">
               <Avatar className="h-8 w-8">
-                <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                  NC
-                </AvatarFallback>
+                <AvatarFallback className="bg-primary text-primary-foreground text-xs">NC</AvatarFallback>
               </Avatar>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuItem onClick={() => navigate("/settings")}>
-              <User className="mr-2 h-4 w-4" />
-              Perfil
+              <User className="mr-2 h-4 w-4" /> Perfil
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout}>
-              <LogOut className="mr-2 h-4 w-4" />
-              Sair
+              <LogOut className="mr-2 h-4 w-4" /> Sair
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -167,19 +167,48 @@ serve(async (req) => {
 
       const remainingToday = effectiveLimit - todaySent;
 
-      // Get UazAPI config
-      const { data: settings } = await supabase
-        .from('settings')
-        .select('value')
-        .eq('user_id', userId)
-        .eq('key', 'uazapi_config')
-        .single();
+      // Get UazAPI config - prefer instance_id from campaign, then default instance, then legacy
+      let config: { baseUrl: string; instanceToken: string } | null = null;
 
-      if (!settings?.value) {
-        return json({ error: 'UazAPI não configurada.' });
+      if (campaign.instance_id) {
+        const { data: inst } = await supabase
+          .from('whatsapp_instances')
+          .select('base_url, instance_token')
+          .eq('id', campaign.instance_id)
+          .single();
+        if (inst) config = { baseUrl: (inst as any).base_url, instanceToken: (inst as any).instance_token };
       }
 
-      const config = settings.value as { baseUrl: string; instanceToken: string };
+      if (!config) {
+        const { data: instances } = await supabase
+          .from('whatsapp_instances')
+          .select('base_url, instance_token')
+          .eq('user_id', userId)
+          .order('is_default', { ascending: false })
+          .limit(1);
+        if (instances && instances.length > 0) {
+          const inst = instances[0] as any;
+          config = { baseUrl: inst.base_url, instanceToken: inst.instance_token };
+        }
+      }
+
+      if (!config) {
+        // Legacy fallback
+        const { data: settings } = await supabase
+          .from('settings')
+          .select('value')
+          .eq('user_id', userId)
+          .eq('key', 'uazapi_config')
+          .single();
+        if (settings?.value) {
+          const v = settings.value as any;
+          config = { baseUrl: v.baseUrl, instanceToken: v.instanceToken };
+        }
+      }
+
+      if (!config) {
+        return json({ error: 'UazAPI não configurada.' });
+      }
       const baseUrl = config.baseUrl.replace(/\/+$/, '');
 
       // Mark campaign as running

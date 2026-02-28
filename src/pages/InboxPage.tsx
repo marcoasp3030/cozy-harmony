@@ -15,6 +15,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
+import { useWhatsAppInstances } from "@/hooks/useWhatsAppInstances";
+import InstanceSelector from "@/components/shared/InstanceSelector";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import KanbanView from "@/components/inbox/KanbanView";
 import MessageBubble from "@/components/inbox/MessageBubble";
@@ -97,6 +99,8 @@ const InboxPage = () => {
   const [mediaUploading, setMediaUploading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { instances, defaultInstance } = useWhatsAppInstances();
+  const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
 
   const selectedConv = conversations.find((c) => c.id === selectedConvId);
   const contact = selectedConv?.contact;
@@ -298,6 +302,7 @@ const InboxPage = () => {
       const sendBody: Record<string, any> = {
         type: msgType,
         number: contact.phone,
+        instanceId: selectedInstanceId || defaultInstance?.id || undefined,
       };
 
       if (msgType === "text") {
@@ -344,7 +349,7 @@ const InboxPage = () => {
     if (!contact) return;
     try {
       const { data, error } = await supabase.functions.invoke("uazapi-send", {
-        body: { type: "ptt", number: contact.phone, mediaUrl: audioUrl },
+        body: { type: "ptt", number: contact.phone, mediaUrl: audioUrl, instanceId: selectedInstanceId || defaultInstance?.id || undefined },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
@@ -617,6 +622,13 @@ const InboxPage = () => {
                       <p className="text-xs text-muted-foreground">{contact?.phone}</p>
                     </div>
                   </div>
+                  {instances.length > 1 && (
+                    <InstanceSelector
+                      value={selectedInstanceId}
+                      onChange={setSelectedInstanceId}
+                      className="min-w-[140px]"
+                    />
+                  )}
                 </div>
               </div>
 
