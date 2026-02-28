@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, Send, Phone, MoreVertical, Kanban, List, StickyNote, LayoutTemplate, Slash, ArrowLeft } from "lucide-react";
+import { Search, Send, Phone, MoreVertical, Kanban, List, StickyNote, LayoutTemplate, Slash, ArrowLeft, Brain, Loader2, Sparkles, FileText as SummarizeIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -88,6 +88,8 @@ const InboxPage = () => {
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [isNoteMode, setIsNoteMode] = useState(false);
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiProvider, setAiProvider] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -307,6 +309,59 @@ const InboxPage = () => {
       setSlashMenuOpen(true);
     } else if (!val.startsWith("/")) {
       setSlashMenuOpen(false);
+    }
+  };
+
+  // Check for configured LLM keys
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from("settings")
+      .select("key")
+      .eq("user_id", user.id)
+      .in("key", ["llm_openai", "llm_gemini"])
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          setAiProvider(data[0].key === "llm_openai" ? "openai" : "gemini");
+        }
+      });
+  }, [user]);
+
+  // AI reply handler
+  const handleAiReply = async (mode: "reply" | "summarize" = "reply") => {
+    if (!contact || messages.length === 0) {
+      toast.error("Sem mensagens para analisar");
+      return;
+    }
+    setAiLoading(true);
+    try {
+      const lastMessages = messages.slice(-20).map((m) => ({
+        direction: m.direction,
+        content: m.content || "",
+        type: m.type,
+      }));
+
+      const { data, error } = await supabase.functions.invoke("llm-reply", {
+        body: { messages: lastMessages, mode },
+      });
+
+      if (error) throw error;
+      if (data?.error) {
+        toast.error(data.error);
+        return;
+      }
+
+      if (mode === "summarize") {
+        toast.success("Resumo gerado", { description: data.reply, duration: 10000 });
+      } else {
+        setNewMessage(data.reply || "");
+        textareaRef.current?.focus();
+        toast.success(`Sugestão gerada via ${data.provider === "openai" ? "OpenAI" : "Gemini"} (${data.model})`);
+      }
+    } catch (err: any) {
+      toast.error("Erro ao gerar resposta IA: " + (err.message || "Tente novamente"));
+    } finally {
+      setAiLoading(false);
     }
   };
 
@@ -604,6 +659,30 @@ const InboxPage = () => {
                     >
                       <StickyNote className="h-4 w-4" />
                     </Button>
+                    {aiProvider && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0 h-9 w-9 text-primary hover:text-primary"
+                          title="Sugerir resposta com IA"
+                          onClick={() => handleAiReply("reply")}
+                          disabled={aiLoading || messages.length === 0}
+                        >
+                          {aiLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0 h-9 w-9"
+                          title="Resumir conversa com IA"
+                          onClick={() => handleAiReply("summarize")}
+                          disabled={aiLoading || messages.length === 0}
+                        >
+                          <SummarizeIcon className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
                   </div>
                   <Textarea
                     ref={textareaRef}
@@ -627,7 +706,7 @@ const InboxPage = () => {
                   </Button>
                 </div>
                 <p className="text-[10px] text-muted-foreground mt-1.5 px-1">
-                  Digite <kbd className="rounded bg-muted px-1 font-mono">/</kbd> para respostas rápidas • <kbd className="rounded bg-muted px-1 font-mono">Enter</kbd> para enviar
+                  Digite <kbd className="rounded bg-muted px-1 font-mono">/</kbd> para atalhos • <kbd className="rounded bg-muted px-1 font-mono">Enter</kbd> para enviar{aiProvider && " • ✨ IA disponível"}
                 </p>
               </div>
             </>
