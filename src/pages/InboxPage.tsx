@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, Send, Phone, MoreVertical, Kanban, List, StickyNote, LayoutTemplate, Slash } from "lucide-react";
+import { Search, Send, Phone, MoreVertical, Kanban, List, StickyNote, LayoutTemplate, Slash, ArrowLeft } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -17,6 +17,7 @@ import KanbanView from "@/components/inbox/KanbanView";
 import MessageBubble from "@/components/inbox/MessageBubble";
 import ContactPanel from "@/components/inbox/ContactPanel";
 import { useSlaNotifications } from "@/hooks/useSlaNotifications";
+import { useIsMobile } from "@/hooks/use-mobile";
 import type { Message } from "@/components/inbox/MessageBubble";
 
 interface Contact {
@@ -69,6 +70,7 @@ const getInitials = (name: string | null, phone: string) => {
 
 const InboxPage = () => {
   const { user } = useAuth();
+  const isMobile = useIsMobile();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -347,12 +349,16 @@ const InboxPage = () => {
        ...templates.filter((t) => t.name.toLowerCase().includes(newMessage.slice(1).toLowerCase())).map((t) => ({ cmd: `/${t.name}`, text: t.content }))]
     : [];
 
+  // Mobile: show either list or chat
+  const showChat = isMobile && selectedConvId;
+  const showList = !isMobile || !selectedConvId;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-heading text-2xl font-bold">Inbox</h1>
-          <p className="text-sm text-muted-foreground">Atenda seus clientes em tempo real</p>
+          <h1 className="font-heading text-xl md:text-2xl font-bold">Inbox</h1>
+          <p className="text-xs md:text-sm text-muted-foreground">Atenda seus clientes em tempo real</p>
         </div>
         <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && setViewMode(v as "list" | "kanban")} className="border border-border rounded-lg p-0.5">
           <ToggleGroupItem value="list" aria-label="Visão lista" className="h-8 w-8 p-0 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
@@ -371,9 +377,13 @@ const InboxPage = () => {
           onReload={loadConversations}
         />
       ) : (
-      <div className="grid h-[calc(100vh-220px)] grid-cols-12 gap-4">
+      <div className={cn(
+        "grid h-[calc(100vh-220px)] gap-4",
+        isMobile ? "grid-cols-1" : "grid-cols-12"
+      )}>
         {/* Conversation List */}
-        <Card className="col-span-3 flex flex-col overflow-hidden">
+        {showList && (
+        <Card className={cn("flex flex-col overflow-hidden", !isMobile && "col-span-3")}>
           <div className="border-b border-border">
             <div className="flex overflow-x-auto">
               {[
@@ -453,9 +463,11 @@ const InboxPage = () => {
             )}
           </ScrollArea>
         </Card>
+        )}
 
         {/* Chat Area */}
-        <Card className="col-span-6 flex flex-col overflow-hidden">
+        {(!isMobile || showChat) && (
+        <Card className={cn("flex flex-col overflow-hidden", !isMobile && "col-span-6")}>
           {!selectedConv ? (
             <div className="flex flex-1 items-center justify-center text-muted-foreground">
               <div className="text-center">
@@ -469,6 +481,11 @@ const InboxPage = () => {
               <div className="border-b border-border px-4 py-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
+                    {isMobile && (
+                      <Button variant="ghost" size="icon" className="shrink-0 h-8 w-8" onClick={() => setSelectedConvId(null)}>
+                        <ArrowLeft className="h-4 w-4" />
+                      </Button>
+                    )}
                     <Avatar className="h-8 w-8">
                       {contact?.profile_picture && <AvatarImage src={contact.profile_picture} />}
                       <AvatarFallback className="bg-primary/10 text-primary text-xs">
@@ -614,8 +631,10 @@ const InboxPage = () => {
             </>
           )}
         </Card>
+        )}
 
-        {/* Contact Panel */}
+        {/* Contact Panel - hidden on mobile */}
+        {!isMobile && (
         <Card className="col-span-3 overflow-hidden">
           <ContactPanel
             contact={contact || null}
@@ -627,6 +646,7 @@ const InboxPage = () => {
             onReload={loadConversations}
           />
         </Card>
+        )}
       </div>
       )}
     </div>

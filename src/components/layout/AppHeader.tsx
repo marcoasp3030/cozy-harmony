@@ -33,6 +33,7 @@ const AppHeader = ({ onToggleSidebar }: AppHeaderProps) => {
           size="icon"
           className="lg:hidden"
           onClick={onToggleSidebar}
+          aria-label="Menu"
         >
           <Menu className="h-5 w-5" />
         </Button>
@@ -42,7 +43,7 @@ const AppHeader = ({ onToggleSidebar }: AppHeaderProps) => {
           <input
             type="text"
             placeholder="Buscar... (Cmd+K)"
-            className="h-9 w-72 rounded-lg border border-input bg-background pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className="h-9 w-48 lg:w-72 rounded-lg border border-input bg-background pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
       </div>

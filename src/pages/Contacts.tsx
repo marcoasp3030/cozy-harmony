@@ -134,30 +134,30 @@ const Contacts = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 md:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="font-heading text-2xl font-bold">Contatos</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="font-heading text-xl md:text-2xl font-bold">Contatos</h1>
+          <p className="text-xs md:text-sm text-muted-foreground">
             Gerencie seus contatos e listas
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setImportOpen(true)}>
+          <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
             <Upload className="mr-2 h-4 w-4" />
-            Importar
+            <span className="hidden sm:inline">Importar</span>
           </Button>
-          <Button onClick={openNew}>
+          <Button size="sm" onClick={openNew}>
             <Plus className="mr-2 h-4 w-4" />
-            Novo Contato
+            <span className="hidden sm:inline">Novo Contato</span>
           </Button>
         </div>
       </div>
 
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="relative w-80">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between flex-wrap gap-2">
+            <div className="relative w-full sm:w-80">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Buscar por nome, telefone ou email..."
@@ -184,8 +184,8 @@ const Contacts = () => {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="p-0">
-          <Table>
+        <CardContent className="p-0 overflow-x-auto">
+          <Table className="min-w-[700px]">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12">

@@ -413,15 +413,15 @@ const FunnelsPage = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 md:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="font-heading text-2xl font-bold">Funis de Atendimento</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="font-heading text-xl md:text-2xl font-bold">Funis de Atendimento</h1>
+          <p className="text-xs md:text-sm text-muted-foreground">
             Crie e gerencie funis com etapas personalizadas e automações
           </p>
         </div>
-        <Button onClick={() => { setEditingFunnel(null); setDialogOpen(true); }}>
+        <Button size="sm" onClick={() => { setEditingFunnel(null); setDialogOpen(true); }}>
           <Plus className="mr-2 h-4 w-4" /> Novo Funil
         </Button>
       </div>

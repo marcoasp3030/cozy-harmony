@@ -103,15 +103,15 @@ const Campaigns = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 md:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="font-heading text-2xl font-bold">Campanhas</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="font-heading text-xl md:text-2xl font-bold">Campanhas</h1>
+          <p className="text-xs md:text-sm text-muted-foreground">
             Crie e gerencie campanhas de disparo em massa
           </p>
         </div>
-        <Button onClick={() => setDialogOpen(true)}>
+        <Button size="sm" onClick={() => setDialogOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           Nova Campanha
         </Button>
@@ -142,9 +142,9 @@ const Campaigns = () => {
             return (
               <Card key={campaign.id} className="transition-all duration-200 hover:shadow-md">
                 <CardContent className="p-6">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="text-lg font-heading font-semibold">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className="text-base md:text-lg font-heading font-semibold">
                         📢 {campaign.name}
                       </span>
                       <Badge variant="secondary" className={config.className}>
@@ -154,7 +154,7 @@ const Campaigns = () => {
                         <Loader2 className="h-4 w-4 animate-spin text-success" />
                       )}
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
                       {(campaign.status === "draft" || campaign.status === "scheduled") && (
                         <Button
                           size="sm"

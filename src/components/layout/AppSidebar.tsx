@@ -8,7 +8,6 @@ import {
   FileText,
   BarChart3,
   Settings,
-  MessageSquare,
   GitBranchPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -28,16 +27,21 @@ const navItems = [
 
 interface AppSidebarProps {
   collapsed?: boolean;
+  mobile?: boolean;
+  onNavigate?: () => void;
 }
 
-const AppSidebar = ({ collapsed = false }: AppSidebarProps) => {
+const AppSidebar = ({ collapsed = false, mobile = false, onNavigate }: AppSidebarProps) => {
   const location = useLocation();
 
   return (
     <aside
       className={cn(
-        "fixed left-0 top-0 z-40 h-screen border-r border-sidebar-border bg-sidebar transition-all duration-200",
-        collapsed ? "w-16" : "w-64"
+        "h-screen border-r border-sidebar-border bg-sidebar transition-all duration-200",
+        mobile
+          ? "w-full"
+          : "fixed left-0 top-0 z-40 hidden lg:block",
+        !mobile && (collapsed ? "w-16" : "w-64")
       )}
     >
       <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-4">
@@ -56,6 +60,7 @@ const AppSidebar = ({ collapsed = false }: AppSidebarProps) => {
             <NavLink
               key={item.to}
               to={item.to}
+              onClick={onNavigate}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
                 isActive
