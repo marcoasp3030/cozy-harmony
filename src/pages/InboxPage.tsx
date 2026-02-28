@@ -454,6 +454,35 @@ const InboxPage = () => {
     }
   }, [contact, selectedInstanceId, defaultInstance?.id]);
 
+  // Delete message from WhatsApp and DB
+  const handleDeleteMessage = useCallback(async (msg: Message) => {
+    if (!msg.external_id) return;
+
+    // Optimistic: remove from UI
+    setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+
+    try {
+      const { data, error } = await supabase.functions.invoke("uazapi-delete-message", {
+        body: {
+          messageExternalId: msg.external_id,
+          instanceId: selectedInstanceId || defaultInstance?.id || undefined,
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      // Delete from DB
+      if (!msg.id.startsWith("temp-")) {
+        await supabase.from("messages").delete().eq("id", msg.id);
+      }
+      toast.success("Mensagem apagada");
+    } catch (err: any) {
+      // Restore message on failure
+      setMessages((prev) => [...prev, msg].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()));
+      toast.error("Erro ao apagar: " + (err.message || "Tente novamente"));
+    }
+  }, [selectedInstanceId, defaultInstance?.id]);
+
   // React to a message with emoji
   const handleReact = async (msgId: string, emoji: string) => {
     const msg = messages.find((m) => m.id === msgId);
@@ -779,7 +808,7 @@ const InboxPage = () => {
                         <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">{group.date}</span>
                       </div>
                       {group.messages.map((msg) => (
-                        <MessageBubble key={msg.id} msg={msg} onReact={handleReact} onRetry={handleRetry} />
+                        <MessageBubble key={msg.id} msg={msg} onReact={handleReact} onRetry={handleRetry} onDelete={handleDeleteMessage} />
                       ))}
                     </div>
                   ))}
