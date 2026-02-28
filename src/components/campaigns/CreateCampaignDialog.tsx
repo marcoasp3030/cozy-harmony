@@ -4,7 +4,7 @@ import { ptBR } from "date-fns/locale";
 import {
   CalendarIcon, ChevronLeft, ChevronRight, Users, FileText, Clock,
   CheckCircle2, Loader2, Search, X, ImageIcon, Video, FileAudio, File,
-  Shield, Info, MessageSquare, Sparkles,
+  Shield, Info, MessageSquare, Sparkles, Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,12 +26,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import InstanceSelector from "@/components/shared/InstanceSelector";
 import InteractiveMessageBuilder, { getDefaultInteractive, type InteractiveMessage } from "@/components/shared/InteractiveMessageBuilder";
+import CampaignMessagePreview from "@/components/campaigns/CampaignMessagePreview";
 
-type Step = "info" | "recipients" | "message" | "schedule" | "review";
+type Step = "info" | "recipients" | "message" | "preview" | "schedule" | "review";
 const STEPS: { key: Step; label: string; icon: React.ReactNode }[] = [
   { key: "info", label: "Informações", icon: <FileText className="h-4 w-4" /> },
   { key: "recipients", label: "Destinatários", icon: <Users className="h-4 w-4" /> },
   { key: "message", label: "Mensagem", icon: <FileText className="h-4 w-4" /> },
+  { key: "preview", label: "Prévia", icon: <Eye className="h-4 w-4" /> },
   { key: "schedule", label: "Agendamento", icon: <Clock className="h-4 w-4" /> },
   { key: "review", label: "Revisão", icon: <CheckCircle2 className="h-4 w-4" /> },
 ];
@@ -652,6 +654,15 @@ export default function CreateCampaignDialog({
                 </AccordionItem>
               </Accordion>
             </div>
+          )}
+
+          {step === "preview" && (
+            <CampaignMessagePreview
+              messageType={form.messageType}
+              messageContent={form.messageContent}
+              mediaUrl={form.mediaUrl || undefined}
+              interactive={form.interactive}
+            />
           )}
 
           {step === "schedule" && (
