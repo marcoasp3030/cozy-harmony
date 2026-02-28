@@ -26,10 +26,26 @@ serve(async (req) => {
 
     // ── INCOMING MESSAGES (UazAPI format) ─────────────────────
     if (eventType === 'messages') {
-      const msg = body.message;
-      if (!msg) {
-        console.log('No message object in payload');
-        return json({ success: true, note: 'No message object' });
+      const msg = body.message || {};
+      console.log('Message keys:', Object.keys(msg).join(', '));
+      console.log('Message object:', JSON.stringify(msg).slice(0, 1000));
+      console.log('Body top-level keys:', Object.keys(body).join(', '));
+
+      // Try multiple field names for the chat/phone JID
+      const chat = msg.Chat || msg.chat || msg.remoteJid || msg.From || msg.from
+        || body.chat?.jid || body.chat?.id_whatsapp || body.jid || '';
+      
+      // UazAPI may send phone directly
+      const senderPhone = msg.SenderPhone || msg.senderPhone || msg.Phone || msg.phone || '';
+      
+      const rawPhone = senderPhone || chat;
+      const phone = String(rawPhone).replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '');
+      
+      console.log(`Resolved: chat="${chat}", senderPhone="${senderPhone}", phone="${phone}"`);
+
+      if (!phone || String(rawPhone).includes('@g.us')) {
+        console.log('Skipping: no phone or group message');
+        return json({ success: true, note: 'Group or invalid' });
       }
 
       // UazAPI message fields
@@ -37,13 +53,6 @@ serve(async (req) => {
       if (isFromMe) {
         console.log('Skipping outgoing message');
         return json({ success: true, note: 'Outgoing message skipped' });
-      }
-
-      const chat = msg.Chat || msg.chat || msg.remoteJid || '';
-      const phone = chat.replace('@s.whatsapp.net', '').replace('@c.us', '');
-      if (!phone || chat.includes('@g.us')) {
-        console.log('Skipping: no phone or group message');
-        return json({ success: true, note: 'Group or invalid' });
       }
 
       // Extract text content - UazAPI uses Text, Body, or nested message
