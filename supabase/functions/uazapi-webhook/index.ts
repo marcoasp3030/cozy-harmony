@@ -27,55 +27,34 @@ serve(async (req) => {
     // ── INCOMING MESSAGES (UazAPI format) ─────────────────────
     if (eventType === 'messages') {
       const msg = body.message || {};
-      console.log('Message keys:', Object.keys(msg).join(', '));
-      console.log('Message object:', JSON.stringify(msg).slice(0, 1000));
-      console.log('Body top-level keys:', Object.keys(body).join(', '));
 
-      // Try multiple field names for the chat/phone JID
-      const chat = msg.Chat || msg.chat || msg.remoteJid || msg.From || msg.from
-        || body.chat?.jid || body.chat?.id_whatsapp || body.jid || '';
-      
-      // UazAPI may send phone directly
-      const senderPhone = msg.SenderPhone || msg.senderPhone || msg.Phone || msg.phone || '';
-      
-      const rawPhone = senderPhone || chat;
-      const phone = String(rawPhone).replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '');
-      
-      console.log(`Resolved: chat="${chat}", senderPhone="${senderPhone}", phone="${phone}"`);
-
-      if (!phone || String(rawPhone).includes('@g.us')) {
-        console.log('Skipping: no phone or group message');
-        return json({ success: true, note: 'Group or invalid' });
-      }
-
-      // UazAPI message fields
-      const isFromMe = msg.FromMe === true || msg.fromMe === true;
+      // UazAPI fields: chatid, sender_pn, senderName, text, messageid, fromMe, type
+      const isFromMe = msg.fromMe === true || msg.FromMe === true;
       if (isFromMe) {
         console.log('Skipping outgoing message');
         return json({ success: true, note: 'Outgoing message skipped' });
       }
 
-      // Extract text content - UazAPI uses Text, Body, or nested message
-      const messageContent = msg.Text || msg.text || msg.Body || msg.body
-        || msg.Conversation || msg.conversation
-        || msg.Caption || msg.caption
-        || '';
+      const rawJid = msg.chatid || msg.sender_pn || msg.Chat || msg.chat || '';
+      const phone = String(rawJid).replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '');
 
-      // Determine message type
-      const msgType = msg.Type || msg.type || 'text';
+      if (!phone || msg.isGroup === true || String(rawJid).includes('@g.us')) {
+        console.log('Skipping: no phone or group message');
+        return json({ success: true, note: 'Group or invalid' });
+      }
+
+      const messageContent = msg.text || msg.content || msg.Text || msg.Body || msg.caption || '';
+      const msgType = msg.type || msg.mediaType || 'text';
       const typeMap: Record<string, string> = {
         'text': 'text', 'chat': 'text', 'conversation': 'text',
-        'image': 'image', 'imageMessage': 'image',
-        'video': 'video', 'videoMessage': 'video',
-        'audio': 'audio', 'audioMessage': 'audio', 'ptt': 'audio',
-        'document': 'document', 'documentMessage': 'document',
-        'sticker': 'sticker', 'stickerMessage': 'sticker',
+        'image': 'image', 'video': 'video', 'audio': 'audio',
+        'ptt': 'audio', 'document': 'document', 'sticker': 'sticker',
       };
       const messageType = typeMap[msgType] || 'text';
 
-      const mediaUrl = msg.MediaUrl || msg.mediaUrl || msg.Media || null;
-      const externalId = msg.Id || msg.id || msg.ID || null;
-      const pushName = msg.PushName || msg.pushName || msg.NotifyName
+      const mediaUrl = msg.mediaUrl || msg.MediaUrl || null;
+      const externalId = msg.messageid || msg.id || msg.Id || null;
+      const pushName = msg.senderName || msg.pushName || msg.PushName
         || body.chat?.lead_name || body.chat?.lead_fullName || null;
       const profilePic = body.chat?.imagePreview || body.chat?.image || null;
 
