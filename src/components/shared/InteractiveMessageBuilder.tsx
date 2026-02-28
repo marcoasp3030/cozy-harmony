@@ -83,12 +83,12 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
   const update = <K extends keyof InteractiveMessage>(key: K, val: InteractiveMessage[K]) =>
     onChange({ ...value, [key]: val });
 
-  const typeOptions: { value: InteractiveType; label: string; icon: React.ReactNode; desc: string; color: string }[] = [
-    { value: "none", label: "Nenhuma", icon: null, desc: "Texto simples", color: "text-muted-foreground" },
-    { value: "buttons", label: "Botões", icon: <MousePointerClick className="h-5 w-5" />, desc: "Até 3 respostas rápidas", color: "text-blue-500" },
-    { value: "list", label: "Lista", icon: <ListOrdered className="h-5 w-5" />, desc: "Menu com seções", color: "text-emerald-500" },
-    { value: "cta", label: "CTA", icon: <Link className="h-5 w-5" />, desc: "Link ou telefone", color: "text-orange-500" },
-    { value: "poll", label: "Enquete", icon: <BarChart3 className="h-5 w-5" />, desc: "Votação", color: "text-violet-500" },
+  const typeOptions: { value: InteractiveType; label: string; icon: React.ReactNode; desc: string }[] = [
+    { value: "none", label: "Nenhuma", icon: null, desc: "Texto simples" },
+    { value: "buttons", label: "Botões", icon: <MousePointerClick className="h-5 w-5" />, desc: "Até 3 respostas rápidas" },
+    { value: "list", label: "Lista", icon: <ListOrdered className="h-5 w-5" />, desc: "Menu com seções" },
+    { value: "cta", label: "CTA", icon: <Link className="h-5 w-5" />, desc: "Link ou telefone" },
+    { value: "poll", label: "Enquete", icon: <BarChart3 className="h-5 w-5" />, desc: "Votação" },
   ];
 
   // ─── BUTTONS ───
@@ -157,9 +157,9 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
       <div className="space-y-3">
         <div>
           <Label className="text-sm font-semibold">Mensagem Interativa</Label>
-          <p className="text-xs text-muted-foreground mt-0.5">Adicione botões, listas ou enquetes à sua mensagem</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Escolha o formato e configure os campos abaixo</p>
         </div>
-        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+        <div className={cn("grid gap-2", compact ? "grid-cols-2 md:grid-cols-3" : "grid-cols-2 md:grid-cols-5")}>
           {typeOptions.map((opt) => (
             <button
               key={opt.value}
@@ -175,13 +175,13 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
                 onChange(newVal);
               }}
               className={cn(
-                "flex flex-col items-center gap-1.5 rounded-xl border-2 p-3 text-center transition-all min-h-[72px] justify-center",
+                "flex flex-col items-center justify-center gap-1.5 rounded-xl border-2 p-3 text-center transition-all min-h-[78px]",
                 value.type === opt.value
                   ? "border-primary bg-primary/5 text-primary shadow-sm"
                   : "border-border hover:border-primary/40 hover:bg-muted/50",
               )}
             >
-              {opt.icon && <span className={cn(opt.color)}>{opt.icon}</span>}
+              {opt.icon && <span className="text-primary/80">{opt.icon}</span>}
               <div>
                 <p className="text-xs font-semibold leading-tight">{opt.label}</p>
                 <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">{opt.desc}</p>
@@ -195,333 +195,333 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
         <>
           <Separator />
 
-          <div className="space-y-3 max-h-[48vh] overflow-y-auto pr-1">
-            {/* Header (optional) */}
-            <div className="space-y-1">
-            <Label className="text-xs">Cabeçalho (opcional)</Label>
-            <Input
-              placeholder="Título da mensagem"
-              value={value.header || ""}
-              onChange={(e) => update("header", e.target.value)}
-              maxLength={60}
-            />
-          </div>
-
-          {/* Body */}
-          <div className="space-y-1">
-            <Label className="text-xs">Corpo da mensagem *</Label>
-            <Textarea
-              placeholder="Texto principal da mensagem interativa..."
-              value={value.body}
-              onChange={(e) => update("body", e.target.value)}
-              maxLength={1024}
-              rows={3}
-            />
-          </div>
-
-          {/* Footer (optional) */}
-          <div className="space-y-1">
-            <Label className="text-xs">Rodapé (opcional)</Label>
-            <Input
-              placeholder="Texto do rodapé"
-              value={value.footer || ""}
-              onChange={(e) => update("footer", e.target.value)}
-              maxLength={60}
-            />
-          </div>
-
-          <Separator />
-
-          {/* ─── BUTTONS EDITOR ─── */}
-          {value.type === "buttons" && (
-            <div className="space-y-3">
-              <Label>Botões de resposta rápida (máx. 3)</Label>
-              {(value.buttons || []).map((btn, i) => (
-                <div key={btn.id} className="flex items-center gap-2">
-                  <Badge variant="outline" className="shrink-0 w-6 h-6 flex items-center justify-center p-0 text-xs">
-                    {i + 1}
-                  </Badge>
-                  <Input
-                    placeholder={`Botão ${i + 1}`}
-                    value={btn.title}
-                    onChange={(e) => updateButton(btn.id, e.target.value)}
-                    maxLength={20}
-                    className="flex-1"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive shrink-0"
-                    onClick={() => removeButton(btn.id)}
-                    disabled={(value.buttons?.length || 0) <= 1}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              ))}
-              {(value.buttons?.length || 0) < 3 && (
-                <Button variant="outline" size="sm" onClick={addButton} className="gap-1">
-                  <Plus className="h-3 w-3" /> Adicionar botão
-                </Button>
-              )}
-            </div>
-          )}
-
-          {/* ─── LIST EDITOR ─── */}
-          {value.type === "list" && (
-            <div className="space-y-4">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="space-y-3 rounded-lg border border-border bg-background p-3 max-h-[52vh] overflow-y-auto pr-2">
+              {/* Header (optional) */}
               <div className="space-y-1">
-                <Label className="text-xs">Texto do botão da lista</Label>
+                <Label className="text-xs">Cabeçalho (opcional)</Label>
                 <Input
-                  placeholder="Ver opções"
-                  value={value.listButtonText || ""}
-                  onChange={(e) => update("listButtonText", e.target.value)}
-                  maxLength={20}
+                  placeholder="Título da mensagem"
+                  value={value.header || ""}
+                  onChange={(e) => update("header", e.target.value)}
+                  maxLength={60}
                 />
               </div>
 
-              {(value.listSections || []).map((section, sIdx) => (
-                <div key={sIdx} className="rounded-lg border border-border p-3 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Input
-                      placeholder={`Seção ${sIdx + 1}`}
-                      value={section.title}
-                      onChange={(e) => updateSectionTitle(sIdx, e.target.value)}
-                      maxLength={24}
-                      className="flex-1 font-medium"
-                    />
-                    {(value.listSections?.length || 0) > 1 && (
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeSection(sIdx)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                  </div>
+              {/* Body */}
+              <div className="space-y-1">
+                <Label className="text-xs">Corpo da mensagem *</Label>
+                <Textarea
+                  placeholder="Texto principal da mensagem interativa..."
+                  value={value.body}
+                  onChange={(e) => update("body", e.target.value)}
+                  maxLength={1024}
+                  rows={3}
+                />
+              </div>
 
-                  {section.rows.map((row, rIdx) => (
-                    <div key={row.id} className="pl-4 flex gap-2">
-                      <div className="flex-1 space-y-1">
-                        <Input
-                          placeholder={`Item ${rIdx + 1}`}
-                          value={row.title}
-                          onChange={(e) => updateRow(sIdx, row.id, "title", e.target.value)}
-                          maxLength={24}
-                        />
-                        <Input
-                          placeholder="Descrição (opcional)"
-                          value={row.description || ""}
-                          onChange={(e) => updateRow(sIdx, row.id, "description", e.target.value)}
-                          maxLength={72}
-                          className="text-xs"
-                        />
-                      </div>
+              {/* Footer (optional) */}
+              <div className="space-y-1">
+                <Label className="text-xs">Rodapé (opcional)</Label>
+                <Input
+                  placeholder="Texto do rodapé"
+                  value={value.footer || ""}
+                  onChange={(e) => update("footer", e.target.value)}
+                  maxLength={60}
+                />
+              </div>
+
+              <Separator />
+
+              {/* ─── BUTTONS EDITOR ─── */}
+              {value.type === "buttons" && (
+                <div className="space-y-3">
+                  <Label>Botões de resposta rápida (máx. 3)</Label>
+                  {(value.buttons || []).map((btn, i) => (
+                    <div key={btn.id} className="flex items-center gap-2">
+                      <Badge variant="outline" className="shrink-0 w-6 h-6 flex items-center justify-center p-0 text-xs">
+                        {i + 1}
+                      </Badge>
+                      <Input
+                        placeholder={`Botão ${i + 1}`}
+                        value={btn.title}
+                        onChange={(e) => updateButton(btn.id, e.target.value)}
+                        maxLength={20}
+                        className="flex-1"
+                      />
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-destructive shrink-0 self-center"
-                        onClick={() => removeRow(sIdx, row.id)}
-                        disabled={section.rows.length <= 1}
+                        className="h-8 w-8 text-destructive shrink-0"
+                        onClick={() => removeButton(btn.id)}
+                        disabled={(value.buttons?.length || 0) <= 1}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   ))}
-
-                  {section.rows.length < 10 && (
-                    <Button variant="ghost" size="sm" onClick={() => addRow(sIdx)} className="gap-1 ml-4 text-xs">
-                      <Plus className="h-3 w-3" /> Item
+                  {(value.buttons?.length || 0) < 3 && (
+                    <Button variant="outline" size="sm" onClick={addButton} className="gap-1">
+                      <Plus className="h-3 w-3" /> Adicionar botão
                     </Button>
                   )}
                 </div>
-              ))}
-
-              {(value.listSections?.length || 0) < 5 && (
-                <Button variant="outline" size="sm" onClick={addSection} className="gap-1">
-                  <Plus className="h-3 w-3" /> Adicionar seção
-                </Button>
               )}
-            </div>
-          )}
 
-          {/* ─── CTA BUTTONS EDITOR ─── */}
-          {value.type === "cta" && (
-            <div className="space-y-3">
-              <Label>Botões de ação (máx. 3)</Label>
-              {(value.ctaButtons || []).map((btn, i) => (
-                <div key={btn.id} className="rounded-lg border border-border p-3 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Select value={btn.type} onValueChange={(v) => updateCta(btn.id, "type", v)}>
-                      <SelectTrigger className="w-32">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="url">
-                          <span className="flex items-center gap-1"><Link className="h-3 w-3" /> URL</span>
-                        </SelectItem>
-                        <SelectItem value="phone">
-                          <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> Telefone</span>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
+              {/* ─── LIST EDITOR ─── */}
+              {value.type === "list" && (
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Texto do botão da lista</Label>
                     <Input
-                      placeholder="Texto do botão"
-                      value={btn.title}
-                      onChange={(e) => updateCta(btn.id, "title", e.target.value)}
+                      placeholder="Ver opções"
+                      value={value.listButtonText || ""}
+                      onChange={(e) => update("listButtonText", e.target.value)}
                       maxLength={20}
-                      className="flex-1"
                     />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive shrink-0"
-                      onClick={() => removeCta(btn.id)}
-                      disabled={(value.ctaButtons?.length || 0) <= 1}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
+                  </div>
+
+                  {(value.listSections || []).map((section, sIdx) => (
+                    <div key={sIdx} className="rounded-lg border border-border p-3 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Input
+                          placeholder={`Seção ${sIdx + 1}`}
+                          value={section.title}
+                          onChange={(e) => updateSectionTitle(sIdx, e.target.value)}
+                          maxLength={24}
+                          className="flex-1 font-medium"
+                        />
+                        {(value.listSections?.length || 0) > 1 && (
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeSection(sIdx)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
+
+                      {section.rows.map((row, rIdx) => (
+                        <div key={row.id} className="pl-4 flex gap-2">
+                          <div className="flex-1 space-y-1">
+                            <Input
+                              placeholder={`Item ${rIdx + 1}`}
+                              value={row.title}
+                              onChange={(e) => updateRow(sIdx, row.id, "title", e.target.value)}
+                              maxLength={24}
+                            />
+                            <Input
+                              placeholder="Descrição (opcional)"
+                              value={row.description || ""}
+                              onChange={(e) => updateRow(sIdx, row.id, "description", e.target.value)}
+                              maxLength={72}
+                              className="text-xs"
+                            />
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive shrink-0 self-center"
+                            onClick={() => removeRow(sIdx, row.id)}
+                            disabled={section.rows.length <= 1}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+
+                      {section.rows.length < 10 && (
+                        <Button variant="ghost" size="sm" onClick={() => addRow(sIdx)} className="gap-1 ml-4 text-xs">
+                          <Plus className="h-3 w-3" /> Item
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+
+                  {(value.listSections?.length || 0) < 5 && (
+                    <Button variant="outline" size="sm" onClick={addSection} className="gap-1">
+                      <Plus className="h-3 w-3" /> Adicionar seção
                     </Button>
-                  </div>
-                  <Input
-                    placeholder={btn.type === "url" ? "https://exemplo.com" : "+5511999999999"}
-                    value={btn.value}
-                    onChange={(e) => updateCta(btn.id, "value", e.target.value)}
-                  />
+                  )}
                 </div>
-              ))}
-              {(value.ctaButtons?.length || 0) < 3 && (
-                <Button variant="outline" size="sm" onClick={addCta} className="gap-1">
-                  <Plus className="h-3 w-3" /> Adicionar botão
-                </Button>
+              )}
+
+              {/* ─── CTA BUTTONS EDITOR ─── */}
+              {value.type === "cta" && (
+                <div className="space-y-3">
+                  <Label>Botões de ação (máx. 3)</Label>
+                  {(value.ctaButtons || []).map((btn) => (
+                    <div key={btn.id} className="rounded-lg border border-border p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Select value={btn.type} onValueChange={(v) => updateCta(btn.id, "type", v)}>
+                          <SelectTrigger className="w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="url">
+                              <span className="flex items-center gap-1"><Link className="h-3 w-3" /> URL</span>
+                            </SelectItem>
+                            <SelectItem value="phone">
+                              <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> Telefone</span>
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          placeholder="Texto do botão"
+                          value={btn.title}
+                          onChange={(e) => updateCta(btn.id, "title", e.target.value)}
+                          maxLength={20}
+                          className="flex-1"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive shrink-0"
+                          onClick={() => removeCta(btn.id)}
+                          disabled={(value.ctaButtons?.length || 0) <= 1}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <Input
+                        placeholder={btn.type === "url" ? "https://exemplo.com" : "+5511999999999"}
+                        value={btn.value}
+                        onChange={(e) => updateCta(btn.id, "value", e.target.value)}
+                      />
+                    </div>
+                  ))}
+                  {(value.ctaButtons?.length || 0) < 3 && (
+                    <Button variant="outline" size="sm" onClick={addCta} className="gap-1">
+                      <Plus className="h-3 w-3" /> Adicionar botão
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {/* ─── POLL EDITOR ─── */}
+              {value.type === "poll" && (
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Nome da enquete *</Label>
+                    <Input
+                      placeholder="Qual sua preferência?"
+                      value={value.pollName || ""}
+                      onChange={(e) => update("pollName", e.target.value)}
+                      maxLength={256}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="poll-multi"
+                      checked={value.pollMultiSelect || false}
+                      onChange={(e) => update("pollMultiSelect", e.target.checked)}
+                      className="rounded border-border"
+                    />
+                    <Label htmlFor="poll-multi" className="text-xs cursor-pointer">Permitir múltiplas respostas</Label>
+                  </div>
+                  <Label>Opções (mín. 2, máx. 12)</Label>
+                  {(value.pollOptions || []).map((opt, i) => (
+                    <div key={opt.id} className="flex items-center gap-2">
+                      <Badge variant="outline" className="shrink-0 w-6 h-6 flex items-center justify-center p-0 text-xs">
+                        {i + 1}
+                      </Badge>
+                      <Input
+                        placeholder={`Opção ${i + 1}`}
+                        value={opt.title}
+                        onChange={(e) => updatePollOption(opt.id, e.target.value)}
+                        maxLength={100}
+                        className="flex-1"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive shrink-0"
+                        onClick={() => removePollOption(opt.id)}
+                        disabled={(value.pollOptions?.length || 0) <= 2}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                  {(value.pollOptions?.length || 0) < 12 && (
+                    <Button variant="outline" size="sm" onClick={addPollOption} className="gap-1">
+                      <Plus className="h-3 w-3" /> Adicionar opção
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
-          )}
 
-          {/* ─── POLL EDITOR ─── */}
-          {value.type === "poll" && (
-            <div className="space-y-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Nome da enquete *</Label>
-                <Input
-                  placeholder="Qual sua preferência?"
-                  value={value.pollName || ""}
-                  onChange={(e) => update("pollName", e.target.value)}
-                  maxLength={256}
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="poll-multi"
-                  checked={value.pollMultiSelect || false}
-                  onChange={(e) => update("pollMultiSelect", e.target.checked)}
-                  className="rounded border-border"
-                />
-                <Label htmlFor="poll-multi" className="text-xs cursor-pointer">Permitir múltiplas respostas</Label>
-              </div>
-              <Label>Opções (mín. 2, máx. 12)</Label>
-              {(value.pollOptions || []).map((opt, i) => (
-                <div key={opt.id} className="flex items-center gap-2">
-                  <Badge variant="outline" className="shrink-0 w-6 h-6 flex items-center justify-center p-0 text-xs">
-                    {i + 1}
-                  </Badge>
-                  <Input
-                    placeholder={`Opção ${i + 1}`}
-                    value={opt.title}
-                    onChange={(e) => updatePollOption(opt.id, e.target.value)}
-                    maxLength={100}
-                    className="flex-1"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive shrink-0"
-                    onClick={() => removePollOption(opt.id)}
-                    disabled={(value.pollOptions?.length || 0) <= 2}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              ))}
-              {(value.pollOptions?.length || 0) < 12 && (
-                <Button variant="outline" size="sm" onClick={addPollOption} className="gap-1">
-                  <Plus className="h-3 w-3" /> Adicionar opção
-                </Button>
-              )}
-            </div>
-          )}
-          </div>
-
-          {/* ─── PREVIEW ─── */}
-          <Separator />
-          <div className="space-y-2">
-            <Label className="text-xs">Pré-visualização</Label>
-            <div className="rounded-lg bg-muted p-4">
-              <div className="inline-block max-w-[85%] rounded-xl bg-success/15 overflow-hidden">
-                {value.header && (
-                  <div className="px-4 pt-3 pb-1">
-                    <p className="text-sm font-bold">{value.header}</p>
-                  </div>
-                )}
-                <div className="px-4 py-2">
-                  <p className="text-sm whitespace-pre-wrap">{value.body || "..."}</p>
-                </div>
-                {value.footer && (
-                  <div className="px-4 pb-2">
-                    <p className="text-[11px] text-muted-foreground">{value.footer}</p>
-                  </div>
-                )}
-
-                {value.type === "buttons" && (value.buttons || []).length > 0 && (
-                  <div className="border-t border-border/30">
-                    {(value.buttons || []).map((btn) => (
-                      <div
-                        key={btn.id}
-                        className="text-center py-2 text-sm text-primary font-medium border-b border-border/20 last:border-0"
-                      >
-                        {btn.title || "..."}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {value.type === "list" && (
-                  <div className="border-t border-border/30">
-                    <div className="text-center py-2 text-sm text-primary font-medium flex items-center justify-center gap-1">
-                      <ListOrdered className="h-3.5 w-3.5" />
-                      {value.listButtonText || "Ver opções"}
+            <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3 self-start">
+              <Label className="text-xs">Pré-visualização</Label>
+              <div className="rounded-lg bg-muted p-3">
+                <div className="inline-block max-w-full rounded-xl bg-success/15 overflow-hidden">
+                  {value.header && (
+                    <div className="px-4 pt-3 pb-1">
+                      <p className="text-sm font-bold">{value.header}</p>
                     </div>
+                  )}
+                  <div className="px-4 py-2">
+                    <p className="text-sm whitespace-pre-wrap">{value.body || "..."}</p>
                   </div>
-                )}
-
-                {value.type === "cta" && (value.ctaButtons || []).length > 0 && (
-                  <div className="border-t border-border/30">
-                    {(value.ctaButtons || []).map((btn) => (
-                      <div
-                        key={btn.id}
-                        className="text-center py-2 text-sm text-primary font-medium border-b border-border/20 last:border-0 flex items-center justify-center gap-1"
-                      >
-                        {btn.type === "url" ? <Link className="h-3 w-3" /> : <Phone className="h-3 w-3" />}
-                        {btn.title || "..."}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {value.type === "poll" && (value.pollOptions || []).length > 0 && (
-                  <div className="border-t border-border/30">
-                    <div className="px-4 py-2">
-                      <p className="text-xs font-bold flex items-center gap-1"><BarChart3 className="h-3 w-3" /> {value.pollName || "Enquete"}</p>
-                      {value.pollMultiSelect && <p className="text-[10px] text-muted-foreground">Múltipla escolha</p>}
+                  {value.footer && (
+                    <div className="px-4 pb-2">
+                      <p className="text-[11px] text-muted-foreground">{value.footer}</p>
                     </div>
-                    {(value.pollOptions || []).map((opt) => (
-                      <div
-                        key={opt.id}
-                        className="px-4 py-1.5 text-xs border-t border-border/20 flex items-center gap-2"
-                      >
-                        <span className="h-3 w-3 rounded-full border border-primary/50 shrink-0" />
-                        {opt.title || "..."}
+                  )}
+
+                  {value.type === "buttons" && (value.buttons || []).length > 0 && (
+                    <div className="border-t border-border/30">
+                      {(value.buttons || []).map((btn) => (
+                        <div
+                          key={btn.id}
+                          className="text-center py-2 text-sm text-primary font-medium border-b border-border/20 last:border-0"
+                        >
+                          {btn.title || "..."}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {value.type === "list" && (
+                    <div className="border-t border-border/30">
+                      <div className="text-center py-2 text-sm text-primary font-medium flex items-center justify-center gap-1">
+                        <ListOrdered className="h-3.5 w-3.5" />
+                        {value.listButtonText || "Ver opções"}
                       </div>
-                    ))}
-                  </div>
-                )}
+                    </div>
+                  )}
+
+                  {value.type === "cta" && (value.ctaButtons || []).length > 0 && (
+                    <div className="border-t border-border/30">
+                      {(value.ctaButtons || []).map((btn) => (
+                        <div
+                          key={btn.id}
+                          className="text-center py-2 text-sm text-primary font-medium border-b border-border/20 last:border-0 flex items-center justify-center gap-1"
+                        >
+                          {btn.type === "url" ? <Link className="h-3 w-3" /> : <Phone className="h-3 w-3" />}
+                          {btn.title || "..."}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {value.type === "poll" && (value.pollOptions || []).length > 0 && (
+                    <div className="border-t border-border/30">
+                      <div className="px-4 py-2">
+                        <p className="text-xs font-bold flex items-center gap-1"><BarChart3 className="h-3 w-3" /> {value.pollName || "Enquete"}</p>
+                        {value.pollMultiSelect && <p className="text-[10px] text-muted-foreground">Múltipla escolha</p>}
+                      </div>
+                      {(value.pollOptions || []).map((opt) => (
+                        <div
+                          key={opt.id}
+                          className="px-4 py-1.5 text-xs border-t border-border/20 flex items-center gap-2"
+                        >
+                          <span className="h-3 w-3 rounded-full border border-primary/50 shrink-0" />
+                          {opt.title || "..."}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
