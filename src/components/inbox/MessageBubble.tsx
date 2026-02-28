@@ -1,8 +1,10 @@
 import { cn } from "@/lib/utils";
-import { CheckCheck, Check, Clock, AlertCircle, ImageIcon, FileText, Mic, Download, Play, Pause, MousePointerClick, ListOrdered, Link, Phone, SmilePlus, RotateCcw, Trash2 } from "lucide-react";
+import { CheckCheck, Check, Clock, AlertCircle, ImageIcon, FileText, Mic, Download, Play, Pause, MousePointerClick, ListOrdered, Link, Phone, SmilePlus, RotateCcw, Trash2, ChevronDown, Copy } from "lucide-react";
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { toast } from "sonner";
 
 interface Message {
   id: string;
@@ -155,13 +157,20 @@ const MessageBubble = ({ msg, onReact, onRetry, onDelete }: { msg: Message; onRe
   const isOutbound = msg.direction === "outbound";
   const isNote = msg.type === "note";
   const [hovered, setHovered] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const reaction = msg.metadata?.reaction as string | undefined;
 
   const handleReact = (emoji: string) => {
     setEmojiOpen(false);
     onReact?.(msg.id, emoji);
+  };
+
+  const handleCopy = () => {
+    if (msg.content) {
+      navigator.clipboard.writeText(msg.content);
+      toast.success("Texto copiado");
+    }
   };
 
   if (isNote) {
@@ -176,86 +185,14 @@ const MessageBubble = ({ msg, onReact, onRetry, onDelete }: { msg: Message; onRe
     );
   }
 
+  const showActions = hovered || menuOpen || emojiOpen;
+
   return (
     <div
       className={cn("flex mb-1 group relative", isOutbound ? "justify-end" : "justify-start")}
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => { setHovered(false); }}
+      onMouseLeave={() => { if (!menuOpen && !emojiOpen) setHovered(false); }}
     >
-      {/* Reaction button - shown on hover */}
-      {hovered && !isNote && (
-        <div className={cn(
-          "absolute top-1/2 -translate-y-1/2 z-10 flex items-center gap-0.5",
-          isOutbound ? "left-0 -translate-x-full pr-1" : "right-0 translate-x-full pl-1"
-        )}>
-          {/* Delete button for outbound messages */}
-          {isOutbound && onDelete && !confirmDelete && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 rounded-full bg-card border border-border shadow-sm hover:bg-destructive/10 hover:text-destructive"
-              onClick={() => setConfirmDelete(true)}
-              title="Apagar mensagem"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          )}
-          {/* Reaction button */}
-          {onReact && (
-            <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 rounded-full bg-card border border-border shadow-sm hover:bg-accent"
-                >
-                  <SmilePlus className="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-2" side={isOutbound ? "left" : "right"} align="center">
-                <div className="flex gap-1 flex-wrap max-w-[200px]">
-                  {QUICK_EMOJIS.map((emoji) => (
-                    <button
-                      key={emoji}
-                      className="text-xl hover:scale-125 transition-transform p-1 rounded hover:bg-accent"
-                      onClick={() => handleReact(emoji)}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
-          )}
-        </div>
-      )}
-
-      {/* Delete confirmation */}
-      {confirmDelete && (
-        <div className={cn(
-          "absolute top-1/2 -translate-y-1/2 z-20 flex items-center gap-1 bg-card border border-border rounded-lg shadow-lg px-2 py-1.5 animate-in fade-in zoom-in-95",
-          isOutbound ? "left-0 -translate-x-full pr-1" : "right-0 translate-x-full pl-1"
-        )}>
-          <span className="text-xs text-muted-foreground whitespace-nowrap">{msg.external_id ? "Apagar para todos?" : "Apagar mensagem?"}</span>
-          <Button
-            variant="destructive"
-            size="sm"
-            className="h-6 px-2 text-xs"
-            onClick={() => { setConfirmDelete(false); onDelete?.(msg); }}
-          >
-            Sim
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-xs"
-            onClick={() => setConfirmDelete(false)}
-          >
-            Não
-          </Button>
-        </div>
-      )}
-
       <div
         className={cn(
           "max-w-[75%] rounded-2xl px-3.5 py-2 relative",
@@ -263,6 +200,82 @@ const MessageBubble = ({ msg, onReact, onRetry, onDelete }: { msg: Message; onRe
           reaction && "mb-4"
         )}
       >
+        {/* WhatsApp-style dropdown chevron - inside the bubble, top right */}
+        {showActions && (
+          <div className={cn(
+            "absolute top-1 z-10",
+            isOutbound ? "right-1" : "right-1"
+          )}>
+            <DropdownMenu open={menuOpen} onOpenChange={(open) => { setMenuOpen(open); if (!open && !emojiOpen) setHovered(false); }}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className={cn(
+                    "h-5 w-5 flex items-center justify-center rounded-full transition-colors",
+                    isOutbound
+                      ? "hover:bg-primary-foreground/20 text-primary-foreground/70"
+                      : "hover:bg-foreground/10 text-muted-foreground"
+                  )}
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align={isOutbound ? "end" : "start"} className="min-w-[160px]">
+                {/* Emoji reactions row */}
+                {onReact && (
+                  <>
+                    <div className="flex gap-0.5 px-2 py-1.5 flex-wrap">
+                      {QUICK_EMOJIS.slice(0, 6).map((emoji) => (
+                        <button
+                          key={emoji}
+                          className="text-lg hover:scale-125 transition-transform p-0.5 rounded hover:bg-accent"
+                          onClick={() => { handleReact(emoji); setMenuOpen(false); }}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+
+                {/* Copy text */}
+                {msg.content && (
+                  <DropdownMenuItem onClick={handleCopy}>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copiar texto
+                  </DropdownMenuItem>
+                )}
+
+                {/* Retry for failed */}
+                {isOutbound && (msg.status === "error" || msg.status === "failed") && onRetry && (
+                  <DropdownMenuItem onClick={() => onRetry(msg)}>
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    Reenviar
+                  </DropdownMenuItem>
+                )}
+
+                {/* Delete message */}
+                {isOutbound && onDelete && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => {
+                        if (window.confirm(msg.external_id ? "Apagar mensagem para todos?" : "Apagar mensagem?")) {
+                          onDelete(msg);
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      {msg.external_id ? "Apagar para todos" : "Apagar mensagem"}
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
+
         {/* Media content */}
         {msg.media_url && (
           <div className="mb-1.5">
@@ -292,7 +305,7 @@ const MessageBubble = ({ msg, onReact, onRetry, onDelete }: { msg: Message; onRe
           </div>
         )}
 
-        {/* Text content (skip for documents that show filename already) */}
+        {/* Text content */}
         {msg.content && !(msg.type === "document" && msg.media_url) && msg.type !== "interactive" && (
           <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
         )}
@@ -344,7 +357,7 @@ const MessageBubble = ({ msg, onReact, onRetry, onDelete }: { msg: Message; onRe
           {isOutbound && statusIcon(msg.status)}
         </div>
 
-        {/* Retry button for failed messages */}
+        {/* Retry button for failed messages - inline */}
         {isOutbound && (msg.status === "error" || msg.status === "failed") && onRetry && (
           <button
             onClick={() => onRetry(msg)}
