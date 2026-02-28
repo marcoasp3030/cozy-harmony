@@ -83,6 +83,12 @@ interface Funnel {
   is_default: boolean;
 }
 
+interface Tag {
+  id: string;
+  name: string;
+  color: string;
+}
+
 interface KanbanViewProps {
   conversations: Conversation[];
   onSelectConversation: (id: string) => void;
@@ -148,6 +154,7 @@ const KanbanCard = ({
   col,
   columns,
   draggedId,
+  tags,
   onDragStart,
   onDragEnd,
   onSelect,
@@ -157,6 +164,7 @@ const KanbanCard = ({
   col: Column;
   columns: Column[];
   draggedId: string | null;
+  tags: Tag[];
   onDragStart: (e: React.DragEvent, id: string) => void;
   onDragEnd: () => void;
   onSelect: (id: string) => void;
@@ -250,6 +258,24 @@ const KanbanCard = ({
             {conv.lastMessage?.content || (conv.lastMessage?.type !== "text" ? `📎 ${conv.lastMessage?.type}` : "Sem mensagens")}
           </p>
 
+          {/* Tags */}
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {tags.map((tag) => (
+                <span
+                  key={tag.id}
+                  className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[9px] font-semibold ring-1 ring-inset"
+                  style={{
+                    backgroundColor: `${tag.color}15`,
+                    color: tag.color,
+                  }}
+                >
+                  {tag.name}
+                </span>
+              ))}
+            </div>
+          )}
+
           {/* Footer row */}
           <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-border/50">
             <span className="text-[10px] text-muted-foreground/70 font-medium">
@@ -302,7 +328,43 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
   const [urgencyFilter, setUrgencyFilter] = useState<"all" | "warning" | "critical">("all");
   const [funnels, setFunnels] = useState<Funnel[]>([]);
   const [stages, setStages] = useState<FunnelStage[]>([]);
-  const [selectedFunnelId, setSelectedFunnelId] = useState<string>("legacy");
+  const [selectedFunnelId, setSelectedFunnelId] = useState<string>(() => {
+    return localStorage.getItem("kanban_selected_funnel") || "legacy";
+  });
+  const [contactTagsMap, setContactTagsMap] = useState<Record<string, Tag[]>>({});
+
+  // Persist funnel selection
+  const handleFunnelChange = useCallback((value: string) => {
+    setSelectedFunnelId(value);
+    localStorage.setItem("kanban_selected_funnel", value);
+  }, []);
+
+  // Load tags for all contacts in conversations
+  const loadContactTags = useCallback(async () => {
+    const contactIds = [...new Set(conversations.map((c) => c.contact_id))];
+    if (contactIds.length === 0) return;
+
+    const { data: ctData } = await supabase
+      .from("contact_tags")
+      .select("contact_id, tag_id")
+      .in("contact_id", contactIds);
+
+    if (!ctData || ctData.length === 0) { setContactTagsMap({}); return; }
+
+    const tagIds = [...new Set(ctData.map((ct) => ct.tag_id))];
+    const { data: tagsData } = await supabase.from("tags").select("*").in("id", tagIds);
+    const tagMap = new Map((tagsData || []).map((t) => [t.id, t as Tag]));
+
+    const result: Record<string, Tag[]> = {};
+    for (const ct of ctData) {
+      const tag = tagMap.get(ct.tag_id);
+      if (tag) {
+        if (!result[ct.contact_id]) result[ct.contact_id] = [];
+        result[ct.contact_id].push(tag);
+      }
+    }
+    setContactTagsMap(result);
+  }, [conversations]);
 
   const loadFunnels = useCallback(async () => {
     const [{ data: f }, { data: s }] = await Promise.all([
@@ -312,13 +374,19 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
     const funnelList = (f || []) as Funnel[];
     setFunnels(funnelList);
     setStages((s || []) as FunnelStage[]);
-    const defaultFunnel = funnelList.find((fn) => fn.is_default);
-    if (defaultFunnel && selectedFunnelId === "legacy") {
-      setSelectedFunnelId(defaultFunnel.id);
+    // Only set default if no saved preference
+    const saved = localStorage.getItem("kanban_selected_funnel");
+    if (!saved || saved === "legacy") {
+      const defaultFunnel = funnelList.find((fn) => fn.is_default);
+      if (defaultFunnel) {
+        setSelectedFunnelId(defaultFunnel.id);
+        localStorage.setItem("kanban_selected_funnel", defaultFunnel.id);
+      }
     }
   }, []);
 
   useEffect(() => { loadFunnels(); }, [loadFunnels]);
+  useEffect(() => { loadContactTags(); }, [loadContactTags]);
 
   const isLegacy = selectedFunnelId === "legacy";
   const funnelStages = stages.filter((s) => s.funnel_id === selectedFunnelId).sort((a, b) => a.position - b.position);
@@ -391,7 +459,7 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
     <div className="flex flex-col h-[calc(100vh-220px)] gap-4">
       {/* ─── Toolbar ─── */}
       <div className="flex items-center gap-3 flex-wrap rounded-xl border border-border bg-card/50 backdrop-blur-sm px-4 py-2.5">
-        <Select value={selectedFunnelId} onValueChange={setSelectedFunnelId}>
+        <Select value={selectedFunnelId} onValueChange={handleFunnelChange}>
           <SelectTrigger className="h-8 w-[200px] text-sm border-border/50 bg-background/60">
             <GitBranchPlus className="h-3.5 w-3.5 mr-1.5 text-primary" />
             <SelectValue placeholder="Selecionar funil" />
@@ -514,6 +582,7 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
                         col={col}
                         columns={columns}
                         draggedId={draggedId}
+                        tags={contactTagsMap[conv.contact_id] || []}
                         onDragStart={handleDragStart}
                         onDragEnd={() => { setDraggedId(null); setDragOverCol(null); }}
                         onSelect={onSelectConversation}
