@@ -38,8 +38,18 @@ import {
   ArrowRight,
   ArrowDown,
   Shield,
+  UserPlus,
+  Scan,
+  X,
+  User,
 } from "lucide-react";
 import { useState, useMemo, useEffect, useCallback } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 // ── Interfaces ──────────────────────────────────────────────────────
 
@@ -75,8 +85,17 @@ interface Conversation {
   funnel_stage_id?: string | null;
   priority?: string;
   sla_hours?: number | null;
+  assigned_to?: string | null;
   contact?: Contact;
   lastMessage?: Message;
+}
+
+interface Profile {
+  id: string;
+  user_id: string;
+  name: string;
+  email: string;
+  avatar_url: string | null;
 }
 
 interface FunnelStage {
@@ -258,6 +277,7 @@ const KanbanCard = ({
   columns,
   draggedId,
   tags,
+  profiles,
   onDragStart,
   onDragEnd,
   onSelect,
@@ -265,12 +285,15 @@ const KanbanCard = ({
   onTagsChanged,
   onPriorityChange,
   onSlaChange,
+  onAssign,
+  onPeek,
 }: {
   conv: Conversation;
   col: Column;
   columns: Column[];
   draggedId: string | null;
   tags: Tag[];
+  profiles: Profile[];
   onDragStart: (e: React.DragEvent, id: string) => void;
   onDragEnd: () => void;
   onSelect: (id: string) => void;
@@ -278,6 +301,8 @@ const KanbanCard = ({
   onTagsChanged: () => void;
   onPriorityChange: (convId: string, priority: string) => void;
   onSlaChange: (convId: string, slaHours: number | null) => void;
+  onAssign: (convId: string, userId: string | null) => void;
+  onPeek: (convId: string) => void;
 }) => {
   const waitHours = getWaitHours(conv.last_message_at);
   const urgency = getUrgency(waitHours, col.notifyAfterHours);
@@ -353,10 +378,48 @@ const KanbanCard = ({
                   <MoreHorizontal className="h-3.5 w-3.5" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56" onClick={(e) => e.stopPropagation()}>
+              <DropdownMenuContent align="end" className="w-56 max-h-[420px] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                 <DropdownMenuItem className="text-xs gap-2" onClick={() => onSelect(conv.id)}>
                   <Eye className="h-3.5 w-3.5" /> Abrir conversa
                 </DropdownMenuItem>
+                <DropdownMenuItem className="text-xs gap-2" onClick={() => onPeek(conv.id)}>
+                  <Scan className="h-3.5 w-3.5" /> Espiar conversa
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+
+                {/* Assign agent */}
+                <div className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase mb-1.5 flex items-center gap-1">
+                    <UserPlus className="h-3 w-3" /> Atribuir / Transferir
+                  </p>
+                  <div className="flex flex-col gap-0.5 max-h-[120px] overflow-y-auto">
+                    <button
+                      onClick={() => onAssign(conv.id, null)}
+                      className={cn(
+                        "flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium transition-all w-full text-left",
+                        !conv.assigned_to ? "bg-primary/10 text-primary" : "hover:bg-accent text-muted-foreground"
+                      )}
+                    >
+                      <User className="h-3 w-3" /> Ninguém
+                    </button>
+                    {profiles.map((p) => (
+                      <button
+                        key={p.user_id}
+                        onClick={() => onAssign(conv.id, p.user_id)}
+                        className={cn(
+                          "flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium transition-all w-full text-left",
+                          conv.assigned_to === p.user_id ? "bg-primary/10 text-primary" : "hover:bg-accent text-muted-foreground"
+                        )}
+                      >
+                        <Avatar className="h-4 w-4">
+                          {p.avatar_url && <AvatarImage src={p.avatar_url} />}
+                          <AvatarFallback className="text-[8px]">{p.name.slice(0, 2).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        {p.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <DropdownMenuSeparator />
 
                 {/* Priority selector */}
@@ -457,9 +520,25 @@ const KanbanCard = ({
           )}
 
           <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-border/40">
-            <span className="text-[10px] text-muted-foreground/60 font-medium">
-              {conv.last_message_at ? formatTime(conv.last_message_at) : ""}
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-muted-foreground/60 font-medium">
+                {conv.last_message_at ? formatTime(conv.last_message_at) : ""}
+              </span>
+              {conv.assigned_to && (() => {
+                const agent = profiles.find((p) => p.user_id === conv.assigned_to);
+                return agent ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Avatar className="h-4 w-4">
+                        {agent.avatar_url && <AvatarImage src={agent.avatar_url} />}
+                        <AvatarFallback className="text-[7px] bg-primary/10 text-primary">{agent.name.slice(0, 2).toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                    </TooltipTrigger>
+                    <TooltipContent className="text-xs">Atribuído: {agent.name}</TooltipContent>
+                  </Tooltip>
+                ) : null;
+              })()}
+            </div>
             <div className="flex items-center gap-1.5">
               {/* SLA indicator */}
               {slaStatus && (
@@ -525,6 +604,10 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
   });
   const [contactTagsMap, setContactTagsMap] = useState<Record<string, Tag[]>>({});
   const [legacyColors, setLegacyColors] = useState<Record<string, string>>(getLegacyColumnColors);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [peekConvId, setPeekConvId] = useState<string | null>(null);
+  const [peekMessages, setPeekMessages] = useState<Message[]>([]);
+  const [peekLoading, setPeekLoading] = useState(false);
 
   const handleFunnelChange = useCallback((value: string) => {
     setSelectedFunnelId(value);
@@ -667,8 +750,91 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
     else { toast.success(slaHours ? `SLA: ${slaHours}h` : "SLA removido"); onReload(); }
   }, [onReload]);
 
+  const loadProfiles = useCallback(async () => {
+    const { data } = await supabase.from("profiles").select("id, user_id, name, email, avatar_url");
+    setProfiles((data || []) as Profile[]);
+  }, []);
+
+  useEffect(() => { loadProfiles(); }, [loadProfiles]);
+
+  const handleAssign = useCallback(async (convId: string, userId: string | null) => {
+    const { error } = await supabase.from("conversations").update({ assigned_to: userId }).eq("id", convId);
+    if (error) toast.error("Erro ao atribuir");
+    else {
+      const agent = profiles.find((p) => p.user_id === userId);
+      toast.success(userId ? `Atribuído para ${agent?.name || "atendente"}` : "Atribuição removida");
+      onReload();
+    }
+  }, [onReload, profiles]);
+
+  const handlePeek = useCallback(async (convId: string) => {
+    setPeekConvId(convId);
+    setPeekLoading(true);
+    const conv = conversations.find((c) => c.id === convId);
+    if (!conv) { setPeekLoading(false); return; }
+    const { data } = await supabase
+      .from("messages")
+      .select("*")
+      .eq("contact_id", conv.contact_id)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    setPeekMessages(((data || []) as Message[]).reverse());
+    setPeekLoading(false);
+  }, [conversations]);
+
+  const peekConv = peekConvId ? conversations.find((c) => c.id === peekConvId) : null;
+
   return (
     <div className="flex flex-col h-[calc(100vh-220px)] gap-3">
+
+      {/* Peek Dialog */}
+      <Dialog open={!!peekConvId} onOpenChange={(open) => { if (!open) setPeekConvId(null); }}>
+        <DialogContent className="max-w-md max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Scan className="h-4 w-4 text-primary" />
+              Espiar — {peekConv?.contact?.name || peekConv?.contact?.phone || "Conversa"}
+            </DialogTitle>
+          </DialogHeader>
+          <ScrollArea className="flex-1 min-h-0 max-h-[60vh]">
+            <div className="space-y-2 p-1">
+              {peekLoading ? (
+                <p className="text-sm text-muted-foreground text-center py-8">Carregando...</p>
+              ) : peekMessages.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">Nenhuma mensagem</p>
+              ) : (
+                peekMessages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={cn(
+                      "max-w-[85%] rounded-xl px-3 py-2 text-xs",
+                      msg.direction === "outbound"
+                        ? "ml-auto bg-primary/10 text-foreground"
+                        : "mr-auto bg-muted"
+                    )}
+                  >
+                    {msg.content && <p className="whitespace-pre-wrap">{msg.content}</p>}
+                    {msg.media_url && msg.type === "image" && (
+                      <img src={msg.media_url} alt="" className="rounded-lg max-h-40 mt-1" />
+                    )}
+                    {msg.media_url && msg.type !== "image" && (
+                      <p className="text-primary/60 text-[10px]">📎 {msg.type}</p>
+                    )}
+                    <p className="text-[9px] text-muted-foreground/50 mt-0.5 text-right">
+                      {new Date(msg.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+          </ScrollArea>
+          <div className="pt-2 border-t">
+            <Button size="sm" className="w-full text-xs" onClick={() => { setPeekConvId(null); if (peekConvId) onSelectConversation(peekConvId); }}>
+              <Eye className="h-3.5 w-3.5 mr-1.5" /> Abrir conversa completa
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       {/* ─── Toolbar ─── */}
       <div className="flex items-center gap-3 flex-wrap rounded-2xl border border-border/50 bg-card/80 backdrop-blur-md px-4 py-2.5 shadow-sm">
         <Select value={selectedFunnelId} onValueChange={handleFunnelChange}>
@@ -813,6 +979,7 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
                         columns={columns}
                         draggedId={draggedId}
                         tags={contactTagsMap[conv.contact_id] || []}
+                        profiles={profiles}
                         onDragStart={handleDragStart}
                         onDragEnd={() => { setDraggedId(null); setDragOverCol(null); }}
                         onSelect={onSelectConversation}
@@ -820,6 +987,8 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
                         onTagsChanged={loadContactTags}
                         onPriorityChange={handlePriorityChange}
                         onSlaChange={handleSlaChange}
+                        onAssign={handleAssign}
+                        onPeek={handlePeek}
                       />
                     ))
                   )}
