@@ -282,80 +282,94 @@ const InboxPage = () => {
       return;
     }
 
-    setSending(true);
-    try {
-      let mediaUrl: string | null = null;
-      let msgType = "text";
+    // Capture values before clearing
+    const messageText = newMessage.trim();
+    const currentAttachment = mediaAttachment;
+    const currentInteractive = { ...interactiveMsg };
+    const isInteractive = currentInteractive.type !== "none" && currentInteractive.body;
+    const tempId = `temp-${Date.now()}`;
 
-      // Upload media if attached
-      if (mediaAttachment) {
-        setMediaUploading(true);
-        try {
-          mediaUrl = await uploadMediaFile(mediaAttachment.file);
-          msgType = mediaAttachment.type;
-        } catch (err: any) {
-          toast.error(err.message || "Erro ao fazer upload");
-          setSending(false);
-          setMediaUploading(false);
-          return;
+    // Optimistic: show message instantly
+    const optimisticMsg: Message = {
+      id: tempId,
+      contact_id: contact.id,
+      direction: "outbound",
+      type: isInteractive ? "interactive" : (currentAttachment ? currentAttachment.type : "text"),
+      content: isInteractive ? currentInteractive.body : (messageText || currentAttachment?.file.name || null),
+      media_url: currentAttachment ? URL.createObjectURL(currentAttachment.file) : null,
+      status: "sending",
+      created_at: new Date().toISOString(),
+      external_id: null,
+      metadata: isInteractive ? {
+        header: currentInteractive.header || undefined,
+        body: currentInteractive.body,
+        footer: currentInteractive.footer || undefined,
+        interactiveType: currentInteractive.type,
+        buttons: currentInteractive.buttons,
+        listButtonText: currentInteractive.listButtonText,
+        listSections: currentInteractive.listSections,
+        ctaButtons: currentInteractive.ctaButtons,
+      } : null,
+    };
+
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setNewMessage("");
+    setMediaAttachment(null);
+    setInteractiveMsg(getDefaultInteractive());
+
+    // Send in background
+    (async () => {
+      try {
+        let mediaUrl: string | null = null;
+        let msgType = currentAttachment ? currentAttachment.type : "text";
+
+        if (currentAttachment) {
+          mediaUrl = await uploadMediaFile(currentAttachment.file);
         }
-        setMediaUploading(false);
+
+        const sendBody: Record<string, any> = {
+          type: msgType,
+          number: contact.phone,
+          instanceId: selectedInstanceId || defaultInstance?.id || undefined,
+        };
+
+        if (isInteractive) {
+          sendBody.type = "interactive";
+          sendBody.interactive = currentInteractive;
+          sendBody.text = currentInteractive.body;
+        } else if (msgType === "text") {
+          sendBody.text = messageText;
+        } else {
+          sendBody.mediaUrl = mediaUrl;
+          if (messageText) sendBody.caption = messageText;
+          if (msgType === "document") sendBody.filename = currentAttachment?.file.name;
+        }
+
+        const { data, error } = await supabase.functions.invoke("uazapi-send", { body: sendBody });
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+
+        const externalId = data?.key?.id || data?.messageId || null;
+        const { data: inserted } = await supabase.from("messages").insert({
+          contact_id: contact.id,
+          direction: "outbound",
+          type: isInteractive ? "interactive" : msgType,
+          content: isInteractive ? currentInteractive.body : (msgType === "text" ? messageText : (messageText || currentAttachment?.file.name || null)),
+          media_url: mediaUrl,
+          status: "sent",
+          external_id: externalId,
+          metadata: optimisticMsg.metadata,
+        } as any).select().single();
+
+        // Replace optimistic message with real one
+        setMessages((prev) => prev.map((m) => m.id === tempId ? (inserted as Message) : m));
+        supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", selectedConvId);
+      } catch (err: any) {
+        // Mark optimistic message as failed
+        setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, status: "error" } : m));
+        toast.error("Erro ao enviar: " + (err.message || "Tente novamente"));
       }
-
-      // Send via UazAPI
-      const sendBody: Record<string, any> = {
-        type: msgType,
-        number: contact.phone,
-        instanceId: selectedInstanceId || defaultInstance?.id || undefined,
-      };
-
-      // Check if interactive message
-      if (interactiveMsg.type !== "none" && interactiveMsg.body) {
-        sendBody.type = "interactive";
-        sendBody.interactive = interactiveMsg;
-        sendBody.text = interactiveMsg.body;
-      } else if (msgType === "text") {
-        sendBody.text = newMessage.trim();
-      } else {
-        sendBody.mediaUrl = mediaUrl;
-        if (newMessage.trim()) sendBody.caption = newMessage.trim();
-        if (msgType === "document") sendBody.filename = mediaAttachment?.file.name;
-      }
-
-      const { data, error } = await supabase.functions.invoke("uazapi-send", { body: sendBody });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-
-      const externalId = data?.key?.id || data?.messageId || null;
-      const isInteractive = interactiveMsg.type !== "none" && interactiveMsg.body;
-      await supabase.from("messages").insert({
-        contact_id: contact.id,
-        direction: "outbound",
-        type: isInteractive ? "interactive" : msgType,
-        content: isInteractive ? interactiveMsg.body : (msgType === "text" ? newMessage.trim() : (newMessage.trim() || mediaAttachment?.file.name || null)),
-        media_url: mediaUrl,
-        status: "sent",
-        external_id: externalId,
-        metadata: isInteractive ? {
-          header: interactiveMsg.header || undefined,
-          body: interactiveMsg.body,
-          footer: interactiveMsg.footer || undefined,
-          interactiveType: interactiveMsg.type,
-          buttons: interactiveMsg.buttons,
-          listButtonText: interactiveMsg.listButtonText,
-          listSections: interactiveMsg.listSections,
-          ctaButtons: interactiveMsg.ctaButtons,
-        } : undefined,
-      } as any);
-      await supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", selectedConvId);
-      setNewMessage("");
-      setMediaAttachment(null);
-      setInteractiveMsg(getDefaultInteractive());
-    } catch (err: any) {
-      toast.error("Erro ao enviar: " + (err.message || "Tente novamente"));
-    } finally {
-      setSending(false);
-    }
+    })();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
