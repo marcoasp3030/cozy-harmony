@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -204,9 +205,10 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
         <>
           <div className="space-y-4">
             <div className="rounded-lg border border-border bg-background p-3">
-              <Accordion type="multiple" defaultValue={["content", "config"]} className="space-y-0">
-                {/* ─── CONTENT SECTION ─── */}
-                <AccordionItem value="content" className="border-b-0">
+              <ScrollArea className="h-[56vh] pr-3">
+                <Accordion type="multiple" defaultValue={["content", "config"]} className="space-y-0">
+                  {/* ─── CONTENT SECTION ─── */}
+                  <AccordionItem value="content" className="border-b-0">
                   <AccordionTrigger className="py-2 text-sm font-medium hover:no-underline">
                     <span className="flex items-center gap-2">
                       <Type className="h-4 w-4 text-primary/70" />
@@ -473,6 +475,7 @@ export default function InteractiveMessageBuilder({ value, onChange, compact }: 
                   </AccordionContent>
                 </AccordionItem>
               </Accordion>
+            </ScrollArea>
             </div>
 
           </div>
