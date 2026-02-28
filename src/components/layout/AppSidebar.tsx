@@ -9,6 +9,7 @@ import {
   BarChart3,
   Settings,
   MessageSquare,
+  GitBranchPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import logo from "@/assets/logo.webp";
@@ -19,6 +20,7 @@ const navItems = [
   { to: "/campaigns", label: "Campanhas", icon: Megaphone },
   { to: "/automations", label: "Automações", icon: Bot },
   { to: "/inbox", label: "Inbox", icon: Inbox },
+  { to: "/funnels", label: "Funis", icon: GitBranchPlus },
   { to: "/templates", label: "Templates", icon: FileText },
   { to: "/reports", label: "Relatórios", icon: BarChart3 },
   { to: "/settings", label: "Configurações", icon: Settings },

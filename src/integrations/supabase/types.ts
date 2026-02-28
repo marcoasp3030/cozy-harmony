@@ -247,6 +247,8 @@ export type Database = {
           assigned_to: string | null
           contact_id: string
           created_at: string
+          funnel_id: string | null
+          funnel_stage_id: string | null
           id: string
           last_message_at: string | null
           notes: string | null
@@ -258,6 +260,8 @@ export type Database = {
           assigned_to?: string | null
           contact_id: string
           created_at?: string
+          funnel_id?: string | null
+          funnel_stage_id?: string | null
           id?: string
           last_message_at?: string | null
           notes?: string | null
@@ -269,6 +273,8 @@ export type Database = {
           assigned_to?: string | null
           contact_id?: string
           created_at?: string
+          funnel_id?: string | null
+          funnel_stage_id?: string | null
           id?: string
           last_message_at?: string | null
           notes?: string | null
@@ -284,7 +290,92 @@ export type Database = {
             referencedRelation: "contacts"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "conversations_funnel_id_fkey"
+            columns: ["funnel_id"]
+            isOneToOne: false
+            referencedRelation: "funnels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversations_funnel_stage_id_fkey"
+            columns: ["funnel_stage_id"]
+            isOneToOne: false
+            referencedRelation: "funnel_stages"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      funnel_stages: {
+        Row: {
+          auto_move_on_reply: boolean
+          color: string
+          created_at: string
+          funnel_id: string
+          id: string
+          name: string
+          notify_after_hours: number | null
+          position: number
+        }
+        Insert: {
+          auto_move_on_reply?: boolean
+          color?: string
+          created_at?: string
+          funnel_id: string
+          id?: string
+          name: string
+          notify_after_hours?: number | null
+          position?: number
+        }
+        Update: {
+          auto_move_on_reply?: boolean
+          color?: string
+          created_at?: string
+          funnel_id?: string
+          id?: string
+          name?: string
+          notify_after_hours?: number | null
+          position?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "funnel_stages_funnel_id_fkey"
+            columns: ["funnel_id"]
+            isOneToOne: false
+            referencedRelation: "funnels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      funnels: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_default: boolean
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_default?: boolean
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_default?: boolean
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       messages: {
         Row: {
