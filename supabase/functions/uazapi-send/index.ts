@@ -86,32 +86,21 @@ serve(async (req) => {
     const baseUrl = config.baseUrl.replace(/\/+$/, '');
 
     // Build request based on type
-    let endpoint = `/send/${type}`;
+    // UazAPI v2: text uses /send/text, all media uses /send/media with type + file fields
+    let endpoint: string;
     let sendBody: Record<string, unknown> = { number: cleanNumber };
 
     if (delay && Number(delay) > 0) sendBody.delay = Number(delay);
 
-    switch (type) {
-      case 'text':
-        sendBody.text = text;
-        break;
-      case 'image':
-      case 'video':
-        sendBody.mediaUrl = mediaUrl;
-        if (caption) sendBody.caption = caption;
-        break;
-      case 'audio':
-      case 'ptt':
-      case 'sticker':
-        sendBody.mediaUrl = mediaUrl;
-        break;
-      case 'document':
-        sendBody.mediaUrl = mediaUrl;
-        if (filename) sendBody.filename = filename;
-        if (caption) sendBody.caption = caption;
-        break;
-      default:
-        sendBody.text = text;
+    if (type === 'text') {
+      endpoint = '/send/text';
+      sendBody.text = text;
+    } else {
+      endpoint = '/send/media';
+      sendBody.type = type;
+      sendBody.file = mediaUrl;
+      if (caption) sendBody.caption = caption;
+      if (type === 'document' && filename) sendBody.filename = filename;
     }
 
     const res = await fetch(`${baseUrl}${endpoint}`, {
