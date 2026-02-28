@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Wifi, WifiOff, CheckCircle2, Loader2, QrCode, Unplug, Save } from "lucide-react";
+import { Wifi, WifiOff, CheckCircle2, Loader2, QrCode, Unplug, Save, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +20,7 @@ const SettingsPage = () => {
   const [connectionInfo, setConnectionInfo] = useState<{ phone?: string; name?: string } | null>(null);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [loadingQr, setLoadingQr] = useState(false);
+  const [creatingInstance, setCreatingInstance] = useState(false);
 
   // Load saved settings
   useEffect(() => {
@@ -141,6 +142,33 @@ const SettingsPage = () => {
     }
   };
 
+  const createInstance = async () => {
+    if (!baseUrl.trim() || !adminToken.trim()) {
+      toast.error("Preencha a URL e o Admin Token para criar uma instância.");
+      return;
+    }
+    await saveConfig();
+    setCreatingInstance(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("uazapi-instance", {
+        body: { action: "create-instance" },
+      });
+      if (error) throw error;
+      if (data.instanceToken) {
+        setInstanceToken(data.instanceToken);
+        toast.success("Instância criada! Token preenchido automaticamente.");
+      } else if (data.error) {
+        toast.error(data.error);
+      } else {
+        toast.info("Instância criada, mas nenhum token retornado. Verifique o painel da UazAPI.");
+      }
+    } catch (err: any) {
+      toast.error("Erro ao criar instância: " + (err.message || "Tente novamente"));
+    } finally {
+      setCreatingInstance(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -185,12 +213,19 @@ const SettingsPage = () => {
               </div>
               <div className="space-y-2">
                 <Label>Instance Token</Label>
-                <Input
-                  type="password"
-                  placeholder="Token da instância"
-                  value={instanceToken}
-                  onChange={(e) => setInstanceToken(e.target.value)}
-                />
+                <div className="flex gap-2">
+                  <Input
+                    type="password"
+                    placeholder="Token da instância (ou crie automaticamente)"
+                    value={instanceToken}
+                    onChange={(e) => setInstanceToken(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button variant="outline" onClick={createInstance} disabled={creatingInstance} title="Criar instância e gerar token automaticamente">
+                    {creatingInstance ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">Preencha manualmente ou clique em + para criar uma instância usando o Admin Token.</p>
               </div>
 
               <div className="flex flex-wrap gap-2">
