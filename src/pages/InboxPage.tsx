@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, Send, Paperclip, Phone, MoreVertical, CheckCheck, Check, Clock, AlertCircle, ImageIcon, FileText, Mic } from "lucide-react";
+import { Search, Send, Paperclip, Phone, MoreVertical, CheckCheck, Check, Clock, AlertCircle, ImageIcon, FileText, Mic, LayoutTemplate } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -100,6 +101,9 @@ const InboxPage = () => {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [contactTags, setContactTags] = useState<Tag[]>([]);
+  const [templates, setTemplates] = useState<{ id: string; name: string; content: string; category: string | null }[]>([]);
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [templateOpen, setTemplateOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const selectedConv = conversations.find((c) => c.id === selectedConvId);
@@ -181,6 +185,13 @@ const InboxPage = () => {
     } else {
       setContactTags([]);
     }
+  }, []);
+
+  // Load templates
+  useEffect(() => {
+    supabase.from("templates").select("id, name, content, category").order("name").then(({ data }) => {
+      setTemplates((data as any[]) || []);
+    });
   }, []);
 
   // Initial load
@@ -514,6 +525,50 @@ const InboxPage = () => {
               {/* Message Input */}
               <div className="border-t border-border p-3">
                 <div className="flex items-end gap-2">
+                  <Popover open={templateOpen} onOpenChange={setTemplateOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="ghost" size="icon" className="shrink-0" title="Usar template">
+                        <LayoutTemplate className="h-4 w-4" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-72 p-0" align="start" side="top">
+                      <div className="p-2 border-b border-border">
+                        <Input
+                          placeholder="Buscar template..."
+                          value={templateSearch}
+                          onChange={(e) => setTemplateSearch(e.target.value)}
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                      <ScrollArea className="max-h-48">
+                        {templates
+                          .filter((t) => !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase()) || t.content.toLowerCase().includes(templateSearch.toLowerCase()))
+                          .map((t) => (
+                            <button
+                              key={t.id}
+                              className="w-full text-left px-3 py-2 hover:bg-accent transition-colors border-b border-border last:border-0"
+                              onClick={() => {
+                                // Replace variables with contact data
+                                let text = t.content;
+                                if (contact) {
+                                  text = text.replace(/\{\{nome\}\}/gi, contact.name || contact.phone);
+                                  text = text.replace(/\{\{telefone\}\}/gi, contact.phone);
+                                }
+                                setNewMessage(text);
+                                setTemplateOpen(false);
+                                setTemplateSearch("");
+                              }}
+                            >
+                              <p className="text-sm font-medium truncate">{t.name}</p>
+                              <p className="text-xs text-muted-foreground truncate">{t.content}</p>
+                            </button>
+                          ))}
+                        {templates.filter((t) => !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase())).length === 0 && (
+                          <p className="p-3 text-xs text-muted-foreground text-center">Nenhum template encontrado</p>
+                        )}
+                      </ScrollArea>
+                    </PopoverContent>
+                  </Popover>
                   <Textarea
                     placeholder="Digite sua mensagem..."
                     value={newMessage}
