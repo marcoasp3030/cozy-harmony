@@ -23,6 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import InstanceSelector from "@/components/shared/InstanceSelector";
 
 type Step = "info" | "recipients" | "message" | "schedule" | "review";
 const STEPS: { key: Step; label: string; icon: React.ReactNode }[] = [
@@ -64,6 +65,7 @@ interface CampaignForm {
   templateId: string | null;
   scheduleType: "now" | "scheduled";
   scheduledAt: Date | undefined;
+  instanceId: string | null;
   // Anti-block settings
   delayMin: number;
   delayMax: number;
@@ -85,6 +87,7 @@ const initialForm: CampaignForm = {
   templateId: null,
   scheduleType: "now",
   scheduledAt: undefined,
+  instanceId: null,
   delayMin: 3000,
   delayMax: 8000,
   dailyLimit: 200,
@@ -240,6 +243,7 @@ export default function CreateCampaignDialog({
           status: form.scheduleType === "now" ? "draft" : "scheduled",
           scheduled_at: form.scheduledAt ? form.scheduledAt.toISOString() : null,
           created_by: user.id,
+          instance_id: form.instanceId || null,
           settings: {
             delayMin: form.delayMin,
             delayMax: form.delayMax,
@@ -370,6 +374,11 @@ export default function CreateCampaignDialog({
                   rows={3}
                 />
               </div>
+              <InstanceSelector
+                value={form.instanceId}
+                onChange={(v) => update("instanceId", v)}
+                label="Enviar de qual instância?"
+              />
             </div>
           )}
 

@@ -120,6 +120,7 @@ export type Database = {
           created_by: string | null
           description: string | null
           id: string
+          instance_id: string | null
           media_url: string | null
           message_content: string | null
           message_type: string
@@ -137,6 +138,7 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           id?: string
+          instance_id?: string | null
           media_url?: string | null
           message_content?: string | null
           message_type?: string
@@ -154,6 +156,7 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           id?: string
+          instance_id?: string | null
           media_url?: string | null
           message_content?: string | null
           message_type?: string
@@ -165,7 +168,15 @@ export type Database = {
           status?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "campaigns_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_instances"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       contact_tags: {
         Row: {
@@ -554,6 +565,54 @@ export type Database = {
           type?: string
           updated_at?: string
           variables?: string[] | null
+        }
+        Relationships: []
+      }
+      whatsapp_instances: {
+        Row: {
+          admin_token: string | null
+          base_url: string
+          created_at: string
+          device_name: string | null
+          id: string
+          instance_name: string | null
+          instance_token: string | null
+          is_default: boolean
+          name: string
+          phone: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          admin_token?: string | null
+          base_url: string
+          created_at?: string
+          device_name?: string | null
+          id?: string
+          instance_name?: string | null
+          instance_token?: string | null
+          is_default?: boolean
+          name: string
+          phone?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          admin_token?: string | null
+          base_url?: string
+          created_at?: string
+          device_name?: string | null
+          id?: string
+          instance_name?: string | null
+          instance_token?: string | null
+          is_default?: boolean
+          name?: string
+          phone?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
