@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Wifi, WifiOff, CheckCircle2, Loader2, QrCode, Unplug, Save, Plus } from "lucide-react";
+import { Wifi, WifiOff, CheckCircle2, Loader2, QrCode, Unplug, Save, Plus, Link2, ExternalLink, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +25,142 @@ const extractError = (data: any, fallback: string): string => {
   const mainError = data.error || data.message || "";
   const extra = detail || debug;
   return extra ? `${mainError}\n\nDetalhes: ${extra}` : mainError || fallback;
+};
+
+const WEBHOOK_URL = `https://wszmgoerulwkwhensevl.supabase.co/functions/v1/uazapi-webhook`;
+
+const WebhookConfig = () => {
+  const [configuring, setConfiguring] = useState(false);
+  const [currentWebhook, setCurrentWebhook] = useState<string | null>(null);
+  const [loadingStatus, setLoadingStatus] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke("uazapi-instance", {
+          body: { action: "get-webhook" },
+        });
+        if (!error && data?.url) {
+          setCurrentWebhook(data.url);
+        }
+      } catch {}
+      setLoadingStatus(false);
+    };
+    load();
+  }, []);
+
+  const configureWebhook = async () => {
+    setConfiguring(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("uazapi-instance", {
+        body: {
+          action: "set-webhook",
+          webhookUrl: WEBHOOK_URL,
+        },
+      });
+      if (error) throw error;
+      if (data?.error) {
+        toast.error(extractError(data, "Erro ao configurar webhook"), { duration: 8000 });
+      } else {
+        setCurrentWebhook(WEBHOOK_URL);
+        toast.success("Webhook configurado com sucesso! Mensagens recebidas aparecerão no Inbox.");
+      }
+    } catch (err: any) {
+      toast.error("Erro: " + (err.message || "Tente novamente"));
+    } finally {
+      setConfiguring(false);
+    }
+  };
+
+  const copyUrl = () => {
+    navigator.clipboard.writeText(WEBHOOK_URL);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const isConfigured = currentWebhook === WEBHOOK_URL;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="font-heading">Webhook de Mensagens</CardTitle>
+        <CardDescription>
+          Configure o webhook na UazAPI para receber mensagens em tempo real no Inbox
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Webhook URL */}
+        <div className="space-y-2">
+          <Label>URL do Webhook</Label>
+          <div className="flex gap-2">
+            <Input value={WEBHOOK_URL} readOnly className="flex-1 font-mono text-xs" />
+            <Button variant="outline" size="icon" onClick={copyUrl} title="Copiar URL">
+              {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Esta é a URL que receberá os eventos da UazAPI (mensagens, status, etc.)
+          </p>
+        </div>
+
+        {/* Status */}
+        <div className="space-y-2">
+          <Label>Status</Label>
+          {loadingStatus ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Verificando...
+            </div>
+          ) : isConfigured ? (
+            <div className="flex items-center gap-2 rounded-lg bg-success/10 px-4 py-3">
+              <CheckCircle2 className="h-5 w-5 text-success" />
+              <div>
+                <p className="text-sm font-medium text-success">Webhook configurado</p>
+                <p className="text-xs text-muted-foreground">Mensagens recebidas aparecerão automaticamente no Inbox</p>
+              </div>
+            </div>
+          ) : currentWebhook ? (
+            <div className="flex items-center gap-2 rounded-lg bg-warning/10 px-4 py-3">
+              <Link2 className="h-5 w-5 text-warning" />
+              <div>
+                <p className="text-sm font-medium text-warning">Webhook apontando para outra URL</p>
+                <p className="text-xs text-muted-foreground font-mono break-all">{currentWebhook}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-lg bg-muted px-4 py-3">
+              <WifiOff className="h-5 w-5 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">Webhook não configurado</p>
+            </div>
+          )}
+        </div>
+
+        {/* Action Button */}
+        <Button onClick={configureWebhook} disabled={configuring || isConfigured}>
+          {configuring ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : isConfigured ? (
+            <CheckCircle2 className="mr-2 h-4 w-4" />
+          ) : (
+            <ExternalLink className="mr-2 h-4 w-4" />
+          )}
+          {isConfigured ? "Webhook Ativo" : "Configurar Webhook Automaticamente"}
+        </Button>
+
+        {/* Info */}
+        <div className="rounded-lg border border-border bg-muted/50 p-4 space-y-2">
+          <p className="text-sm font-medium">Eventos monitorados:</p>
+          <div className="flex flex-wrap gap-1.5">
+            {["messages", "messages.update", "connection", "contacts", "presence", "groups", "chats"].map((evt) => (
+              <span key={evt} className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs text-primary font-medium">
+                {evt}
+              </span>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
 };
 
 const SettingsPage = () => {
@@ -417,19 +553,7 @@ const SettingsPage = () => {
         </TabsContent>
 
         <TabsContent value="webhooks">
-          <Card>
-            <CardHeader>
-              <CardTitle className="font-heading">Webhooks</CardTitle>
-              <CardDescription>Configure URLs para receber eventos</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>URL do Webhook</Label>
-                <Input placeholder="https://seu-servidor.com/webhook" />
-              </div>
-              <Button>Salvar</Button>
-            </CardContent>
-          </Card>
+          <WebhookConfig />
         </TabsContent>
       </Tabs>
     </div>

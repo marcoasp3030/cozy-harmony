@@ -181,7 +181,37 @@ serve(async (req) => {
       return json({ success: true, ...result.data });
     }
 
-    return json({ error: 'Ação inválida. Use: create-instance, test, qrcode, connect, disconnect' }, 400);
+    // ── SET WEBHOOK ────────────────────────────────────────
+    if (action === 'set-webhook') {
+      const { webhookUrl, events } = body;
+      if (!webhookUrl) {
+        return json({ success: false, error: 'webhookUrl é obrigatório.' });
+      }
+      const webhookEvents = events || [
+        'messages', 'messages.update', 'connection', 'contacts',
+        'presence', 'groups', 'chats', 'labels', 'call',
+      ];
+      const result = await callUaz(baseUrl, '/webhook/set', 'token', tok, 'POST', {
+        url: webhookUrl,
+        events: webhookEvents,
+      });
+      if (!result.ok) {
+        return json({
+          success: false,
+          error: `Falha ao configurar webhook (${result.status})`,
+          debug: result.data,
+        });
+      }
+      return json({ success: true, ...result.data });
+    }
+
+    // ── GET WEBHOOK ─────────────────────────────────────────
+    if (action === 'get-webhook') {
+      const result = await callUaz(baseUrl, '/webhook/get', 'token', tok, 'GET');
+      return json({ success: result.ok, ...result.data });
+    }
+
+    return json({ error: 'Ação inválida. Use: create-instance, test, qrcode, connect, disconnect, set-webhook, get-webhook' }, 400);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Erro desconhecido';
     console.error('uazapi-instance error:', message);
