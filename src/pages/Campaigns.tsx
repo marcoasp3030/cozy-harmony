@@ -230,6 +230,16 @@ const Campaigns = () => {
             <CampaignCalendar
               campaigns={campaigns}
               onCampaignClick={handleEdit}
+              onCreateAtDate={(date) => {
+                setEditingCampaign(null);
+                setDialogOpen(true);
+                // Pre-fill scheduled date via a small timeout so dialog mounts first
+                setTimeout(() => {
+                  const event = new CustomEvent("campaign-prefill-date", { detail: date });
+                  window.dispatchEvent(event);
+                }, 100);
+              }}
+              onReload={loadCampaigns}
             />
           </TabsContent>
         </Tabs>

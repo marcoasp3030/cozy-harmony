@@ -166,6 +166,23 @@ export default function CreateCampaignDialog({
     loadData();
   }, [open]);
 
+  // Listen for calendar pre-fill date event
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const date = (e as CustomEvent).detail as Date;
+      if (date && !editCampaign) {
+        date.setHours(9, 0, 0, 0);
+        setForm((prev) => ({
+          ...prev,
+          scheduleType: "scheduled",
+          scheduledAt: date,
+        }));
+      }
+    };
+    window.addEventListener("campaign-prefill-date", handler);
+    return () => window.removeEventListener("campaign-prefill-date", handler);
+  }, [editCampaign]);
+
   const loadData = async () => {
     setLoadingData(true);
     const [contactsRes, tagsRes, templatesRes] = await Promise.all([
