@@ -28,6 +28,55 @@ serve(async (req) => {
     if (eventType === 'messages') {
       const msg = body.message || {};
 
+      // ── Check if this is a REACTION message ──
+      const msgTypeRaw = msg.messageType || msg.type || '';
+      if (msgTypeRaw === 'ReactionMessage' || msgTypeRaw === 'reaction' || msg.reactionMessage) {
+        const reactionData = msg.reactionMessage || msg.reaction || msg;
+        const reactionEmoji = reactionData.text || reactionData.emoji || reactionData.reaction || '';
+        const targetKey = reactionData.key || reactionData.message || {};
+        const targetMsgId = targetKey.id || targetKey.Id || reactionData.id || reactionData.targetMessageId || msg.messageid || '';
+        
+        console.log(`Reaction via messages event: emoji="${reactionEmoji}", targetMsg="${targetMsgId}"`);
+
+        if (targetMsgId) {
+          const normId = ((v: string) => {
+            const parts = v.trim().split(':').filter(Boolean);
+            return parts.length > 1 ? parts[parts.length - 1] : v.trim();
+          })(String(targetMsgId));
+
+          let { data: msgs } = await supabase
+            .from('messages')
+            .select('id, metadata')
+            .eq('external_id', normId)
+            .limit(1);
+
+          if (!msgs || msgs.length === 0) {
+            const fallback = await supabase
+              .from('messages')
+              .select('id, metadata')
+              .like('external_id', `%:${normId}`)
+              .limit(1);
+            msgs = fallback.data || [];
+          }
+
+          if (msgs && msgs.length > 0) {
+            const target = msgs[0];
+            const updatedMeta = { ...(target.metadata as Record<string, unknown> || {}) };
+            if (reactionEmoji) {
+              updatedMeta.reaction = reactionEmoji;
+            } else {
+              delete updatedMeta.reaction;
+            }
+            await supabase.from('messages').update({ metadata: updatedMeta }).eq('id', target.id);
+            console.log(`Reaction ${reactionEmoji ? 'added' : 'removed'} on message ${target.id}`);
+          } else {
+            console.log(`Message not found for reaction target: ${normId}`);
+          }
+        }
+
+        return json({ success: true, type: 'reaction' });
+      }
+
       // UazAPI fields: chatid, sender_pn, senderName, text, messageid, fromMe, type
       const isFromMe = msg.fromMe === true || msg.FromMe === true;
       if (isFromMe) {
