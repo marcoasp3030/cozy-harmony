@@ -303,60 +303,55 @@ serve(async (req) => {
         let sendEndpoint: string;
 
         if (hasInteractive && interactive.type === 'poll') {
-          // ── POLL MESSAGE ──────────────────────────────────
-          sendEndpoint = '/send/poll';
-          sendBody.name = interactive.pollName || 'Enquete';
-          sendBody.options = (interactive.pollOptions || []).map((o: any) => o.title).filter(Boolean);
+          // ── POLL MESSAGE via /send/menu ────────────────────
+          sendEndpoint = '/send/menu';
+          sendBody.type = 'poll';
+          sendBody.text = interactive.pollName || text || 'Enquete';
+          sendBody.choices = (interactive.pollOptions || []).map((o: any) => o.title).filter(Boolean);
           sendBody.selectableCount = interactive.pollMultiSelect ? 0 : 1;
         } else if (hasInteractive) {
-          // ── INTERACTIVE MESSAGE (buttons / list / cta) ────
-          sendEndpoint = '/send/interactive';
-          const interactivePayload: Record<string, unknown> = {};
+          // ── INTERACTIVE MESSAGE via /send/menu (buttons / list / cta) ──
+          sendEndpoint = '/send/menu';
           const bodyText = interactive.body || text || '';
 
           if (interactive.type === 'buttons') {
-            interactivePayload.type = 'button';
-            interactivePayload.body = { text: bodyText };
-            if (interactive.header) interactivePayload.header = { type: 'text', text: interactive.header };
-            if (interactive.footer) interactivePayload.footer = { text: interactive.footer };
-            interactivePayload.action = {
-              buttons: (interactive.buttons || []).slice(0, 3).map((btn: any, i: number) => ({
-                type: 'reply',
-                reply: { id: btn.id || String(i + 1), title: btn.title?.slice(0, 20) || `Opção ${i + 1}` },
-              })),
-            };
+            sendBody.type = 'button';
+            sendBody.text = bodyText;
+            if (interactive.footer) sendBody.footerText = interactive.footer;
+            // Format choices as "title|id" strings
+            sendBody.choices = (interactive.buttons || []).slice(0, 3).map((btn: any, i: number) => {
+              const title = btn.title?.slice(0, 20) || `Opção ${i + 1}`;
+              const id = btn.id || String(i + 1);
+              return `${title}|${id}`;
+            });
           } else if (interactive.type === 'list') {
-            interactivePayload.type = 'list';
-            interactivePayload.body = { text: bodyText };
-            if (interactive.header) interactivePayload.header = { type: 'text', text: interactive.header };
-            if (interactive.footer) interactivePayload.footer = { text: interactive.footer };
-            interactivePayload.action = {
-              button: interactive.listButtonText || 'Ver opções',
-              sections: (interactive.listSections || []).map((section: any) => ({
-                title: section.title,
-                rows: (section.rows || []).map((row: any) => ({
-                  id: row.id,
-                  title: row.title?.slice(0, 24) || 'Item',
-                  description: row.description?.slice(0, 72) || undefined,
-                })),
-              })),
-            };
+            sendBody.type = 'list';
+            sendBody.text = bodyText;
+            sendBody.listButton = interactive.listButtonText || 'Ver opções';
+            if (interactive.footer) sendBody.footerText = interactive.footer;
+            // Format choices: "[Section Title]" then "item|id|description"
+            const choices: string[] = [];
+            for (const section of (interactive.listSections || [])) {
+              choices.push(`[${section.title}]`);
+              for (const row of (section.rows || [])) {
+                const title = row.title?.slice(0, 24) || 'Item';
+                const id = row.id || title;
+                const desc = row.description?.slice(0, 72) || '';
+                choices.push(desc ? `${title}|${id}|${desc}` : `${title}|${id}`);
+              }
+            }
+            sendBody.choices = choices;
           } else if (interactive.type === 'cta') {
-            interactivePayload.type = 'cta_url';
-            interactivePayload.body = { text: bodyText };
-            if (interactive.header) interactivePayload.header = { type: 'text', text: interactive.header };
-            if (interactive.footer) interactivePayload.footer = { text: interactive.footer };
-            interactivePayload.action = {
-              buttons: (interactive.ctaButtons || []).map((btn: any) => ({
-                type: btn.type === 'phone' ? 'phone_number' : 'url',
-                ...(btn.type === 'phone'
-                  ? { phone_number: btn.value, title: btn.title }
-                  : { url: btn.value, title: btn.title }),
-              })),
-            };
+            sendBody.type = 'button';
+            sendBody.text = bodyText;
+            if (interactive.footer) sendBody.footerText = interactive.footer;
+            // Format CTA buttons: "title|url:value" or "title|call:value"
+            sendBody.choices = (interactive.ctaButtons || []).map((btn: any) => {
+              const title = btn.title || 'Link';
+              if (btn.type === 'phone') return `${title}|call:${btn.value}`;
+              return `${title}|${btn.value}`; // URL is auto-detected
+            });
           }
-
-          sendBody.interactive = interactivePayload;
         } else {
           // ── STANDARD MESSAGE (text / media) ────────────────
           switch (messageType) {
