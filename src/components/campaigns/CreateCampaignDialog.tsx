@@ -4,7 +4,7 @@ import { ptBR } from "date-fns/locale";
 import {
   CalendarIcon, ChevronLeft, ChevronRight, Users, FileText, Clock,
   CheckCircle2, Loader2, Search, X, ImageIcon, Video, FileAudio, File,
-  Shield, Info,
+  Shield, Info, MessageSquare, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -542,86 +543,114 @@ export default function CreateCampaignDialog({
           )}
 
           {step === "message" && (
-            <div className="space-y-5">
-              <div className="rounded-lg border border-border bg-card p-4 space-y-4">
-                <div>
-                  <p className="text-sm font-medium">Mensagem base da campanha</p>
-                  <p className="text-xs text-muted-foreground">Defina conteúdo principal e mídia antes de configurar interações</p>
-                </div>
+            <div className="space-y-2">
+              <Accordion type="multiple" defaultValue={["base", "interactive"]} className="space-y-3">
+                {/* ─── MENSAGEM BASE ─── */}
+                <AccordionItem value="base" className="rounded-lg border border-border bg-card px-4">
+                  <AccordionTrigger className="py-3 text-sm font-medium hover:no-underline">
+                    <span className="flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4 text-primary/70" />
+                      Mensagem base
+                      {form.messageContent.trim() && (
+                        <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0">
+                          {form.messageContent.length} chars
+                        </Badge>
+                      )}
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent className="space-y-4 pb-4">
+                    {templates.length > 0 && (
+                      <div className="space-y-2">
+                        <Label>Usar Template</Label>
+                        <Select
+                          value={form.templateId || ""}
+                          onValueChange={(v) => applyTemplate(v)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione um template (opcional)" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {templates.map((t) => (
+                              <SelectItem key={t.id} value={t.id}>
+                                {t.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
 
-                {templates.length > 0 && (
-                  <div className="space-y-2">
-                    <Label>Usar Template</Label>
-                    <Select
-                      value={form.templateId || ""}
-                      onValueChange={(v) => applyTemplate(v)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione um template (opcional)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {templates.map((t) => (
-                          <SelectItem key={t.id} value={t.id}>
-                            {t.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  <Label>Tipo de Mensagem *</Label>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-                    {messageTypeOptions.map((opt) => (
-                      <Button
-                        key={opt.value}
-                        type="button"
-                        variant={form.messageType === opt.value ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => update("messageType", opt.value)}
-                        className="gap-1.5 justify-start"
+                    <div className="space-y-2">
+                      <Label>Tipo de Mensagem *</Label>
+                      <Select
+                        value={form.messageType}
+                        onValueChange={(v) => update("messageType", v)}
                       >
-                        {opt.icon}
-                        {opt.label}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {messageTypeOptions.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              <span className="flex items-center gap-2">
+                                {opt.icon}
+                                {opt.label}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                <div className="space-y-2">
-                  <Label>Conteúdo da Mensagem *</Label>
-                  <Textarea
-                    placeholder="Digite sua mensagem... Use {{variavel}} para personalização"
-                    value={form.messageContent}
-                    onChange={(e) => update("messageContent", e.target.value)}
-                    maxLength={4096}
-                    rows={5}
-                    className="font-mono text-sm"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {form.messageContent.length}/4096 caracteres
-                  </p>
-                </div>
+                    <div className="space-y-2">
+                      <Label>Conteúdo da Mensagem *</Label>
+                      <Textarea
+                        placeholder="Digite sua mensagem... Use {{variavel}} para personalização"
+                        value={form.messageContent}
+                        onChange={(e) => update("messageContent", e.target.value)}
+                        maxLength={4096}
+                        rows={4}
+                        className="font-mono text-sm"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {form.messageContent.length}/4096 caracteres
+                      </p>
+                    </div>
 
-                {form.messageType !== "text" && (
-                  <div className="space-y-2">
-                    <Label>URL da Mídia</Label>
-                    <Input
-                      placeholder="https://exemplo.com/imagem.jpg"
-                      value={form.mediaUrl}
-                      onChange={(e) => update("mediaUrl", e.target.value)}
+                    {form.messageType !== "text" && (
+                      <div className="space-y-2">
+                        <Label>URL da Mídia</Label>
+                        <Input
+                          placeholder="https://exemplo.com/imagem.jpg"
+                          value={form.mediaUrl}
+                          onChange={(e) => update("mediaUrl", e.target.value)}
+                        />
+                      </div>
+                    )}
+                  </AccordionContent>
+                </AccordionItem>
+
+                {/* ─── MENSAGEM INTERATIVA ─── */}
+                <AccordionItem value="interactive" className="rounded-lg border border-border bg-muted/20 px-4">
+                  <AccordionTrigger className="py-3 text-sm font-medium hover:no-underline">
+                    <span className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-primary/70" />
+                      Mensagem interativa
+                      {form.interactive.type !== "none" && (
+                        <Badge variant="default" className="ml-1 text-[10px] px-1.5 py-0">
+                          {form.interactive.type}
+                        </Badge>
+                      )}
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent className="pb-4">
+                    <InteractiveMessageBuilder
+                      value={form.interactive}
+                      onChange={(v) => update("interactive", v)}
                     />
-                  </div>
-                )}
-              </div>
-
-              <div className="rounded-lg border border-border bg-muted/20 p-4">
-                <InteractiveMessageBuilder
-                  value={form.interactive}
-                  onChange={(v) => update("interactive", v)}
-                />
-              </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </div>
           )}
 
