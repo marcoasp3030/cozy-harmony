@@ -1,4 +1,4 @@
-import { Bell, Moon, Sun, Search, LogOut, User, Menu } from "lucide-react";
+import { Bell, Moon, Sun, Search, LogOut, User, Menu, Smartphone, WifiOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -8,13 +8,59 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useTheme } from "@/hooks/useTheme";
+import { useWhatsAppStatus } from "@/hooks/useWhatsAppStatus";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 
 interface AppHeaderProps {
   onToggleSidebar?: () => void;
 }
+
+const WhatsAppIndicator = () => {
+  const { status, info } = useWhatsAppStatus();
+  const navigate = useNavigate();
+
+  const tooltipText =
+    status === "connected"
+      ? `WhatsApp conectado${info?.name ? ` — ${info.name}` : ""}${info?.phone ? ` (${info.phone})` : ""}`
+      : status === "disconnected" || status === "error"
+      ? "WhatsApp desconectado — clique para configurar"
+      : status === "checking"
+      ? "Verificando conexão..."
+      : "WhatsApp não configurado";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={() => navigate("/settings")}
+          className="relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-accent"
+        >
+          {status === "checking" ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : status === "connected" ? (
+            <>
+              <Smartphone className="h-4 w-4 text-emerald-500" />
+              <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-card" />
+            </>
+          ) : status === "disconnected" || status === "error" ? (
+            <>
+              <WifiOff className="h-4 w-4 text-destructive" />
+              <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive ring-2 ring-card" />
+            </>
+          ) : (
+            <Smartphone className="h-4 w-4 text-muted-foreground" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="max-w-[200px] text-center">
+        <p className="text-xs">{tooltipText}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+};
 
 const AppHeader = ({ onToggleSidebar }: AppHeaderProps) => {
   const { theme, toggleTheme } = useTheme();
@@ -48,7 +94,9 @@ const AppHeader = ({ onToggleSidebar }: AppHeaderProps) => {
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1">
+        <WhatsAppIndicator />
+
         <Button variant="ghost" size="icon" onClick={toggleTheme}>
           {theme === "dark" ? (
             <Sun className="h-5 w-5" />
