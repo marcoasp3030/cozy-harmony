@@ -49,6 +49,7 @@ interface Conversation {
   assigned_to: string | null;
   priority?: string;
   sla_hours?: number | null;
+  score?: number;
   contact?: Contact;
   lastMessage?: Message;
 }
@@ -798,11 +799,16 @@ const InboxPage = () => {
                       {conv.lastMessage?.content || (conv.lastMessage?.type !== "text" ? `📎 ${conv.lastMessage?.type}` : "")}
                     </p>
                   </div>
-                  {(conv.unread_count ?? 0) > 0 && (
-                    <Badge className="h-5 min-w-[20px] shrink-0 rounded-full p-0 text-xs flex items-center justify-center">
-                      {conv.unread_count}
-                    </Badge>
-                  )}
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    {(conv.unread_count ?? 0) > 0 && (
+                      <Badge className="h-5 min-w-[20px] rounded-full p-0 text-xs flex items-center justify-center">
+                        {conv.unread_count}
+                      </Badge>
+                    )}
+                    {(conv.score ?? 0) > 0 && (
+                      <span className="text-[10px] font-mono text-primary/70 font-semibold">{conv.score}pts</span>
+                    )}
+                  </div>
                 </button>
               ))
             )}
@@ -1118,6 +1124,7 @@ const InboxPage = () => {
             conversationNotes={selectedConv?.notes || null}
             assignedTo={selectedConv?.assigned_to || null}
             contactTags={contactTags}
+            score={selectedConv?.score}
             onReload={loadConversations}
           />
         </Card>

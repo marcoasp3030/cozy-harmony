@@ -24,6 +24,7 @@ import {
   ShieldOff,
   Clock,
   Hash,
+  TrendingUp,
 } from "lucide-react";
 
 interface Contact {
@@ -59,6 +60,7 @@ interface ContactPanelProps {
   conversationNotes: string | null;
   assignedTo: string | null;
   contactTags: TagItem[];
+  score?: number;
   onReload: () => void;
 }
 
@@ -74,6 +76,7 @@ const ContactPanel = ({
   conversationNotes,
   assignedTo,
   contactTags,
+  score,
   onReload,
 }: ContactPanelProps) => {
   const [notes, setNotes] = useState(conversationNotes || "");
@@ -174,6 +177,12 @@ const ContactPanel = ({
             <div className="flex items-center gap-2"><Phone className="h-3.5 w-3.5 text-muted-foreground" /> {contact.phone}</div>
             {contact.email && <div className="flex items-center gap-2"><Mail className="h-3.5 w-3.5 text-muted-foreground" /> {contact.email}</div>}
             <div className="flex items-center gap-2"><MessageSquare className="h-3.5 w-3.5 text-muted-foreground" /> {msgCount} mensagens</div>
+            {(score ?? 0) > 0 && (
+              <div className="flex items-center gap-2">
+                <TrendingUp className="h-3.5 w-3.5 text-primary/70" />
+                <span className="font-semibold text-primary/80">{score} pontos</span>
+              </div>
+            )}
             {contact.created_at && (
               <div className="flex items-center gap-2">
                 <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
