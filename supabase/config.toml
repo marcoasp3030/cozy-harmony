@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.llm-reply]
 verify_jwt = false
+
+[functions.smart-funnel]
+verify_jwt = false

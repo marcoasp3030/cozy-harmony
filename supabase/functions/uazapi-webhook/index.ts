@@ -224,6 +224,70 @@ serve(async (req) => {
         return json({ success: false, error: msgError.message });
       }
 
+      // ── LEAD SCORING ──────────────────────────────────────
+      if (conversation) {
+        try {
+          // Get conversation funnel info
+          const { data: convFull } = await supabase
+            .from('conversations')
+            .select('funnel_id, score')
+            .eq('id', conversation.id)
+            .single();
+
+          if (convFull?.funnel_id) {
+            // Load scoring rules for this funnel
+            const { data: rules } = await supabase
+              .from('scoring_rules')
+              .select('*')
+              .eq('funnel_id', convFull.funnel_id)
+              .eq('is_active', true);
+
+            let pointsDelta = 0;
+            for (const rule of (rules || [])) {
+              if (rule.event_type === 'message_received' || rule.event_type === 'reply_received') {
+                pointsDelta += rule.points;
+              }
+              if (rule.event_type === 'media_received' && messageType !== 'text') {
+                pointsDelta += rule.points;
+              }
+              if (rule.event_type === 'keyword_match') {
+                const keywords = String((rule.condition as any)?.keywords || '').split(',').map((k: string) => k.trim().toLowerCase()).filter(Boolean);
+                const content = (messageContent || '').toLowerCase();
+                if (keywords.some((kw: string) => content.includes(kw))) {
+                  pointsDelta += rule.points;
+                }
+              }
+            }
+
+            if (pointsDelta !== 0) {
+              const newScore = (convFull.score || 0) + pointsDelta;
+              await supabase.from('conversations').update({ score: newScore }).eq('id', conversation.id);
+              console.log(`Score updated: ${convFull.score || 0} → ${newScore} (delta: ${pointsDelta})`);
+
+              // Check if score triggers stage auto-move
+              const { data: stages } = await supabase
+                .from('funnel_stages')
+                .select('id, score_threshold, position')
+                .eq('funnel_id', convFull.funnel_id)
+                .not('score_threshold', 'is', null)
+                .order('score_threshold', { ascending: false });
+
+              if (stages && stages.length > 0) {
+                for (const stage of stages) {
+                  if (newScore >= (stage.score_threshold || 0)) {
+                    await supabase.from('conversations').update({ funnel_stage_id: stage.id }).eq('id', conversation.id);
+                    console.log(`Auto-moved to stage ${stage.id} (threshold: ${stage.score_threshold})`);
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        } catch (scoreErr) {
+          console.error('Scoring error (non-fatal):', scoreErr);
+        }
+      }
+
       console.log('Message saved successfully');
       return json({ success: true });
     }
