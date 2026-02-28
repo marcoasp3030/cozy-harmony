@@ -42,6 +42,7 @@ import {
   Scan,
   X,
   User,
+  Star,
 } from "lucide-react";
 import { useState, useMemo, useEffect, useCallback } from "react";
 import {
@@ -614,6 +615,26 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
     localStorage.setItem("kanban_selected_funnel", value);
   }, []);
 
+  const handleSetDefaultFunnel = useCallback(async () => {
+    if (selectedFunnelId === "legacy") {
+      // Remove default from all funnels
+      await supabase.from("funnels").update({ is_default: false }).neq("id", "00000000-0000-0000-0000-000000000000");
+      setFunnels((prev) => prev.map((f) => ({ ...f, is_default: false })));
+      localStorage.setItem("kanban_selected_funnel", "legacy");
+      toast.success("Visão padrão definida como Status");
+    } else {
+      // Set selected as default, unset others
+      await supabase.from("funnels").update({ is_default: false }).neq("id", selectedFunnelId);
+      await supabase.from("funnels").update({ is_default: true }).eq("id", selectedFunnelId);
+      setFunnels((prev) =>
+        prev.map((f) => ({ ...f, is_default: f.id === selectedFunnelId }))
+      );
+      localStorage.setItem("kanban_selected_funnel", selectedFunnelId);
+      const funnel = funnels.find((f) => f.id === selectedFunnelId);
+      toast.success(`"${funnel?.name || "Funil"}" definido como padrão`);
+    }
+  }, [selectedFunnelId, funnels]);
+
   const handleLegacyColorChange = useCallback((colId: string, color: string) => {
     saveLegacyColumnColor(colId, color);
     setLegacyColors((prev) => ({ ...prev, [colId]: color }));
@@ -652,13 +673,16 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
     const funnelList = (f || []) as Funnel[];
     setFunnels(funnelList);
     setStages((s || []) as FunnelStage[]);
+
+    // Restore saved funnel or pick DB default
     const saved = localStorage.getItem("kanban_selected_funnel");
-    if (!saved || saved === "legacy") {
+    if (saved && (saved === "legacy" || funnelList.some((fn) => fn.id === saved))) {
+      setSelectedFunnelId(saved);
+    } else {
       const defaultFunnel = funnelList.find((fn) => fn.is_default);
-      if (defaultFunnel) {
-        setSelectedFunnelId(defaultFunnel.id);
-        localStorage.setItem("kanban_selected_funnel", defaultFunnel.id);
-      }
+      const id = defaultFunnel ? defaultFunnel.id : "legacy";
+      setSelectedFunnelId(id);
+      localStorage.setItem("kanban_selected_funnel", id);
     }
   }, []);
 
@@ -845,10 +869,40 @@ const KanbanView = ({ conversations, onSelectConversation, onReload }: KanbanVie
           <SelectContent>
             <SelectItem value="legacy">Padrão (Status)</SelectItem>
             {funnels.map((f) => (
-              <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+              <SelectItem key={f.id} value={f.id}>
+                {f.name} {f.is_default && "⭐"}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "h-8 w-8 rounded-lg",
+                (selectedFunnelId === "legacy" && !funnels.some((f) => f.is_default)) ||
+                funnels.find((f) => f.id === selectedFunnelId)?.is_default
+                  ? "text-amber-500"
+                  : "text-muted-foreground"
+              )}
+              onClick={handleSetDefaultFunnel}
+            >
+              <Star
+                className="h-4 w-4"
+                fill={
+                  (selectedFunnelId === "legacy" && !funnels.some((f) => f.is_default)) ||
+                  funnels.find((f) => f.id === selectedFunnelId)?.is_default
+                    ? "currentColor"
+                    : "none"
+                }
+              />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent className="text-xs">Definir como funil padrão</TooltipContent>
+        </Tooltip>
 
         <div className="h-5 w-px bg-border/40 hidden sm:block" />
 

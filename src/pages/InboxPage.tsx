@@ -82,7 +82,9 @@ const InboxPage = () => {
   const [templates, setTemplates] = useState<{ id: string; name: string; content: string; category: string | null }[]>([]);
   const [templateSearch, setTemplateSearch] = useState("");
   const [templateOpen, setTemplateOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<"list" | "kanban">("list");
+  const [viewMode, setViewMode] = useState<"list" | "kanban">(() => {
+    return (localStorage.getItem("inbox_view_mode") as "list" | "kanban") || "list";
+  });
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [isNoteMode, setIsNoteMode] = useState(false);
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
@@ -360,7 +362,7 @@ const InboxPage = () => {
           <h1 className="font-heading text-xl md:text-2xl font-bold">Inbox</h1>
           <p className="text-xs md:text-sm text-muted-foreground">Atenda seus clientes em tempo real</p>
         </div>
-        <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && setViewMode(v as "list" | "kanban")} className="border border-border rounded-lg p-0.5">
+        <ToggleGroup type="single" value={viewMode} onValueChange={(v) => { if (v) { setViewMode(v as "list" | "kanban"); localStorage.setItem("inbox_view_mode", v); } }} className="border border-border rounded-lg p-0.5">
           <ToggleGroupItem value="list" aria-label="Visão lista" className="h-8 w-8 p-0 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
             <List className="h-4 w-4" />
           </ToggleGroupItem>
