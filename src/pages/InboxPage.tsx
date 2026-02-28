@@ -102,6 +102,7 @@ const InboxPage = () => {
   const [interactiveOpen, setInteractiveOpen] = useState(false);
   const [interactiveMsg, setInteractiveMsg] = useState<InteractiveMessage>(getDefaultInteractive());
   const [aiSuggestion, setAiSuggestion] = useState<{ stage_id: string; stage_name: string; stage_color: string; reason: string; intent: string } | null>(null);
+  const smartFunnelConfigRef = useRef<{ enabled: boolean; provider: string; model: string; min_confidence: number } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pendingTempIdsRef = useRef<Set<string>>(new Set());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -113,6 +114,21 @@ const InboxPage = () => {
 
   // SLA notifications
   useSlaNotifications(conversations);
+
+  // Load smart funnel config
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from("settings")
+      .select("value")
+      .eq("user_id", user.id)
+      .eq("key", "smart_funnel")
+      .single()
+      .then(({ data }) => {
+        if (data?.value) smartFunnelConfigRef.current = data.value as any;
+        else smartFunnelConfigRef.current = { enabled: true, provider: "openai", model: "gpt-4o-mini", min_confidence: 0.7 };
+      });
+  }, [user]);
 
   // Load conversations
   const loadConversations = useCallback(async () => {
@@ -246,9 +262,16 @@ const InboxPage = () => {
           const soundEnabled = localStorage.getItem("notification_sound_enabled") !== "false";
           if (soundEnabled) playNotificationSound();
           // Trigger AI funnel suggestion
-          if (selectedConv && msg.contact_id === selectedConv.contact_id && msg.content) {
+          const sfConfig = smartFunnelConfigRef.current;
+          if (sfConfig?.enabled && selectedConv && msg.contact_id === selectedConv.contact_id && msg.content) {
             supabase.functions.invoke("smart-funnel", {
-              body: { conversation_id: selectedConv.id, message_content: msg.content, contact_name: selectedConv.contact?.name }
+              body: {
+                conversation_id: selectedConv.id,
+                message_content: msg.content,
+                contact_name: selectedConv.contact?.name,
+                provider: sfConfig.provider,
+                model: sfConfig.model,
+              }
             }).then(({ data }) => {
               if (data?.suggestion) {
                 setAiSuggestion({ ...data.suggestion, reason: data.reason, intent: data.intent });
