@@ -1,13 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Loader2, Tag, X } from "lucide-react";
+import { Loader2, Tag } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { formatPhoneDisplay } from "@/lib/validators";
+import TagManager from "./TagManager";
 
 interface ContactDetail {
   id: string;
@@ -20,12 +20,6 @@ interface ContactDetail {
   last_message_at: string | null;
 }
 
-interface TagItem {
-  id: string;
-  name: string;
-  color: string;
-}
-
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -35,37 +29,8 @@ interface Props {
 }
 
 export default function ContactDetailDialog({ open, onOpenChange, contact, onEdit, onDeleted }: Props) {
-  const [tags, setTags] = useState<TagItem[]>([]);
-  const [allTags, setAllTags] = useState<TagItem[]>([]);
-  const [contactTags, setContactTags] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
   const [blocking, setBlocking] = useState(false);
-
-  useEffect(() => {
-    if (!open || !contact) return;
-    loadTags();
-  }, [open, contact]);
-
-  const loadTags = async () => {
-    if (!contact) return;
-    const [allRes, ctRes] = await Promise.all([
-      supabase.from("tags").select("id, name, color"),
-      supabase.from("contact_tags").select("tag_id").eq("contact_id", contact.id),
-    ]);
-    setAllTags(allRes.data || []);
-    setContactTags((ctRes.data || []).map((t) => t.tag_id));
-  };
-
-  const toggleTag = async (tagId: string) => {
-    if (!contact) return;
-    if (contactTags.includes(tagId)) {
-      await supabase.from("contact_tags").delete().eq("contact_id", contact.id).eq("tag_id", tagId);
-      setContactTags((prev) => prev.filter((t) => t !== tagId));
-    } else {
-      await supabase.from("contact_tags").insert({ contact_id: contact.id, tag_id: tagId });
-      setContactTags((prev) => [...prev, tagId]);
-    }
-  };
 
   const handleDelete = async () => {
     if (!contact) return;
@@ -141,47 +106,17 @@ export default function ContactDetailDialog({ open, onOpenChange, contact, onEdi
             <Label className="flex items-center gap-1">
               <Tag className="h-3.5 w-3.5" /> Tags
             </Label>
-            <div className="flex flex-wrap gap-2">
-              {allTags.map((tag) => (
-                <Badge
-                  key={tag.id}
-                  variant={contactTags.includes(tag.id) ? "default" : "outline"}
-                  className="cursor-pointer transition-colors"
-                  style={
-                    contactTags.includes(tag.id)
-                      ? { backgroundColor: tag.color, color: "#fff" }
-                      : { borderColor: tag.color, color: tag.color }
-                  }
-                  onClick={() => toggleTag(tag.id)}
-                >
-                  {tag.name}
-                  {contactTags.includes(tag.id) && <X className="ml-1 h-3 w-3" />}
-                </Badge>
-              ))}
-              {allTags.length === 0 && (
-                <p className="text-xs text-muted-foreground">Nenhuma tag cadastrada.</p>
-              )}
-            </div>
+            <TagManager contactId={contact.id} />
           </div>
 
           <Separator />
 
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={onEdit}>Editar</Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleBlock}
-              disabled={blocking}
-            >
+            <Button variant="outline" size="sm" onClick={handleBlock} disabled={blocking}>
               {contact.is_blocked ? "Desbloquear" : "Bloquear"}
             </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleDelete}
-              disabled={deleting}
-            >
+            <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting}>
               {deleting && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
               Excluir
             </Button>

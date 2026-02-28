@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import TagManager from "@/components/contacts/TagManager";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -205,21 +206,7 @@ const ContactPanel = ({
         {/* Tags */}
         <div className="space-y-2">
           <p className="text-xs font-medium text-muted-foreground uppercase flex items-center gap-1"><Tag className="h-3 w-3" /> Tags</p>
-          <div className="flex flex-wrap gap-1">
-            {contactTags.length > 0 ? (
-              contactTags.map((tag) => (
-                <Badge
-                  key={tag.id}
-                  variant="secondary"
-                  style={{ backgroundColor: `${tag.color}20`, color: tag.color }}
-                >
-                  {tag.name}
-                </Badge>
-              ))
-            ) : (
-              <span className="text-xs text-muted-foreground">Sem tags</span>
-            )}
-          </div>
+          <TagManager contactId={contact.id} compact onChanged={onReload} />
         </div>
 
         <Separator />
