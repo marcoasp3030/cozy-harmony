@@ -471,6 +471,111 @@ serve(async (req) => {
         return json({ success: false, error: msgError.message });
       }
 
+      // ── OUT-OF-HOURS AUTO-REPLY ───────────────────────────
+      try {
+        // Load all business_hours settings (any user who configured it)
+        const { data: bhSettings } = await supabase
+          .from('settings')
+          .select('value')
+          .eq('key', 'business_hours')
+          .limit(1);
+
+        const bhConfig = bhSettings?.[0]?.value as any;
+        if (bhConfig?.enabled && bhConfig?.outOfHoursMessage) {
+          const tz = bhConfig.timezone || 'America/Sao_Paulo';
+          
+          // Get current time in the configured timezone
+          const nowStr = new Date().toLocaleString('en-US', { timeZone: tz });
+          const now = new Date(nowStr);
+          // JS: 0=Sun,1=Mon..6=Sat → config uses 1=Mon..7=Sun
+          const jsDay = now.getDay();
+          const dayKey = jsDay === 0 ? '7' : String(jsDay);
+          const currentHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+          const daySchedule = bhConfig.days?.[dayKey];
+          let isWithinHours = false;
+
+          if (daySchedule?.enabled && daySchedule.shifts) {
+            for (const shift of daySchedule.shifts) {
+              if (currentHHMM >= shift.start && currentHHMM < shift.end) {
+                isWithinHours = true;
+                break;
+              }
+            }
+          }
+
+          if (!isWithinHours) {
+            console.log(`Out of business hours (day=${dayKey}, time=${currentHHMM}). Sending auto-reply.`);
+
+            // Debounce: don't send if we already sent an out-of-hours reply to this contact in the last 30 minutes
+            const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+            const { data: recentAutoReplies } = await supabase
+              .from('messages')
+              .select('id')
+              .eq('contact_id', contact.id)
+              .eq('direction', 'outbound')
+              .eq('type', 'text')
+              .gte('created_at', thirtyMinAgo)
+              .like('content', '%fora do hor%')
+              .limit(1);
+
+            // Also check for the exact configured message
+            const { data: recentExact } = await supabase
+              .from('messages')
+              .select('id')
+              .eq('contact_id', contact.id)
+              .eq('direction', 'outbound')
+              .gte('created_at', thirtyMinAgo)
+              .eq('content', bhConfig.outOfHoursMessage.replace('{{nome}}', pushName || '').trim())
+              .limit(1);
+
+            const alreadySent = (recentAutoReplies?.length || 0) > 0 || (recentExact?.length || 0) > 0;
+
+            if (!alreadySent) {
+              // Prepare message with variables
+              let autoReplyText = bhConfig.outOfHoursMessage;
+              autoReplyText = autoReplyText.replace(/\{\{nome\}\}/gi, pushName || 'cliente');
+
+              // Send via UazAPI
+              const { data: instances } = await supabase
+                .from('whatsapp_instances')
+                .select('id, base_url, instance_token, is_default')
+                .limit(10);
+
+              const instance = (instances || []).find((i: any) => i.is_default) || instances?.[0];
+              if (instance?.base_url && instance?.instance_token) {
+                const apiBase = String(instance.base_url).replace(/\/+$/, '');
+                const sendResp = await fetch(`${apiBase}/send/text`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', token: instance.instance_token },
+                  body: JSON.stringify({ number: phone, text: autoReplyText }),
+                });
+
+                const sendData = await sendResp.json().catch(() => ({}));
+                const extId = sendData?.key?.id || sendData?.messageId || null;
+
+                // Save to DB
+                await supabase.from('messages').insert({
+                  contact_id: contact.id,
+                  direction: 'outbound',
+                  type: 'text',
+                  content: autoReplyText,
+                  status: 'sent',
+                  external_id: extId,
+                  metadata: { auto_reply: 'out_of_hours' },
+                });
+
+                console.log(`Out-of-hours auto-reply sent to ${phone}`);
+              }
+            } else {
+              console.log(`Skipping out-of-hours reply (debounced) for ${phone}`);
+            }
+          }
+        }
+      } catch (oohErr) {
+        console.error('Out-of-hours auto-reply error (non-fatal):', oohErr);
+      }
+
       // ── LEAD SCORING ──────────────────────────────────────
       if (conversation) {
         try {
