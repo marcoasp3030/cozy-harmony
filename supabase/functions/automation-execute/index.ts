@@ -1129,6 +1129,18 @@ Mensagem do cliente: "${ctx.messageContent}"`;
       if (reply) {
         // Store IA reply as variable for downstream nodes (e.g. TTS with {{ia_reply}})
         ctx.variables["ia_reply"] = reply;
+
+        // If this run came through audio transcription route, prioritize audio reply
+        const cameFromAudioRoute = Object.prototype.hasOwnProperty.call(ctx.variables, "transcricao");
+        if (cameFromAudioRoute) {
+          const voiceId = d.voice_id || "EXAVITQu4vr4xnSDxMaL";
+          const audioResult = await sendElevenLabsAudioFromText(supabase, ctx, reply, voiceId);
+          if (audioResult.sent) {
+            return { sent: true, model, reply: (reply || "").slice(0, 80), suppressed: true, delivery: "audio" };
+          }
+          console.log(`Audio reply fallback to text: ${audioResult.reason || "unknown_reason"}`);
+        }
+
         // Only send as text message if suppress_send is not set
         if (!d.suppress_send) {
           await sendWhatsAppMessage(supabase, ctx, reply);
@@ -1142,59 +1154,19 @@ Mensagem do cliente: "${ctx.messageContent}"`;
       if (!text) return { sent: false, reason: "empty_text" };
 
       const voiceId = d.voice_id || "EXAVITQu4vr4xnSDxMaL";
+      const audioResult = await sendElevenLabsAudioFromText(supabase, ctx, text, voiceId);
 
-      // Try user setting first, fallback to project secret (ELEVENLABS_API_KEY)
-      let elevenlabsKey = "";
-      if (ctx.userId) {
-        const { data: elSettings } = await supabase
-          .from("settings")
-          .select("value")
-          .eq("user_id", ctx.userId)
-          .eq("key", "elevenlabs")
-          .single();
-        elevenlabsKey = (elSettings?.value as any)?.apiKey || "";
-      }
-      if (!elevenlabsKey) {
-        elevenlabsKey = Deno.env.get("ELEVENLABS_API_KEY") || "";
+      if (audioResult.sent) {
+        return { sent: true, tts: true, voiceId };
       }
 
-      if (!elevenlabsKey) {
-        console.error("ElevenLabs API key not configured for TTS (settings/secrets)");
-        // Fallback: send as text message instead
+      if (audioResult.reason === "no_elevenlabs_key" || audioResult.reason === "tts_api_error") {
+        // Fallback: send as text message
         await sendWhatsAppMessage(supabase, ctx, text);
-        return { sent: true, fallback: "text", reason: "no_elevenlabs_key" };
+        return { sent: true, fallback: "text", reason: audioResult.reason };
       }
 
-      // Call ElevenLabs TTS API directly (bypass edge function auth issues)
-      const ttsResp = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
-        {
-          method: "POST",
-          headers: {
-            "xi-api-key": elevenlabsKey,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            text,
-            model_id: "eleven_multilingual_v2",
-          }),
-        }
-      );
-
-      if (!ttsResp.ok) {
-        const errText = await ttsResp.text();
-        console.error(`ElevenLabs TTS error (${ttsResp.status}):`, errText.slice(0, 200));
-        // Fallback: send as text
-        await sendWhatsAppMessage(supabase, ctx, text);
-        return { sent: true, fallback: "text", reason: "tts_api_error" };
-      }
-
-      const audioBuffer = await ttsResp.arrayBuffer();
-      const { encode: base64Encode } = await import("https://deno.land/std@0.168.0/encoding/base64.ts");
-      const audioBase64 = base64Encode(audioBuffer);
-
-      await sendWhatsAppAudio(supabase, ctx, audioBase64);
-      return { sent: true, tts: true, voiceId };
+      return { sent: false, reason: audioResult.reason || "tts_failed" };
     }
 
     if (type === "action_ab_split") {
@@ -1430,6 +1402,64 @@ Mensagem do cliente: "${ctx.messageContent}"`;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
+
+async function sendElevenLabsAudioFromText(
+  supabase: any,
+  ctx: ExecutionContext,
+  text: string,
+  voiceId: string
+): Promise<{ sent: boolean; reason?: string }> {
+  if (!text) return { sent: false, reason: "empty_text" };
+
+  // Try user setting first, fallback to project secret (ELEVENLABS_API_KEY)
+  let elevenlabsKey = "";
+  if (ctx.userId) {
+    const { data: elSettings } = await supabase
+      .from("settings")
+      .select("value")
+      .eq("user_id", ctx.userId)
+      .eq("key", "elevenlabs")
+      .single();
+    elevenlabsKey = (elSettings?.value as any)?.apiKey || "";
+  }
+  if (!elevenlabsKey) {
+    elevenlabsKey = Deno.env.get("ELEVENLABS_API_KEY") || "";
+  }
+
+  if (!elevenlabsKey) {
+    console.error("ElevenLabs API key not configured for TTS (settings/secrets)");
+    return { sent: false, reason: "no_elevenlabs_key" };
+  }
+
+  // Call ElevenLabs TTS API directly (bypass edge function auth issues)
+  const ttsResp = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
+    {
+      method: "POST",
+      headers: {
+        "xi-api-key": elevenlabsKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text,
+        model_id: "eleven_multilingual_v2",
+      }),
+    }
+  );
+
+  if (!ttsResp.ok) {
+    const errText = await ttsResp.text();
+    console.error(`ElevenLabs TTS error (${ttsResp.status}):`, errText.slice(0, 200));
+    return { sent: false, reason: "tts_api_error" };
+  }
+
+  const audioBuffer = await ttsResp.arrayBuffer();
+  const { encode: base64Encode } = await import("https://deno.land/std@0.168.0/encoding/base64.ts");
+  const audioBase64 = base64Encode(audioBuffer);
+
+  await sendWhatsAppAudio(supabase, ctx, audioBase64);
+  return { sent: true };
+}
 
 function interpolate(text: string, ctx: ExecutionContext): string {
   return text
