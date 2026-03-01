@@ -367,29 +367,41 @@ export function createMultimodalTemplate(): FlowTemplate {
       position: { x: X, y: 0 },
       data: { nodeType: "trigger_message" },
     },
-    // 2. Agrupar mensagens (espera 15s para o cliente enviar tudo)
+    // 2. Imagem de boas-vindas
+    {
+      id: "multi_welcome_media",
+      type: "flowNode",
+      position: { x: X, y: 120 },
+      data: {
+        nodeType: "action_send_media",
+        media_type: "image",
+        media_url: "https://placehold.co/800x400/1a1a2e/eaeaea?text=Bem-vindo+ao+nosso+atendimento",
+        caption: "Olá {{nome}}! 👋 Bem-vindo ao nosso atendimento inteligente.\n\nPode enviar texto, áudio ou documentos — eu entendo tudo! 🚀",
+      },
+    },
+    // 3. Agrupar mensagens (espera 15s para o cliente enviar tudo)
     {
       id: "multi_collect",
       type: "flowNode",
-      position: { x: X, y: 120 },
+      position: { x: X, y: 260 },
       data: {
         nodeType: "action_collect_messages",
         wait_seconds: 15,
         max_messages: 10,
       },
     },
-    // 3. Verificar se há áudio
+    // 4. Verificar se há áudio
     {
       id: "multi_check_audio",
       type: "flowNode",
-      position: { x: X - 300, y: 280 },
+      position: { x: X - 300, y: 420 },
       data: { nodeType: "condition_media_type", media_type: "audio" },
     },
-    // 4. Verificar se há documento (PDF)
+    // 5. Verificar se há documento (PDF)
     {
       id: "multi_check_doc",
       type: "flowNode",
-      position: { x: X + 300, y: 280 },
+      position: { x: X + 300, y: 420 },
       data: { nodeType: "condition_media_type", media_type: "document" },
     },
 
@@ -397,7 +409,7 @@ export function createMultimodalTemplate(): FlowTemplate {
     {
       id: "multi_transcribe",
       type: "flowNode",
-      position: { x: X - 300, y: 440 },
+      position: { x: X - 300, y: 580 },
       data: {
         nodeType: "action_transcribe_audio",
         provider: "whisper",
@@ -407,7 +419,7 @@ export function createMultimodalTemplate(): FlowTemplate {
     {
       id: "multi_audio_tag",
       type: "flowNode",
-      position: { x: X - 300, y: 580 },
+      position: { x: X - 300, y: 720 },
       data: { nodeType: "action_add_tag", tag_name: "enviou-audio" },
     },
 
@@ -415,7 +427,7 @@ export function createMultimodalTemplate(): FlowTemplate {
     {
       id: "multi_extract_pdf",
       type: "flowNode",
-      position: { x: X + 300, y: 440 },
+      position: { x: X + 300, y: 580 },
       data: {
         nodeType: "action_extract_pdf",
         max_pages: 10,
@@ -425,7 +437,7 @@ export function createMultimodalTemplate(): FlowTemplate {
     {
       id: "multi_doc_tag",
       type: "flowNode",
-      position: { x: X + 300, y: 580 },
+      position: { x: X + 300, y: 720 },
       data: { nodeType: "action_add_tag", tag_name: "enviou-documento" },
     },
 
@@ -433,7 +445,7 @@ export function createMultimodalTemplate(): FlowTemplate {
     {
       id: "multi_ia_reply",
       type: "flowNode",
-      position: { x: X, y: 740 },
+      position: { x: X, y: 880 },
       data: {
         nodeType: "action_llm_reply",
         system_prompt:
@@ -448,7 +460,7 @@ export function createMultimodalTemplate(): FlowTemplate {
     {
       id: "multi_text_ack",
       type: "flowNode",
-      position: { x: X, y: 440 },
+      position: { x: X, y: 580 },
       data: {
         nodeType: "action_send_message",
         message: "Recebi suas mensagens, {{nome}}! 📝 Estou analisando tudo para te dar a melhor resposta...",
@@ -457,8 +469,10 @@ export function createMultimodalTemplate(): FlowTemplate {
   ];
 
   const edges: Edge[] = [
-    // Trigger → Collect
-    makeEdge("trigger_msg_multi", "multi_collect"),
+    // Trigger → Welcome media
+    makeEdge("trigger_msg_multi", "multi_welcome_media"),
+    // Welcome media → Collect
+    makeEdge("multi_welcome_media", "multi_collect"),
     // Collect → Check audio & Check doc
     makeEdge("multi_collect", "multi_check_audio"),
     makeEdge("multi_collect", "multi_check_doc"),
@@ -481,7 +495,7 @@ export function createMultimodalTemplate(): FlowTemplate {
   return {
     id: "atendimento_multimodal",
     name: "Atendimento Multimodal",
-    description: "Recebe texto, áudio e PDF, agrupa mensagens e responde com IA humanizada",
+    description: "Envia imagem de boas-vindas, recebe texto, áudio e PDF, agrupa mensagens e responde com IA humanizada",
     emoji: "🎙️",
     triggerType: "message",
     nodes,
