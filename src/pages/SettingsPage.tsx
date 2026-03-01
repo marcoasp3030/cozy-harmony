@@ -204,6 +204,69 @@ const NotificationSoundToggle = () => {
   );
 };
 
+const AutoAssignToggle = () => {
+  const { user } = useAuth();
+  const [enabled, setEnabled] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from("settings")
+      .select("value")
+      .eq("key", "auto_assign_enabled")
+      .maybeSingle()
+      .then(({ data }) => {
+        const val = data?.value;
+        setEnabled(val === true || (val as any)?.enabled === true);
+        setLoading(false);
+      });
+  }, [user]);
+
+  const toggle = async (checked: boolean) => {
+    if (!user) return;
+    setEnabled(checked);
+    const { data: existing } = await supabase
+      .from("settings")
+      .select("id")
+      .eq("key", "auto_assign_enabled")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (existing) {
+      await supabase.from("settings").update({ value: checked }).eq("id", existing.id);
+    } else {
+      await supabase.from("settings").insert({ user_id: user.id, key: "auto_assign_enabled", value: checked });
+    }
+    toast.success(checked ? "Auto-atribuição ativada" : "Auto-atribuição desativada");
+  };
+
+  if (loading) return null;
+
+  return (
+    <Card className="mt-4">
+      <CardHeader>
+        <CardTitle className="font-heading">Auto-atribuição</CardTitle>
+        <CardDescription>Distribua conversas automaticamente entre atendentes</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Wrench className={`h-5 w-5 ${enabled ? "text-primary" : "text-muted-foreground"}`} />
+            <div>
+              <Label className="text-sm font-medium">Atribuir automaticamente</Label>
+              <p className="text-xs text-muted-foreground">
+                Novas conversas sem atendente serão atribuídas ao membro com menor carga
+              </p>
+            </div>
+          </div>
+          <Switch checked={enabled} onCheckedChange={toggle} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
 const OPENAI_MODELS = [
   { id: "gpt-4o", name: "GPT-4o", desc: "Multimodal: texto, imagem, áudio", icon: Sparkles },
   { id: "gpt-4o-mini", name: "GPT-4o Mini", desc: "Rápido e econômico, multimodal", icon: MessageSquare },
@@ -695,6 +758,7 @@ const SettingsPage = () => {
           </Card>
 
           <NotificationSoundToggle />
+          <AutoAssignToggle />
         </TabsContent>
 
         <TabsContent value="users">
