@@ -148,17 +148,23 @@ serve(async (req) => {
       };
 
       // Create log entry
-      const { data: logEntry } = await supabase
+      const { data: logEntry, error: logInsertErr } = await supabase
         .from("automation_logs")
         .insert({
           automation_id: automation.id,
-          contact_id: contactId,
+          contact_id: contactId || null,
           contact_phone: contactPhone,
           trigger_type: automation.trigger_type,
           status: "running",
         })
         .select("id")
         .single();
+
+      if (logInsertErr) {
+        console.error(`Failed to create log entry: ${logInsertErr.message}`, logInsertErr);
+      } else {
+        console.log(`Log entry created: ${logEntry?.id}`);
+      }
 
       let execError: string | null = null;
 
