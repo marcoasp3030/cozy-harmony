@@ -14,6 +14,66 @@ export type Database = {
   }
   public: {
     Tables: {
+      automation_logs: {
+        Row: {
+          automation_id: string
+          completed_at: string | null
+          contact_id: string | null
+          contact_phone: string | null
+          created_at: string
+          duration_ms: number | null
+          error: string | null
+          id: string
+          nodes_executed: Json
+          started_at: string
+          status: string
+          trigger_type: string
+        }
+        Insert: {
+          automation_id: string
+          completed_at?: string | null
+          contact_id?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          id?: string
+          nodes_executed?: Json
+          started_at?: string
+          status?: string
+          trigger_type: string
+        }
+        Update: {
+          automation_id?: string
+          completed_at?: string | null
+          contact_id?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          id?: string
+          nodes_executed?: Json
+          started_at?: string
+          status?: string
+          trigger_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "automation_logs_automation_id_fkey"
+            columns: ["automation_id"]
+            isOneToOne: false
+            referencedRelation: "automations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "automation_logs_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       automations: {
         Row: {
           created_at: string

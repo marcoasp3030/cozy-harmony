@@ -35,6 +35,18 @@ interface ExecutionContext {
   conversationId: string;
   variables: Record<string, string>;
   isFirstContact: boolean;
+  nodeLog: NodeLogEntry[];
+}
+
+interface NodeLogEntry {
+  nodeId: string;
+  nodeType: string;
+  nodeLabel: string;
+  status: "success" | "error" | "skipped";
+  result?: any;
+  error?: string;
+  startedAt: string;
+  durationMs: number;
 }
 
 serve(async (req) => {
@@ -122,6 +134,7 @@ serve(async (req) => {
 
       console.log(`Automation "${automation.name}" (${automation.id}) triggered`);
 
+      const startTime = Date.now();
       const ctx: ExecutionContext = {
         contactId,
         contactPhone,
@@ -131,18 +144,59 @@ serve(async (req) => {
         conversationId,
         variables: {},
         isFirstContact: !!isFirstContact,
+        nodeLog: [],
       };
 
-      // Execute flow starting from trigger nodes
-      const visited = new Set<string>();
-      for (const trigger of triggerNodes) {
-        await executeFromNode(supabase, flow, trigger.id, ctx, visited);
+      // Create log entry
+      const { data: logEntry } = await supabase
+        .from("automation_logs")
+        .insert({
+          automation_id: automation.id,
+          contact_id: contactId,
+          contact_phone: contactPhone,
+          trigger_type: automation.trigger_type,
+          status: "running",
+        })
+        .select("id")
+        .single();
+
+      let execError: string | null = null;
+
+      try {
+        // Execute flow starting from trigger nodes
+        const visited = new Set<string>();
+        for (const trigger of triggerNodes) {
+          await executeFromNode(supabase, flow, trigger.id, ctx, visited);
+        }
+      } catch (flowErr) {
+        execError = flowErr instanceof Error ? flowErr.message : "Unknown flow error";
+        console.error(`Flow execution error: ${execError}`);
+      }
+
+      const durationMs = Date.now() - startTime;
+
+      // Update log entry with results
+      if (logEntry) {
+        await supabase
+          .from("automation_logs")
+          .update({
+            status: execError ? "error" : "completed",
+            completed_at: new Date().toISOString(),
+            duration_ms: durationMs,
+            nodes_executed: ctx.nodeLog,
+            error: execError,
+          })
+          .eq("id", logEntry.id);
       }
 
       // Update stats
       const stats = (automation.stats as any) || { executions: 0, success: 0, failed: 0 };
       stats.executions = (stats.executions || 0) + 1;
-      stats.success = (stats.success || 0) + 1;
+      if (execError) {
+        stats.failed = (stats.failed || 0) + 1;
+      } else {
+        stats.success = (stats.success || 0) + 1;
+      }
       await supabase.from("automations").update({ stats }).eq("id", automation.id);
 
       totalExecuted++;
@@ -180,7 +234,40 @@ async function executeFromNode(
 
   // Skip trigger nodes (already evaluated)
   if (!nodeType.startsWith("trigger_")) {
-    const result = await executeNode(supabase, node, ctx);
+    const nodeStart = Date.now();
+    let result = false;
+    let nodeError: string | undefined;
+    try {
+      result = await executeNode(supabase, node, ctx);
+    } catch (err) {
+      nodeError = err instanceof Error ? err.message : "Unknown error";
+    }
+    const nodeDuration = Date.now() - nodeStart;
+
+    // Node label map for logging
+    const labelMap: Record<string, string> = {
+      condition_contains: "Contém Texto", condition_tag: "Tem Tag", condition_time: "Horário",
+      condition_contact_field: "Campo do Contato", action_send_message: "Enviar Mensagem",
+      action_send_template: "Enviar Template", action_add_tag: "Adicionar Tag",
+      action_remove_tag: "Remover Tag", action_assign_agent: "Atribuir Atendente",
+      action_move_funnel: "Mover no Funil", action_delay: "Aguardar",
+      action_set_variable: "Definir Variável", action_update_score: "Atualizar Score",
+      action_http_webhook: "HTTP Webhook", action_llm_reply: "Resposta IA",
+      action_elevenlabs_tts: "Áudio ElevenLabs", action_ab_split: "Split A/B",
+    };
+
+    ctx.nodeLog.push({
+      nodeId: node.id,
+      nodeType,
+      nodeLabel: labelMap[nodeType] || nodeType,
+      status: nodeError ? "error" : "success",
+      result: nodeType.startsWith("condition_") ? { condition: result } : undefined,
+      error: nodeError,
+      startedAt: new Date(nodeStart).toISOString(),
+      durationMs: nodeDuration,
+    });
+
+    if (nodeError) throw new Error(nodeError);
 
     // For condition nodes, follow yes/no paths
     if (nodeType.startsWith("condition_")) {
