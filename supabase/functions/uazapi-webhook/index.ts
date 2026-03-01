@@ -140,7 +140,17 @@ serve(async (req) => {
       };
       const messageType = typeMap[rawMsgType] || 'text';
 
-      const mediaUrl = msg.mediaUrl || msg.MediaUrl || msg.media_url || msg.url || (typeof msg.content === 'object' && msg.content?.url) || null;
+      const contentObj = typeof msg.content === 'object' && msg.content !== null
+        ? (msg.content as Record<string, any>)
+        : null;
+      const contentStr = typeof msg.content === 'string' ? msg.content.trim() : '';
+      const mediaFromContentString = /^https?:\/\//i.test(contentStr) ? contentStr : null;
+
+      const mediaUrl = msg.mediaUrl || msg.MediaUrl || msg.media_url || msg.url || msg.fileUrl || msg.downloadUrl
+        || contentObj?.url || contentObj?.mediaUrl || contentObj?.media_url || contentObj?.fileUrl || contentObj?.downloadUrl
+        || contentObj?.audio?.url || contentObj?.video?.url || contentObj?.image?.url || contentObj?.document?.url
+        || mediaFromContentString
+        || null;
       const externalId = msg.messageid || msg.id || msg.Id || null;
       const pushName = msg.senderName || msg.pushName || msg.PushName
         || body.chat?.lead_name || body.chat?.lead_fullName || null;
