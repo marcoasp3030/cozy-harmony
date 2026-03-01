@@ -256,13 +256,16 @@ async function executeFromNode(
     const labelMap: Record<string, string> = {
       condition_contains: "Contém Texto", condition_tag: "Tem Tag", condition_time: "Horário",
       condition_business_hours: "Verificar Expediente",
-      condition_contact_field: "Campo do Contato", action_send_message: "Enviar Mensagem",
+      condition_contact_field: "Campo do Contato", condition_media_type: "Tipo de Mídia",
+      action_send_message: "Enviar Mensagem",
       action_send_template: "Enviar Template", action_add_tag: "Adicionar Tag",
       action_remove_tag: "Remover Tag", action_assign_agent: "Atribuir Atendente",
       action_move_funnel: "Mover no Funil", action_delay: "Aguardar",
       action_set_variable: "Definir Variável", action_update_score: "Atualizar Score",
       action_http_webhook: "HTTP Webhook", action_llm_reply: "Resposta IA",
       action_elevenlabs_tts: "Áudio ElevenLabs", action_ab_split: "Split A/B",
+      action_collect_messages: "Aguardar & Agrupar", action_transcribe_audio: "Transcrever Áudio",
+      action_extract_pdf: "Extrair Texto PDF",
     };
 
     // Build result object for logging
@@ -809,9 +812,6 @@ async function executeNode(
         content: m.content || "[mídia]",
       }));
 
-      const selectedProvider = model.startsWith("gemini") ? "gemini" : "openai";
-      if (!keys[selectedProvider]) return { sent: false, reason: `${selectedProvider}_key_missing` };
-
       const chatMessages = [
         { role: "system", content: systemPrompt },
         ...messages.map((m: any) => ({
@@ -821,42 +821,85 @@ async function executeNode(
       ];
 
       let reply = "";
-      if (selectedProvider === "openai") {
-        const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ model, messages: chatMessages, max_tokens: maxTokens, temperature: 0.7 }),
-        });
-        if (resp.ok) {
-          const data = await resp.json();
-          reply = data.choices?.[0]?.message?.content?.trim() || "";
-        } else {
-          const errText = await resp.text();
-          throw new Error(`OpenAI error (${resp.status}): ${errText.slice(0, 200)}`);
-        }
-      } else {
-        const geminiContents = chatMessages.filter((m: any) => m.role !== "system").map((m: any) => ({
-          role: m.role === "assistant" ? "model" : "user",
-          parts: [{ text: m.content }],
-        }));
-        const resp = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${keys.gemini}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              system_instruction: { parts: [{ text: systemPrompt }] },
-              contents: geminiContents,
-              generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 },
-            }),
+
+      // Try user's own API key first, fallback to Lovable AI Gateway
+      const selectedProvider = model.startsWith("gemini") ? "gemini" : "openai";
+      const hasUserKey = !!keys[selectedProvider];
+
+      if (hasUserKey) {
+        try {
+          if (selectedProvider === "openai") {
+            const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ model, messages: chatMessages, max_tokens: maxTokens, temperature: 0.7 }),
+            });
+            if (resp.ok) {
+              const data = await resp.json();
+              reply = data.choices?.[0]?.message?.content?.trim() || "";
+            } else {
+              const errText = await resp.text();
+              console.error(`OpenAI user key failed (${resp.status}), falling back to Lovable AI: ${errText.slice(0, 100)}`);
+            }
+          } else {
+            const geminiContents = chatMessages.filter((m: any) => m.role !== "system").map((m: any) => ({
+              role: m.role === "assistant" ? "model" : "user",
+              parts: [{ text: m.content }],
+            }));
+            const resp = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${keys.gemini}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  system_instruction: { parts: [{ text: systemPrompt }] },
+                  contents: geminiContents,
+                  generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 },
+                }),
+              }
+            );
+            if (resp.ok) {
+              const data = await resp.json();
+              reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+            } else {
+              const errText = await resp.text();
+              console.error(`Gemini user key failed (${resp.status}), falling back to Lovable AI: ${errText.slice(0, 100)}`);
+            }
           }
-        );
-        if (resp.ok) {
-          const data = await resp.json();
-          reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
-        } else {
-          const errText = await resp.text();
-          throw new Error(`Gemini error (${resp.status}): ${errText.slice(0, 200)}`);
+        } catch (userKeyErr) {
+          console.error(`User key error, falling back to Lovable AI:`, userKeyErr);
+        }
+      }
+
+      // Fallback to Lovable AI Gateway if no reply yet
+      if (!reply) {
+        const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+        if (LOVABLE_API_KEY) {
+          console.log("Using Lovable AI Gateway as fallback");
+          // Map model to Lovable AI supported model
+          const lovableModel = model.startsWith("gemini") ? "google/gemini-2.5-flash" : "google/gemini-3-flash-preview";
+          const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${LOVABLE_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: lovableModel,
+              messages: chatMessages,
+              max_tokens: maxTokens,
+              temperature: 0.7,
+            }),
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            reply = data.choices?.[0]?.message?.content?.trim() || "";
+          } else {
+            const errText = await resp.text();
+            throw new Error(`Lovable AI error (${resp.status}): ${errText.slice(0, 200)}`);
+          }
+        } else if (!hasUserKey) {
+          throw new Error("Nenhuma API key configurada (OpenAI/Gemini) e Lovable AI não disponível");
         }
       }
 
@@ -890,6 +933,224 @@ async function executeNode(
     if (type === "action_ab_split") {
       const splitPct = parseInt(d.split_percentage) || 50;
       return Math.random() * 100 < splitPct; // true = path A, false = path B
+    }
+
+    // ── MULTIMODAL NODES ──
+
+    if (type === "condition_media_type") {
+      const expectedType = d.media_type || "text";
+      const msgType = ctx.messageType || "text";
+      // Map WhatsApp message types to our categories
+      const typeMap: Record<string, string> = {
+        text: "text", chat: "text",
+        image: "image", sticker: "image",
+        audio: "audio", ptt: "audio", voice: "audio",
+        video: "video",
+        document: "document", pdf: "document",
+      };
+      const normalizedType = typeMap[msgType] || msgType;
+      return normalizedType === expectedType;
+    }
+
+    if (type === "action_collect_messages") {
+      const waitSeconds = parseInt(d.wait_seconds) || 15;
+      const maxMessages = parseInt(d.max_messages) || 10;
+      // Wait for the specified interval (capped at 25s for edge function limit)
+      const waitMs = Math.min(waitSeconds * 1000, 25000);
+      await new Promise((r) => setTimeout(r, waitMs));
+
+      // Fetch recent messages from this contact during the wait window
+      const cutoff = new Date(Date.now() - waitMs - 5000).toISOString(); // 5s buffer
+      const { data: batchMsgs } = await supabase
+        .from("messages")
+        .select("content, type, media_url, created_at")
+        .eq("contact_id", ctx.contactId)
+        .eq("direction", "inbound")
+        .gte("created_at", cutoff)
+        .order("created_at", { ascending: true })
+        .limit(maxMessages);
+
+      // Aggregate all message contents into context
+      const aggregated = (batchMsgs || [])
+        .map((m: any) => {
+          if (m.type === "text" || m.type === "chat") return m.content || "";
+          if (m.type === "audio" || m.type === "ptt") return `[Áudio: ${m.media_url || "sem URL"}]`;
+          if (m.type === "document") return `[Documento: ${m.media_url || "sem URL"}]`;
+          if (m.type === "image") return `[Imagem: ${m.media_url || "sem URL"}]`;
+          return m.content || `[${m.type}]`;
+        })
+        .filter(Boolean)
+        .join("\n");
+
+      // Update context with aggregated messages
+      ctx.messageContent = aggregated || ctx.messageContent;
+      ctx.variables["mensagens_agrupadas"] = aggregated;
+      ctx.variables["total_mensagens"] = String((batchMsgs || []).length);
+
+      return { collected: (batchMsgs || []).length, aggregated: aggregated.slice(0, 200) };
+    }
+
+    if (type === "action_transcribe_audio") {
+      const provider = d.provider || "whisper";
+      const language = d.language || "pt";
+
+      // Find last audio message from contact
+      const { data: audioMsgs } = await supabase
+        .from("messages")
+        .select("media_url, type")
+        .eq("contact_id", ctx.contactId)
+        .eq("direction", "inbound")
+        .in("type", ["audio", "ptt"])
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      const audioUrl = audioMsgs?.[0]?.media_url;
+      if (!audioUrl) {
+        ctx.variables["transcricao"] = "";
+        return { transcribed: false, reason: "no_audio_found" };
+      }
+
+      // Download audio
+      const audioResp = await fetch(audioUrl);
+      if (!audioResp.ok) {
+        return { transcribed: false, reason: "audio_download_failed" };
+      }
+      const audioBlob = await audioResp.blob();
+
+      let transcription = "";
+
+      if (provider === "elevenlabs") {
+        // Use ElevenLabs STT edge function
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const formData = new FormData();
+        formData.append("audio", audioBlob, "audio.ogg");
+        formData.append("language_code", language === "pt" ? "por" : language);
+        const resp = await fetch(`${supabaseUrl}/functions/v1/elevenlabs-stt`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${serviceKey}` },
+          body: formData,
+        });
+        if (resp.ok) {
+          const result = await resp.json();
+          transcription = result.text || "";
+        }
+      } else {
+        // Use Lovable AI Gateway (no user key needed) or fallback to user's OpenAI key
+        const { data: ownerAuto } = await supabase.from("automations").select("created_by").limit(1).single();
+        let openaiKey = "";
+        if (ownerAuto?.created_by) {
+          const { data: s } = await supabase.from("settings").select("value").eq("user_id", ownerAuto.created_by).eq("key", "llm_openai").single();
+          openaiKey = (s?.value as any)?.apiKey || "";
+        }
+
+        if (openaiKey) {
+          const formData = new FormData();
+          formData.append("file", audioBlob, "audio.ogg");
+          formData.append("model", "whisper-1");
+          formData.append("language", language);
+          const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${openaiKey}` },
+            body: formData,
+          });
+          if (resp.ok) {
+            const result = await resp.json();
+            transcription = result.text || "";
+          } else {
+            console.error(`Whisper failed, no fallback for audio transcription`);
+          }
+        } else {
+          console.log("No OpenAI key for Whisper, skipping transcription");
+        }
+      }
+
+      ctx.variables["transcricao"] = transcription;
+      // Append transcription to message content for downstream IA nodes
+      if (transcription) {
+        ctx.messageContent += `\n\n[Transcrição do áudio]: ${transcription}`;
+      }
+      return { transcribed: !!transcription, transcription: transcription.slice(0, 200) };
+    }
+
+    if (type === "action_extract_pdf") {
+      const maxPages = parseInt(d.max_pages) || 10;
+
+      // Find last document message
+      const { data: docMsgs } = await supabase
+        .from("messages")
+        .select("media_url, type, content")
+        .eq("contact_id", ctx.contactId)
+        .eq("direction", "inbound")
+        .eq("type", "document")
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      const docUrl = docMsgs?.[0]?.media_url;
+      if (!docUrl) {
+        ctx.variables["pdf_conteudo"] = "";
+        return { extracted: false, reason: "no_document_found" };
+      }
+
+      // Download document
+      const docResp = await fetch(docUrl);
+      if (!docResp.ok) {
+        return { extracted: false, reason: "document_download_failed" };
+      }
+
+      // For PDF text extraction, we use a simple approach:
+      // Extract raw text from the PDF binary (basic extraction)
+      const buffer = await docResp.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      const textDecoder = new TextDecoder("utf-8", { fatal: false });
+      const rawText = textDecoder.decode(bytes);
+
+      // Extract text between stream markers (basic PDF text extraction)
+      const textParts: string[] = [];
+      const streamRegex = /stream\s*([\s\S]*?)\s*endstream/g;
+      let match;
+      while ((match = streamRegex.exec(rawText)) !== null && textParts.length < maxPages * 5) {
+        const content = match[1]
+          .replace(/[^\x20-\x7E\xC0-\xFF\u00C0-\u024F]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (content.length > 20) textParts.push(content);
+      }
+
+      let extractedText = textParts.join("\n").slice(0, 3000); // Cap at 3000 chars
+
+      // If summarize is enabled and we have text, use AI to summarize
+      if (d.summarize && extractedText) {
+        const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+        if (LOVABLE_API_KEY) {
+          const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${LOVABLE_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "google/gemini-3-flash-preview",
+              messages: [
+                { role: "system", content: "Resuma o conteúdo do documento de forma clara e objetiva em português. Máximo 500 palavras." },
+                { role: "user", content: extractedText },
+              ],
+              max_tokens: 600,
+            }),
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            const summary = data.choices?.[0]?.message?.content?.trim() || "";
+            if (summary) extractedText = summary;
+          }
+        }
+      }
+
+      ctx.variables["pdf_conteudo"] = extractedText;
+      if (extractedText) {
+        ctx.messageContent += `\n\n[Conteúdo do documento]: ${extractedText}`;
+      }
+      return { extracted: !!extractedText, textLength: extractedText.length };
     }
 
     console.log(`Unknown node type: ${type}`);
