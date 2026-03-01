@@ -255,6 +255,7 @@ async function executeFromNode(
     // Node label map for logging
     const labelMap: Record<string, string> = {
       condition_contains: "Contém Texto", condition_tag: "Tem Tag", condition_time: "Horário",
+      condition_business_hours: "Verificar Expediente",
       condition_contact_field: "Campo do Contato", action_send_message: "Enviar Mensagem",
       action_send_template: "Enviar Template", action_add_tag: "Adicionar Tag",
       action_remove_tag: "Remover Tag", action_assign_agent: "Atribuir Atendente",
@@ -358,6 +359,69 @@ async function executeNode(
 
       if (!days.includes(currentDay)) return false;
       return currentTime >= startTime && currentTime <= endTime;
+    }
+
+    if (type === "condition_business_hours") {
+      // Load business hours config from settings
+      // Find automation owner to get their settings
+      const { data: autoData } = await supabase
+        .from("automations")
+        .select("created_by")
+        .limit(1)
+        .single();
+
+      let bhConfig: any = null;
+      if (autoData?.created_by) {
+        const { data: settingsRow } = await supabase
+          .from("settings")
+          .select("value")
+          .eq("user_id", autoData.created_by)
+          .eq("key", "business_hours")
+          .single();
+        bhConfig = settingsRow?.value;
+      }
+
+      if (!bhConfig || !bhConfig.enabled) {
+        console.log("Business hours not configured or disabled, defaulting to open");
+        return true;
+      }
+
+      const tz = bhConfig.timezone || "America/Sao_Paulo";
+      const now = new Date();
+      const formatter = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false });
+      const dayFormatter = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short" });
+      const currentTime = formatter.format(now);
+      const dayMap: Record<string, number> = { Sun: 7, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+      const currentDayNum = dayMap[dayFormatter.format(now)] || 0;
+
+      const dayKey = String(currentDayNum);
+      const daySchedule = bhConfig.days?.[dayKey];
+
+      if (!daySchedule || !daySchedule.enabled) {
+        // Day is disabled = outside business hours
+        // Send out-of-hours message if configured
+        const outMsg = d.out_of_hours_message || bhConfig.outOfHoursMessage;
+        if (outMsg) {
+          const interpolated = outMsg
+            .replace(/\{\{nome\}\}/gi, ctx.contactName)
+            .replace(/\{\{phone\}\}/gi, ctx.contactPhone);
+          await sendWhatsAppMessage(supabase, ctx, interpolated);
+        }
+        return false;
+      }
+
+      const isWithin = currentTime >= daySchedule.start && currentTime <= daySchedule.end;
+      if (!isWithin) {
+        // Outside hours - send message
+        const outMsg = d.out_of_hours_message || bhConfig.outOfHoursMessage;
+        if (outMsg) {
+          const interpolated = outMsg
+            .replace(/\{\{nome\}\}/gi, ctx.contactName)
+            .replace(/\{\{phone\}\}/gi, ctx.contactPhone);
+          await sendWhatsAppMessage(supabase, ctx, interpolated);
+        }
+      }
+      return isWithin;
     }
 
     if (type === "condition_contact_field") {
