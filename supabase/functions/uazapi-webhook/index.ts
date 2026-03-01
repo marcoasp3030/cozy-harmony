@@ -123,8 +123,10 @@ serve(async (req) => {
         return json({ success: true, note: 'Group or invalid' });
       }
 
-      const messageContent = msg.text || msg.content || msg.Text || msg.Body || msg.caption || '';
-      const msgType = msg.type || msg.mediaType || 'text';
+      // content can be an object for audio/media messages — always coerce to string
+      const rawContent = msg.text || msg.caption || msg.Text || msg.Body || '';
+      const messageContent = typeof rawContent === 'string' ? rawContent : (rawContent?.text || rawContent?.caption || '');
+      const msgType = msg.type || msg.mediaType || msg.messageType || 'text';
       const typeMap: Record<string, string> = {
         'text': 'text', 'chat': 'text', 'conversation': 'text',
         'image': 'image', 'video': 'video', 'audio': 'audio',
@@ -132,7 +134,7 @@ serve(async (req) => {
       };
       const messageType = typeMap[msgType] || 'text';
 
-      const mediaUrl = msg.mediaUrl || msg.MediaUrl || null;
+      const mediaUrl = msg.mediaUrl || msg.MediaUrl || msg.media_url || msg.url || (typeof msg.content === 'object' && msg.content?.url) || null;
       const externalId = msg.messageid || msg.id || msg.Id || null;
       const pushName = msg.senderName || msg.pushName || msg.PushName
         || body.chat?.lead_name || body.chat?.lead_fullName || null;
