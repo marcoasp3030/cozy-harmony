@@ -355,10 +355,13 @@ export function createBusinessHoursTemplate(): FlowTemplate {
 }
 
 /**
- * Template multimodal: texto, áudio, PDF → agrupamento → IA humanizada
+ * Template Nutricar Brasil: Mini mercados autônomos 24h
+ * - Áudio recebido → responde com áudio (TTS)
+ * - Pagamento → PIX interativo (nunca por áudio) + pede comprovante
+ * - Texto/Doc → IA humanizada
  */
 export function createMultimodalTemplate(): FlowTemplate {
-  const X = 350;
+  const X = 400;
   const nodes: Node[] = [
     // 1. Gatilho
     {
@@ -367,7 +370,7 @@ export function createMultimodalTemplate(): FlowTemplate {
       position: { x: X, y: 0 },
       data: { nodeType: "trigger_message" },
     },
-    // 2. Imagem de boas-vindas
+    // 2. Imagem de boas-vindas Nutricar
     {
       id: "multi_welcome_media",
       type: "flowNode",
@@ -375,128 +378,226 @@ export function createMultimodalTemplate(): FlowTemplate {
       data: {
         nodeType: "action_send_media",
         media_type: "image",
-        media_url: "https://placehold.co/800x400/1a1a2e/eaeaea?text=Bem-vindo+ao+nosso+atendimento",
-        caption: "Olá {{nome}}! 👋 Bem-vindo ao nosso atendimento inteligente.\n\nPode enviar texto, áudio ou documentos — eu entendo tudo! 🚀",
+        media_url: "https://placehold.co/800x400/00843D/ffffff?text=Nutricar+Brasil+%F0%9F%9B%92+Mini+Mercado+24h",
+        caption: "Olá {{nome}}! 👋 Sou o assistente virtual da *Nutricar Brasil*.\n\nNossos mini mercados autônomos funcionam *24 horas* para você! 🛒\n\nPode me enviar texto ou áudio — estou aqui pra te ajudar! 😊",
       },
     },
-    // 3. Agrupar mensagens (espera 15s para o cliente enviar tudo)
+    // 3. Agrupar mensagens
     {
       id: "multi_collect",
       type: "flowNode",
       position: { x: X, y: 260 },
       data: {
         nodeType: "action_collect_messages",
-        wait_seconds: 15,
-        max_messages: 10,
+        wait_seconds: 12,
+        max_messages: 8,
       },
     },
-    // 4. Verificar se há áudio
+
+    // ═══ ROTA 1: VERIFICAR ÁUDIO ═══
     {
       id: "multi_check_audio",
       type: "flowNode",
-      position: { x: X - 300, y: 420 },
+      position: { x: X - 350, y: 420 },
       data: { nodeType: "condition_media_type", media_type: "audio" },
     },
-    // 5. Verificar se há documento (PDF)
-    {
-      id: "multi_check_doc",
-      type: "flowNode",
-      position: { x: X + 300, y: 420 },
-      data: { nodeType: "condition_media_type", media_type: "document" },
-    },
-
-    // ── Rota Áudio ──
+    // Transcrever áudio
     {
       id: "multi_transcribe",
       type: "flowNode",
-      position: { x: X - 300, y: 580 },
+      position: { x: X - 350, y: 560 },
       data: {
         nodeType: "action_transcribe_audio",
         provider: "whisper",
         language: "pt",
       },
     },
+    // Verificar se o áudio fala de pagamento
     {
-      id: "multi_audio_tag",
+      id: "multi_audio_pix_check",
       type: "flowNode",
-      position: { x: X - 300, y: 720 },
-      data: { nodeType: "action_add_tag", tag_name: "enviou-audio" },
-    },
-
-    // ── Rota Documento ──
-    {
-      id: "multi_extract_pdf",
-      type: "flowNode",
-      position: { x: X + 300, y: 580 },
+      position: { x: X - 350, y: 700 },
       data: {
-        nodeType: "action_extract_pdf",
-        max_pages: 10,
-        summarize: true,
+        nodeType: "condition_contains",
+        text: "pix,pagamento,pagar,cobrou,cobrança,cobranca,cartão,cartao,débito,debito,crédito,credito,maquininha,não passou,nao passou,valor,dinheiro,troco",
+        case_sensitive: false,
       },
     },
+    // Áudio SEM pagamento → IA gera texto → TTS envia como áudio
     {
-      id: "multi_doc_tag",
+      id: "multi_audio_ia",
       type: "flowNode",
-      position: { x: X + 300, y: 720 },
-      data: { nodeType: "action_add_tag", tag_name: "enviou-documento" },
-    },
-
-    // ── Resposta IA Humanizada (convergência) ──
-    {
-      id: "multi_ia_reply",
-      type: "flowNode",
-      position: { x: X, y: 880 },
+      position: { x: X - 600, y: 860 },
       data: {
         nodeType: "action_llm_reply",
         system_prompt:
-          "Você é um atendente de SAC humano, empático e atencioso. O cliente enviou uma ou mais mensagens que podem incluir texto, transcrições de áudio e/ou conteúdo extraído de documentos PDF.\n\nRegras:\n1. Analise TODAS as mensagens agrupadas como um contexto único — não responda a cada uma separadamente.\n2. Identifique a real necessidade do cliente e responda de forma clara, objetiva e acolhedora.\n3. Use linguagem natural, como se fosse uma conversa pessoal. Evite respostas robóticas.\n4. Se o cliente enviou um documento, referencie o conteúdo naturalmente (\"Vi no documento que você enviou...\").\n5. Se o cliente enviou áudio, trate a transcrição como se ele tivesse falado diretamente com você.\n6. Sempre finalize perguntando se pode ajudar em mais alguma coisa.\n7. Seja conciso — máximo 3 parágrafos.",
+          "Você é a assistente virtual da Nutricar Brasil, empresa de mini mercados autônomos 24 horas. Seja humanizada, simpática e objetiva.\n\nRegras:\n1. Respostas CURTAS (máx 2 frases).\n2. Tom amigável e informal, como uma conversa entre amigos.\n3. O cliente enviou um áudio — trate como se ele falou diretamente com você.\n4. NÃO mencione PIX ou pagamentos a menos que o cliente tenha perguntado.\n5. Sempre pergunte se pode ajudar em mais alguma coisa.\n6. Use emojis com moderação (1-2 por resposta).",
         provider: "openai",
-        model: "gpt-4o",
-        max_tokens: 600,
+        model: "gpt-4o-mini",
+        max_tokens: 200,
       },
     },
-
-    // ── Mensagem de acolhimento (texto puro, sem mídia especial) ──
+    // Enviar a resposta como áudio via TTS
     {
-      id: "multi_text_ack",
+      id: "multi_audio_tts",
       type: "flowNode",
-      position: { x: X, y: 580 },
+      position: { x: X - 600, y: 1020 },
+      data: {
+        nodeType: "action_elevenlabs_tts",
+        text: "{{ia_reply}}",
+        voice_id: "EXAVITQu4vr4xnSDxMaL",
+      },
+    },
+    {
+      id: "multi_audio_tag",
+      type: "flowNode",
+      position: { x: X - 600, y: 1160 },
+      data: { nodeType: "action_add_tag", tag_name: "atendimento-audio" },
+    },
+
+    // Áudio COM pagamento → PIX por TEXTO (nunca áudio)
+    {
+      id: "multi_audio_pix_msg",
+      type: "flowNode",
+      position: { x: X - 100, y: 860 },
       data: {
         nodeType: "action_send_message",
-        message: "Recebi suas mensagens, {{nome}}! 📝 Estou analisando tudo para te dar a melhor resposta...",
+        message: "Entendi, {{nome}}! Vi que você está com uma questão sobre pagamento. 💳\n\nVou te enviar os dados da nossa chave PIX por escrito pra facilitar! 👇",
       },
+    },
+    // Chave PIX via mensagem interativa (botões)
+    {
+      id: "multi_audio_pix_interactive",
+      type: "flowNode",
+      position: { x: X - 100, y: 1020 },
+      data: {
+        nodeType: "action_send_interactive",
+        interactive_type: "buttons",
+        body_text: "💰 *Dados para Pagamento PIX*\n\n🔑 *Chave PIX (e-mail):*\nfinanceiro@nutricarbrasil.com.br\n\n👤 *Favorecido:* Nutricar Brasil\n\n⚠️ Confira o nome do beneficiário antes de confirmar!",
+        footer: "Nutricar Brasil — Mini Mercado 24h",
+        options: "Já fiz o PIX ✅|pix_feito\nPreciso de ajuda|ajuda_pix\nFalar com financeiro|financeiro",
+      },
+    },
+    // Pedir comprovante
+    {
+      id: "multi_audio_pix_receipt",
+      type: "flowNode",
+      position: { x: X - 100, y: 1160 },
+      data: {
+        nodeType: "action_send_message",
+        message: "Perfeito! 📸 Agora por favor *envie o comprovante de pagamento* aqui nesta conversa para que possamos confirmar.\n\nAssim que recebermos, vamos validar rapidinho! ✅",
+      },
+    },
+    {
+      id: "multi_audio_pix_tag",
+      type: "flowNode",
+      position: { x: X - 100, y: 1300 },
+      data: { nodeType: "action_add_tag", tag_name: "pagamento-pix" },
+    },
+
+    // ═══ ROTA 2: TEXTO (sem áudio) ═══
+    // Verificar se texto fala de pagamento
+    {
+      id: "multi_text_pix_check",
+      type: "flowNode",
+      position: { x: X + 350, y: 420 },
+      data: {
+        nodeType: "condition_contains",
+        text: "pix,pagamento,pagar,cobrou,cobrança,cobranca,cartão,cartao,débito,debito,crédito,credito,maquininha,não passou,nao passou,dinheiro,troco",
+        case_sensitive: false,
+      },
+    },
+    // Texto COM pagamento → PIX interativo
+    {
+      id: "multi_text_pix_interactive",
+      type: "flowNode",
+      position: { x: X + 600, y: 580 },
+      data: {
+        nodeType: "action_send_interactive",
+        interactive_type: "buttons",
+        body_text: "Oi {{nome}}! Vi que precisa de ajuda com pagamento. 💳\n\n💰 *Chave PIX (e-mail):*\nfinanceiro@nutricarbrasil.com.br\n\n👤 *Favorecido:* Nutricar Brasil\n\n⚠️ Confira o nome antes de confirmar!",
+        footer: "Nutricar Brasil — Mini Mercado 24h",
+        options: "Já fiz o PIX ✅|pix_feito\nPreciso de ajuda|ajuda_pix\nFalar com financeiro|financeiro",
+      },
+    },
+    // Pedir comprovante (texto)
+    {
+      id: "multi_text_pix_receipt",
+      type: "flowNode",
+      position: { x: X + 600, y: 740 },
+      data: {
+        nodeType: "action_send_message",
+        message: "Depois de fazer o PIX, por favor *envie o comprovante* aqui pra gente confirmar! 📸✅",
+      },
+    },
+    {
+      id: "multi_text_pix_tag",
+      type: "flowNode",
+      position: { x: X + 600, y: 880 },
+      data: { nodeType: "action_add_tag", tag_name: "pagamento-pix" },
+    },
+
+    // Texto SEM pagamento → IA humanizada
+    {
+      id: "multi_text_ia",
+      type: "flowNode",
+      position: { x: X + 100, y: 580 },
+      data: {
+        nodeType: "action_llm_reply",
+        system_prompt:
+          "Você é a assistente virtual da Nutricar Brasil, empresa de mini mercados autônomos que funcionam 24 horas.\n\nRegras:\n1. Respostas CURTAS e objetivas (máx 3 frases).\n2. Tom amigável, humanizado e informal.\n3. Se o cliente perguntar sobre produtos, informe que o estoque varia por unidade e sugira visitar o mini mercado mais próximo.\n4. Se perguntar sobre horário: funcionamos 24h, todos os dias!\n5. NÃO invente informações sobre preços ou promoções.\n6. Sempre pergunte se pode ajudar em mais alguma coisa.\n7. Use emojis com moderação (1-2 por mensagem).",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        max_tokens: 250,
+      },
+    },
+    {
+      id: "multi_text_tag",
+      type: "flowNode",
+      position: { x: X + 100, y: 740 },
+      data: { nodeType: "action_add_tag", tag_name: "atendimento-texto" },
     },
   ];
 
   const edges: Edge[] = [
-    // Trigger → Welcome media
+    // Trigger → Welcome → Collect
     makeEdge("trigger_msg_multi", "multi_welcome_media"),
-    // Welcome media → Collect
     makeEdge("multi_welcome_media", "multi_collect"),
-    // Collect → Check audio & Check doc
+
+    // Collect → Check audio & Check text payment
     makeEdge("multi_collect", "multi_check_audio"),
-    makeEdge("multi_collect", "multi_check_doc"),
+    makeEdge("multi_collect", "multi_text_pix_check"),
 
-    // Audio: yes → transcribe → tag → IA
+    // ── Rota Áudio ──
     makeEdge("multi_check_audio", "multi_transcribe", "yes"),
-    makeEdge("multi_transcribe", "multi_audio_tag"),
-    makeEdge("multi_audio_tag", "multi_ia_reply"),
+    makeEdge("multi_transcribe", "multi_audio_pix_check"),
+    // Áudio sem pagamento → IA → TTS → tag
+    makeEdge("multi_audio_pix_check", "multi_audio_ia", "no"),
+    makeEdge("multi_audio_ia", "multi_audio_tts"),
+    makeEdge("multi_audio_tts", "multi_audio_tag"),
+    // Áudio com pagamento → msg → PIX interativo → comprovante → tag
+    makeEdge("multi_audio_pix_check", "multi_audio_pix_msg", "yes"),
+    makeEdge("multi_audio_pix_msg", "multi_audio_pix_interactive"),
+    makeEdge("multi_audio_pix_interactive", "multi_audio_pix_receipt"),
+    makeEdge("multi_audio_pix_receipt", "multi_audio_pix_tag"),
 
-    // Audio: no → acknowledgment text → IA
-    makeEdge("multi_check_audio", "multi_text_ack", "no"),
-    makeEdge("multi_text_ack", "multi_ia_reply"),
-
-    // Doc: yes → extract → tag → IA
-    makeEdge("multi_check_doc", "multi_extract_pdf", "yes"),
-    makeEdge("multi_extract_pdf", "multi_doc_tag"),
-    makeEdge("multi_doc_tag", "multi_ia_reply"),
+    // ── Rota Texto ──
+    // Texto sem áudio + sem pagamento → IA
+    makeEdge("multi_check_audio", "multi_text_pix_check", "no"),
+    // Texto com pagamento → PIX interativo → comprovante → tag
+    makeEdge("multi_text_pix_check", "multi_text_pix_interactive", "yes"),
+    makeEdge("multi_text_pix_interactive", "multi_text_pix_receipt"),
+    makeEdge("multi_text_pix_receipt", "multi_text_pix_tag"),
+    // Texto sem pagamento → IA → tag
+    makeEdge("multi_text_pix_check", "multi_text_ia", "no"),
+    makeEdge("multi_text_ia", "multi_text_tag"),
   ];
 
   return {
     id: "atendimento_multimodal",
-    name: "Atendimento Multimodal",
-    description: "Envia imagem de boas-vindas, recebe texto, áudio e PDF, agrupa mensagens e responde com IA humanizada",
-    emoji: "🎙️",
+    name: "Nutricar Brasil — Atendimento Multimodal",
+    description: "Atendente virtual humanizado: responde áudios com áudio, envia PIX interativo para pagamentos e solicita comprovante",
+    emoji: "🛒",
     triggerType: "message",
     nodes,
     edges,
