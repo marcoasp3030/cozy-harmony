@@ -819,6 +819,110 @@ export function createNPSTemplate(): FlowTemplate {
   };
 }
 
+/**
+ * Remarketing: Agendamento diário → busca inativos → oferta personalizada
+ */
+export function createRemarketingTemplate(): FlowTemplate {
+  const X = 350;
+  const nodes: Node[] = [
+    {
+      id: "rmk_trigger",
+      type: "flowNode",
+      position: { x: X, y: 0 },
+      data: { nodeType: "trigger_schedule", cron: "0 10 * * 1-5", timezone: "America/Sao_Paulo" },
+    },
+    {
+      id: "rmk_check_hours",
+      type: "flowNode",
+      position: { x: X, y: 140 },
+      data: { nodeType: "condition_business_hours", use_saved_config: true, out_of_hours_message: "" },
+    },
+    // Dentro do expediente → verificar campo do contato (tem nome)
+    {
+      id: "rmk_check_name",
+      type: "flowNode",
+      position: { x: X + 280, y: 300 },
+      data: { nodeType: "condition_contact_field", field: "name", operator: "exists", value: "" },
+    },
+    // Com nome → mensagem personalizada
+    {
+      id: "rmk_msg_personal",
+      type: "flowNode",
+      position: { x: X + 280, y: 460 },
+      data: {
+        nodeType: "action_send_message",
+        message: "Oi {{nome}}! 👋 Faz um tempinho que não conversamos.\n\nPassei aqui para avisar que temos uma *oferta especial* pensada para você:\n\n🎁 *20% OFF* em todos os nossos serviços\n⏰ Válido por 48 horas\n\nQuer saber mais? É só responder esta mensagem! 🚀",
+      },
+    },
+    // Sem nome → mensagem genérica
+    {
+      id: "rmk_msg_generic",
+      type: "flowNode",
+      position: { x: X - 280, y: 460 },
+      data: {
+        nodeType: "action_send_message",
+        message: "Olá! 👋 Sentimos sua falta por aqui.\n\nTemos uma *promoção exclusiva* para clientes especiais como você:\n\n🎁 *20% de desconto* em qualquer serviço\n⏰ Por tempo limitado!\n\nResponda *SIM* para aproveitar! 😊",
+      },
+    },
+    // Tag remarketing
+    {
+      id: "rmk_tag",
+      type: "flowNode",
+      position: { x: X, y: 620 },
+      data: { nodeType: "action_add_tag", tag_name: "remarketing-enviado" },
+    },
+    // Score
+    {
+      id: "rmk_score",
+      type: "flowNode",
+      position: { x: X, y: 760 },
+      data: { nodeType: "action_update_score", points: "10", operation: "add" },
+    },
+    // Mover no funil
+    {
+      id: "rmk_funnel",
+      type: "flowNode",
+      position: { x: X, y: 900 },
+      data: { nodeType: "action_move_funnel", funnel_name: "Vendas", stage_name: "Reengajamento" },
+    },
+    // Webhook para CRM externo
+    {
+      id: "rmk_webhook",
+      type: "flowNode",
+      position: { x: X, y: 1040 },
+      data: {
+        nodeType: "action_http_webhook",
+        url: "https://seu-crm.com/api/remarketing",
+        method: "POST",
+        headers: '{"Content-Type": "application/json"}',
+        body_template: '{"phone": "{{phone}}", "name": "{{nome}}", "campaign": "remarketing-7d"}',
+      },
+    },
+  ];
+
+  const edges: Edge[] = [
+    makeEdge("rmk_trigger", "rmk_check_hours"),
+    makeEdge("rmk_check_hours", "rmk_check_name", "yes"),
+    makeEdge("rmk_check_name", "rmk_msg_personal", "yes"),
+    makeEdge("rmk_check_name", "rmk_msg_generic", "no"),
+    makeEdge("rmk_msg_personal", "rmk_tag"),
+    makeEdge("rmk_msg_generic", "rmk_tag"),
+    makeEdge("rmk_tag", "rmk_score"),
+    makeEdge("rmk_score", "rmk_funnel"),
+    makeEdge("rmk_funnel", "rmk_webhook"),
+  ];
+
+  return {
+    id: "remarketing_inativos",
+    name: "Remarketing Inativos",
+    description: "Reengaja leads inativos há 7+ dias com oferta personalizada, scoring e webhook para CRM",
+    emoji: "🔄",
+    triggerType: "schedule",
+    nodes,
+    edges,
+  };
+}
+
 export const ALL_TEMPLATES: (() => FlowTemplate)[] = [
   createSACTemplate,
   createWelcomeTemplate,
@@ -827,4 +931,5 @@ export const ALL_TEMPLATES: (() => FlowTemplate)[] = [
   createLeadQualificationTemplate,
   createMeetingScheduleTemplate,
   createNPSTemplate,
+  createRemarketingTemplate,
 ];
