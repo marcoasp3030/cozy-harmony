@@ -2,7 +2,7 @@ import {
   MessageSquare, Search, Clock, UserPlus, Tag, ArrowRight,
   Send, Bot, Globe, Zap, Volume2, BarChart3, GitBranch,
   Variable, Timer, Mail, Phone, Filter, Users, Building2,
-  FileType, Layers, AudioLines, FileText
+  FileType, Layers, AudioLines, FileText, BrainCircuit
 } from "lucide-react";
 
 export type NodeCategory = "trigger" | "condition" | "action";
@@ -316,6 +316,20 @@ export const NODE_TYPES: NodeTypeConfig[] = [
     fields: [
       { key: "variable_name", label: "Nome da Variável", type: "text", placeholder: "status_cliente", required: true },
       { key: "variable_value", label: "Valor", type: "text", placeholder: "ativo", required: true },
+    ],
+  },
+
+  {
+    type: "condition_intent_classifier",
+    label: "Classificar Intenção",
+    category: "condition",
+    icon: BrainCircuit,
+    color: "#8b5cf6",
+    description: "Usa IA para classificar a intenção do cliente (dúvida, reclamação, compra, suporte, etc.)",
+    fields: [
+      { key: "intents", label: "Intenções (separadas por vírgula)", type: "text", placeholder: "dúvida, reclamação, compra, suporte, saudação", required: true, defaultValue: "dúvida, reclamação, compra, suporte, saudação" },
+      { key: "confidence_threshold", label: "Confiança mínima (%)", type: "number", placeholder: "60", defaultValue: 60 },
+      { key: "custom_prompt", label: "Prompt adicional (opcional)", type: "textarea", placeholder: "Contexto extra para ajudar na classificação..." },
     ],
   },
 
