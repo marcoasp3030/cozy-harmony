@@ -146,7 +146,7 @@ serve(async (req) => {
       const contentStr = typeof msg.content === 'string' ? msg.content.trim() : '';
       const mediaFromContentString = /^https?:\/\//i.test(contentStr) ? contentStr : null;
 
-      const mediaUrl = msg.mediaUrl || msg.MediaUrl || msg.media_url || msg.url || msg.fileUrl || msg.downloadUrl
+      let mediaUrl = msg.mediaUrl || msg.MediaUrl || msg.media_url || msg.url || msg.fileUrl || msg.downloadUrl
         || contentObj?.URL || contentObj?.url || contentObj?.mediaUrl || contentObj?.media_url || contentObj?.fileUrl || contentObj?.downloadUrl
         || contentObj?.audio?.url || contentObj?.audio?.URL || contentObj?.video?.url || contentObj?.video?.URL
         || contentObj?.image?.url || contentObj?.image?.URL || contentObj?.document?.url || contentObj?.document?.URL
@@ -157,24 +157,101 @@ serve(async (req) => {
         || body.chat?.lead_name || body.chat?.lead_fullName || null;
       const profilePic = body.chat?.imagePreview || body.chat?.image || null;
 
-      console.log(`Processing message from ${phone}, type=${messageType}, id=${externalId}, text="${messageContent?.slice(0, 50)}"`);
+      console.log(`Processing message from ${phone}, type=${messageType}, id=${externalId}, mediaUrl="${(mediaUrl || 'NULL').slice(0, 80)}"`);
 
-      // Detailed debug for audio/media messages
-      if (messageType === 'audio' || messageType === 'video' || messageType === 'image' || messageType === 'document') {
-        console.log(`[MEDIA DEBUG] rawMsgType="${rawMsgType}", mediaUrl="${mediaUrl || 'NULL'}"`);
-        console.log(`[MEDIA DEBUG] msg.content type=${typeof msg.content}, value=${JSON.stringify(msg.content).slice(0, 500)}`);
-        console.log(`[MEDIA DEBUG] msg.mediaUrl="${msg.mediaUrl}", msg.url="${msg.url}", msg.fileUrl="${msg.fileUrl}", msg.downloadUrl="${msg.downloadUrl}"`);
-        console.log(`[MEDIA DEBUG] msg.MediaUrl="${msg.MediaUrl}", msg.media_url="${msg.media_url}"`);
-        console.log(`[MEDIA DEBUG] contentObj keys=${contentObj ? Object.keys(contentObj).join(',') : 'null'}`);
-        if (contentObj) {
-          console.log(`[MEDIA DEBUG] contentObj.url="${contentObj.url}", contentObj.audio=${JSON.stringify(contentObj.audio).slice(0, 200)}`);
-          console.log(`[MEDIA DEBUG] contentObj.fileUrl="${contentObj.fileUrl}", contentObj.downloadUrl="${contentObj.downloadUrl}"`);
-        }
-        // Log full msg keys and any nested media-related fields
-        const mediaKeys = ['media', 'file', 'audio', 'audioMessage', 'pttMessage', 'documentMessage', 'imageMessage', 'videoMessage'];
-        for (const k of mediaKeys) {
-          if (msg[k] !== undefined) {
-            console.log(`[MEDIA DEBUG] msg.${k}=${JSON.stringify(msg[k]).slice(0, 300)}`);
+      // ── Download encrypted media via UazAPI and upload to Storage ──
+      if (messageType !== 'text' && externalId) {
+        const isEncryptedUrl = mediaUrl && (String(mediaUrl).includes('.enc') || String(mediaUrl).includes('mmg.whatsapp.net'));
+        const needsDownload = !mediaUrl || isEncryptedUrl;
+        
+        if (needsDownload) {
+          try {
+            // Get UazAPI instance config to download media
+            const baseUrlFromPayload = body.BaseUrl || body.baseUrl || '';
+            if (baseUrlFromPayload) {
+              // Find instance token by matching base_url
+              const { data: instances } = await supabase
+                .from('whatsapp_instances')
+                .select('instance_token, base_url')
+                .limit(10);
+              
+              const matchedInstance = (instances || []).find((inst: any) => {
+                const instUrl = String(inst.base_url || '').replace(/\/+$/, '');
+                const payloadUrl = String(baseUrlFromPayload).replace(/\/+$/, '');
+                return instUrl === payloadUrl || instUrl.includes(payloadUrl) || payloadUrl.includes(instUrl);
+              });
+
+              if (matchedInstance?.instance_token) {
+                const apiBase = String(baseUrlFromPayload).replace(/\/+$/, '');
+                // UazAPI download endpoint: POST /chat/downloadMediaMessage
+                const dlResp = await fetch(`${apiBase}/chat/downloadMediaMessage`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'token': matchedInstance.instance_token,
+                  },
+                  body: JSON.stringify({ id: externalId }),
+                });
+
+                if (dlResp.ok) {
+                  const contentType = dlResp.headers.get('content-type') || 'application/octet-stream';
+                  
+                  // Check if it's JSON (UazAPI may return a JSON with URL or base64)
+                  if (contentType.includes('application/json')) {
+                    const dlData = await dlResp.json();
+                    const downloadedUrl = dlData.url || dlData.mediaUrl || dlData.file || dlData.data?.url || '';
+                    const base64Data = dlData.base64 || dlData.data || '';
+                    
+                    if (downloadedUrl && typeof downloadedUrl === 'string' && downloadedUrl.startsWith('http')) {
+                      // Got a direct URL from UazAPI
+                      mediaUrl = downloadedUrl;
+                      console.log(`[MEDIA] Got download URL from UazAPI: ${mediaUrl.slice(0, 80)}`);
+                    } else if (base64Data && typeof base64Data === 'string' && base64Data.length > 100) {
+                      // Got base64 data, upload to storage
+                      const ext = messageType === 'audio' ? 'ogg' : messageType === 'video' ? 'mp4' : messageType === 'image' ? 'jpg' : 'bin';
+                      const fileName = `media/${phone}/${Date.now()}_${externalId.slice(-8)}.${ext}`;
+                      const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+                      const mimeMap: Record<string, string> = {
+                        audio: 'audio/ogg', video: 'video/mp4', image: 'image/jpeg', document: 'application/pdf',
+                      };
+                      const { data: upload } = await supabase.storage
+                        .from('chat-media')
+                        .upload(fileName, binaryData, { contentType: mimeMap[messageType] || 'application/octet-stream' });
+                      if (upload?.path) {
+                        const { data: urlData } = supabase.storage.from('chat-media').getPublicUrl(upload.path);
+                        mediaUrl = urlData.publicUrl;
+                        console.log(`[MEDIA] Uploaded base64 media to storage: ${mediaUrl.slice(0, 80)}`);
+                      }
+                    } else {
+                      console.log(`[MEDIA] UazAPI download returned JSON but no usable data: ${JSON.stringify(dlData).slice(0, 200)}`);
+                    }
+                  } else {
+                    // Binary response - upload directly to storage
+                    const buffer = await dlResp.arrayBuffer();
+                    if (buffer.byteLength > 0) {
+                      const ext = messageType === 'audio' ? 'ogg' : messageType === 'video' ? 'mp4' : messageType === 'image' ? 'jpg' : 'bin';
+                      const fileName = `media/${phone}/${Date.now()}_${externalId.slice(-8)}.${ext}`;
+                      const { data: upload } = await supabase.storage
+                        .from('chat-media')
+                        .upload(fileName, new Uint8Array(buffer), { contentType: contentType });
+                      if (upload?.path) {
+                        const { data: urlData } = supabase.storage.from('chat-media').getPublicUrl(upload.path);
+                        mediaUrl = urlData.publicUrl;
+                        console.log(`[MEDIA] Uploaded binary media to storage: ${mediaUrl.slice(0, 80)}`);
+                      }
+                    }
+                  }
+                } else {
+                  console.log(`[MEDIA] UazAPI download failed: HTTP ${dlResp.status}`);
+                  const errBody = await dlResp.text().catch(() => '');
+                  console.log(`[MEDIA] Download error body: ${errBody.slice(0, 200)}`);
+                }
+              } else {
+                console.log(`[MEDIA] No matching instance found for baseUrl: ${baseUrlFromPayload}`);
+              }
+            }
+          } catch (dlErr) {
+            console.error('[MEDIA] Download/upload error (non-fatal):', dlErr);
           }
         }
       }
