@@ -835,32 +835,36 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
 
     if (type === "action_register_occurrence") {
       const defaultType = d.occurrence_type || "reclamacao";
-      const defaultStore = interpolate(String(d.store_name || "Não informada"), ctx);
       const priority = d.priority || "normal";
 
-      // Build description from grouped messages or current message
+      // Build full conversation context for AI analysis
       const grouped = ctx.variables["mensagens_agrupadas"] || "";
       const transcription = ctx.variables["transcricao"] || "";
       const iaReply = ctx.variables["ia_reply"] || "";
-      const descriptionParts: string[] = [];
-      if (grouped) descriptionParts.push(grouped);
-      else if (transcription) descriptionParts.push(`[Áudio transcrito] ${transcription}`);
-      else if (ctx.messageContent) descriptionParts.push(ctx.messageContent);
-      const rawDescription = descriptionParts.join("\n").slice(0, 2000) || "Ocorrência registrada automaticamente via automação";
+      const contextParts: string[] = [];
+      if (grouped) contextParts.push(grouped);
+      if (transcription) contextParts.push(`[Áudio transcrito] ${transcription}`);
+      if (ctx.messageContent && !grouped) contextParts.push(ctx.messageContent);
+      const conversationContext = contextParts.join("\n").slice(0, 2500) || "";
 
-      // ── Use AI to extract structured occurrence data ──
-      let storeName = defaultStore;
-      let occType = defaultType;
-      let contactName = ctx.contactName || "";
-      let description = rawDescription;
+      if (conversationContext.length < 5) {
+        console.log("[OCCURRENCE] Skipping: no conversation context available");
+        return { registered: false, reason: "no_context" };
+      }
 
+      // ── Use AI to analyze conversation and decide if we have enough info ──
       const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-      if (LOVABLE_API_KEY && rawDescription.length > 5) {
-        try {
-          const extractPrompt = `Você é um classificador de ocorrências da Nutricar Brasil (rede de mini mercados autônomos 24h).
-Analise a mensagem do cliente e extraia as informações estruturadas.
+      if (!LOVABLE_API_KEY) {
+        console.error("[OCCURRENCE] No LOVABLE_API_KEY available");
+        return { registered: false, reason: "no_ai_key" };
+      }
 
-LOJAS CONHECIDAS DA NUTRICAR BRASIL (use o nome exato):
+      try {
+        const extractPrompt = `Você é um analisador de conversas de atendimento da Nutricar Brasil (rede de mini mercados autônomos 24h).
+
+Analise a conversa abaixo e extraia informações para registrar uma ocorrência de atendimento.
+
+LOJAS CONHECIDAS DA NUTRICAR BRASIL:
 - Nutricar Barra Park
 - Nutricar Asa Norte
 - Nutricar Águas Claras
@@ -872,86 +876,111 @@ LOJAS CONHECIDAS DA NUTRICAR BRASIL (use o nome exato):
 - Nutricar Taguatinga
 - Nutricar Ceilândia
 
-TIPOS DE OCORRÊNCIA (use exatamente um destes):
-- reclamacao (problemas, insatisfação, produto vencido, cobrança indevida)
-- duvida (perguntas sobre funcionamento, horário, pagamento, PIX)
-- sugestao (sugestões de produtos, melhorias)
-- elogio (feedback positivo, elogios)
-- outro (não se encaixa nas categorias acima)
+TIPOS DE OCORRÊNCIA:
+- reclamacao (problemas, insatisfação, produto vencido, cobrança indevida, totem com defeito, acesso bloqueado, loja suja)
+- duvida (perguntas sobre funcionamento, horário, pagamento, PIX, como funciona)
+- sugestao (sugestões de produtos, melhorias, pedidos)
+- elogio (feedback positivo, elogios, agradecimentos)
+- outro (saudação simples, assunto não identificado)
 
-PRIORIDADES:
-- alta (cobrança indevida, produto vencido, acesso bloqueado, problema urgente)
-- normal (dúvidas gerais, sugestões)
-- baixa (elogios, feedback positivo)
+PRIORIDADE:
+- alta (cobrança indevida, produto vencido, acesso bloqueado, loja suja/problemas de higiene, problema urgente)
+- normal (dúvidas gerais, sugestões, relatos de problemas menores)
+- baixa (elogios, feedback positivo, saudações)
 
-Contexto do cliente:
-- Nome no contato: "${ctx.contactName || "Não informado"}"
+DADOS DO CONTATO:
+- Nome no sistema: "${ctx.contactName || "Não informado"}"
 - Telefone: ${ctx.contactPhone}
-- Mensagem(ns): "${rawDescription.slice(0, 1000)}"
-${iaReply ? `- Resposta da IA ao cliente: "${iaReply.slice(0, 500)}"` : ""}
+
+CONVERSA DO CLIENTE:
+"${conversationContext.slice(0, 1500)}"
+
+${iaReply ? `RESPOSTA DA IA AO CLIENTE:\n"${iaReply.slice(0, 500)}"` : ""}
+
+INSTRUÇÕES:
+1. Verifique se o cliente MENCIONOU ou se IDENTIFICOU com um nome na conversa. Se sim, use esse nome. Se não, use o nome do sistema.
+2. Verifique se o cliente MENCIONOU qual loja/unidade da Nutricar. Pode ser por nome, bairro ou referência indireta.
+3. Avalie se há informações SUFICIENTES para registrar a ocorrência (precisa ter pelo menos o motivo do contato claro).
+4. Crie um RESUMO DETALHADO do problema incluindo: o que aconteceu, quando (se informado), detalhes específicos (produto, valor, situação da loja, etc).
 
 Responda APENAS com JSON válido:
-{"store_name": "<nome da loja ou 'Não informada'>", "type": "<tipo>", "priority": "<prioridade>", "contact_name": "<nome do cliente>", "summary": "<resumo objetivo do problema em 1-2 frases>"}
+{
+  "ready": true/false,
+  "reason": "motivo se não está pronto (ex: cliente só cumprimentou, falta identificar o problema)",
+  "store_name": "nome exato da loja ou Não informada",
+  "contact_name": "nome do cliente",
+  "type": "tipo da ocorrência",
+  "priority": "alta/normal/baixa",
+  "summary": "Resumo detalhado: descreva o problema relatado pelo cliente com todas as informações fornecidas (produto, situação da loja, valores, datas, etc). Máximo 3 frases."
+}
 
-REGRAS:
-- Se o cliente mencionar o nome da loja, use o nome exato da lista. Se não mencionar, use "Não informada".
-- Se o cliente se identificar pelo nome na mensagem, use esse nome. Senão use o nome do contato.
-- O "summary" deve ser um resumo claro e objetivo do que o cliente relatou, não a mensagem bruta.`;
+REGRAS PARA "ready":
+- ready=false se: cliente apenas cumprimentou, mensagem genérica sem problema claro, ou tipo seria "outro" sem detalhes
+- ready=true se: há um problema/feedback/dúvida clara relatada, mesmo que falte nome da loja (registrar como "Não informada")`;
 
-          const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: "google/gemini-2.5-flash-lite",
-              messages: [{ role: "user", content: extractPrompt }],
-              max_tokens: 200,
-              temperature: 0.1,
-            }),
-          });
+        const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash-lite",
+            messages: [{ role: "user", content: extractPrompt }],
+            max_tokens: 300,
+            temperature: 0.1,
+          }),
+        });
 
-          if (resp.ok) {
-            const data = await resp.json();
-            const reply = data.choices?.[0]?.message?.content?.trim() || "";
-            const jsonMatch = reply.match(/\{[^}]+\}/);
-            if (jsonMatch) {
-              const parsed = JSON.parse(jsonMatch[0]);
-              if (parsed.store_name && parsed.store_name !== "Não informada") storeName = parsed.store_name;
-              if (parsed.type && ["reclamacao", "duvida", "sugestao", "elogio", "outro"].includes(parsed.type)) occType = parsed.type;
-              if (parsed.priority && ["alta", "normal", "baixa"].includes(parsed.priority)) {
-                // Only override if AI detected a different priority
-                if (parsed.priority !== priority) {
-                  console.log(`[OCCURRENCE] AI adjusted priority: ${priority} -> ${parsed.priority}`);
-                }
-              }
-              if (parsed.contact_name && parsed.contact_name !== "Não informado") contactName = parsed.contact_name;
-              if (parsed.summary) description = parsed.summary;
-
-              console.log(`[OCCURRENCE] AI extracted: store="${storeName}", type="${occType}", name="${contactName}"`);
-            }
-          }
-        } catch (e) {
-          console.error("[OCCURRENCE] AI extraction failed, using defaults:", e);
+        if (!resp.ok) {
+          console.error(`[OCCURRENCE] AI request failed (${resp.status})`);
+          return { registered: false, reason: "ai_error" };
         }
+
+        const data = await resp.json();
+        const reply = data.choices?.[0]?.message?.content?.trim() || "";
+        const jsonMatch = reply.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+          console.error("[OCCURRENCE] AI returned non-JSON:", reply.slice(0, 200));
+          return { registered: false, reason: "ai_parse_error" };
+        }
+
+        const parsed = JSON.parse(jsonMatch[0]);
+
+        // ── Check if AI says we have enough info to register ──
+        if (!parsed.ready) {
+          console.log(`[OCCURRENCE] Not ready to register: ${parsed.reason || "insufficient info"}`);
+          return { registered: false, reason: parsed.reason || "not_ready", details: "AI determined insufficient information" };
+        }
+
+        const storeName = parsed.store_name || "Não informada";
+        const occType = ["reclamacao", "duvida", "sugestao", "elogio", "outro"].includes(parsed.type) ? parsed.type : defaultType;
+        const occPriority = ["alta", "normal", "baixa"].includes(parsed.priority) ? parsed.priority : priority;
+        const contactName = parsed.contact_name || ctx.contactName || "";
+        const description = parsed.summary || conversationContext.slice(0, 500);
+
+        console.log(`[OCCURRENCE] Registering: store="${storeName}", type="${occType}", priority="${occPriority}", name="${contactName}"`);
+
+        const { error: occErr } = await supabase.from("occurrences").insert({
+          store_name: storeName,
+          type: occType,
+          description,
+          contact_phone: ctx.contactPhone || null,
+          contact_name: contactName || null,
+          priority: occPriority,
+          status: "aberto",
+          created_by: ctx.userId || null,
+        });
+
+        if (occErr) {
+          console.error("Failed to register occurrence:", occErr.message);
+          throw new Error(`Erro ao registrar ocorrência: ${occErr.message}`);
+        }
+
+        console.log(`Occurrence registered successfully: type=${occType}, store=${storeName}, name=${contactName}`);
+        return { registered: true, type: occType, store: storeName, contactName, priority: occPriority };
+
+      } catch (e) {
+        console.error("[OCCURRENCE] Error:", e);
+        return { registered: false, reason: "error", error: e instanceof Error ? e.message : "unknown" };
       }
-
-      const { error: occErr } = await supabase.from("occurrences").insert({
-        store_name: storeName,
-        type: occType,
-        description,
-        contact_phone: ctx.contactPhone || null,
-        contact_name: contactName || null,
-        priority,
-        status: "aberto",
-        created_by: ctx.userId || null,
-      });
-
-      if (occErr) {
-        console.error("Failed to register occurrence:", occErr.message);
-        throw new Error(`Erro ao registrar ocorrência: ${occErr.message}`);
-      }
-
-      console.log(`Occurrence registered: type=${occType}, store=${storeName}, name=${contactName}, phone=${ctx.contactPhone}`);
-      return { registered: true, type: occType, store: storeName, contactName };
     }
 
     if (type === "action_http_webhook") {
