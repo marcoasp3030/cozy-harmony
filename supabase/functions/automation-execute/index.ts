@@ -563,18 +563,18 @@ Mensagem do cliente: "${ctx.messageContent}"`;
 
       const payload: Record<string, any> = {
         number: cleanNumber,
-        message: bodyText,
-        options: optionStrings,
+        text: bodyText,
+        choices: optionStrings,
       };
 
       if (interactiveType === "buttons") {
         payload.type = "button";
       } else {
         payload.type = "list";
-        payload.title = buttonTitle;
+        payload.listButton = buttonTitle;
       }
 
-      if (footer) payload.footer = footer;
+      if (footer) payload.footerText = footer;
 
       const resp = await fetch(`${baseUrl}/send/menu`, {
         method: "POST",
@@ -1085,8 +1085,18 @@ Mensagem do cliente: "${ctx.messageContent}"`;
           } else {
             content = "[Áudio sem transcrição disponível]";
           }
-        } else if (!content && m.type === "image") {
-          content = "[Imagem enviada pelo cliente]";
+        } else if (m.type === "image" && m.media_url) {
+          // Mark image messages for multimodal processing
+          const imgDesc = ctx.variables["descricao_imagem"] || "";
+          if (isLastInbound && imgDesc) {
+            content = `[Imagem do cliente - descrição]: ${imgDesc}`;
+          } else {
+            content = "[Imagem enviada pelo cliente]";
+          }
+          // Store last inbound image URL for vision analysis
+          if (isLastInbound) {
+            (ctx as any)._lastImageUrl = m.media_url;
+          }
         } else if (!content && m.type === "document") {
           if (isLastInbound && pdfContent) {
             content = `[Documento do cliente - conteúdo extraído]: ${pdfContent.slice(0, 1500)}`;
@@ -1116,13 +1126,47 @@ Mensagem do cliente: "${ctx.messageContent}"`;
         });
       }
 
-      const chatMessages = [
+      // ── Multimodal: if last message is image, include as vision content ──
+      let imageBase64: string | null = null;
+      const lastImageUrl = (ctx as any)._lastImageUrl;
+      if (lastImageUrl) {
+        try {
+          const imgResp = await fetch(lastImageUrl);
+          if (imgResp.ok) {
+            const imgBuffer = await imgResp.arrayBuffer();
+            const { encode: base64Encode } = await import("https://deno.land/std@0.168.0/encoding/base64.ts");
+            imageBase64 = base64Encode(imgBuffer);
+            console.log(`Image downloaded for vision analysis (${Math.round(imgBuffer.byteLength / 1024)}KB)`);
+          }
+        } catch (e) {
+          console.error("Failed to download image for vision:", e);
+        }
+      }
+
+      // Build chat messages - use multimodal content when image is available
+      const chatMessages: any[] = [
         { role: "system", content: systemPrompt },
-        ...messages.map((m: any) => ({
-          role: m.direction === "inbound" ? "user" : "assistant",
-          content: m.content,
-        })),
       ];
+
+      for (const m of messages) {
+        const role = m.direction === "inbound" ? "user" : "assistant";
+        chatMessages.push({ role, content: m.content });
+      }
+
+      // If we have an image, add it as multimodal content to the last user message
+      if (imageBase64) {
+        // Find last user message and make it multimodal
+        for (let i = chatMessages.length - 1; i >= 0; i--) {
+          if (chatMessages[i].role === "user") {
+            const textContent = chatMessages[i].content || "Analise esta imagem enviada pelo cliente.";
+            chatMessages[i].content = [
+              { type: "text", text: textContent },
+              { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+            ];
+            break;
+          }
+        }
+      }
 
       let reply = "";
 
@@ -1146,10 +1190,25 @@ Mensagem do cliente: "${ctx.messageContent}"`;
               console.error(`OpenAI user key failed (${resp.status}), falling back to Lovable AI: ${errText.slice(0, 100)}`);
             }
           } else {
-            const geminiContents = chatMessages.filter((m: any) => m.role !== "system").map((m: any) => ({
-              role: m.role === "assistant" ? "model" : "user",
-              parts: [{ text: m.content }],
-            }));
+            const geminiContents = chatMessages.filter((m: any) => m.role !== "system").map((m: any) => {
+              const parts: any[] = [];
+              if (Array.isArray(m.content)) {
+                // Multimodal content (text + image)
+                for (const part of m.content) {
+                  if (part.type === "text") {
+                    parts.push({ text: part.text });
+                  } else if (part.type === "image_url" && part.image_url?.url?.startsWith("data:")) {
+                    const match = part.image_url.url.match(/^data:([^;]+);base64,(.+)$/);
+                    if (match) {
+                      parts.push({ inline_data: { mime_type: match[1], data: match[2] } });
+                    }
+                  }
+                }
+              } else {
+                parts.push({ text: String(m.content || "") });
+              }
+              return { role: m.role === "assistant" ? "model" : "user", parts };
+            });
             const resp = await fetch(
               `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${keys.gemini}`,
               {
