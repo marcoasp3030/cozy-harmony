@@ -901,8 +901,10 @@ ${iaReply ? `RESPOSTA DA IA AO CLIENTE:\n"${iaReply.slice(0, 500)}"` : ""}
 INSTRUÇÕES:
 1. Verifique se o cliente MENCIONOU ou se IDENTIFICOU com um nome na conversa. Se sim, use esse nome. Se não, use o nome do sistema.
 2. Verifique se o cliente MENCIONOU qual loja/unidade da Nutricar. Pode ser por nome, bairro ou referência indireta.
-3. Avalie se há informações SUFICIENTES para registrar a ocorrência (precisa ter pelo menos o motivo do contato claro).
-4. Crie um RESUMO DETALHADO do problema incluindo: o que aconteceu, quando (se informado), detalhes específicos (produto, valor, situação da loja, etc).
+3. Se for um problema de pagamento, tente identificar a DATA E HORÁRIO APROXIMADO da transação mencionados pelo cliente.
+4. Avalie se há informações SUFICIENTES para registrar a ocorrência (precisa ter pelo menos o motivo do contato claro).
+5. Crie um RESUMO DETALHADO incluindo: o que aconteceu, quando (data/horário se informados), detalhes específicos (produto, valor, situação da loja, etc).
+6. ATENÇÃO: O cliente pode interpretar situações de forma diferente da realidade (ex: dizer "fui cobrado indevidamente" quando houve uma cobrança dupla por erro do sistema). Registre fielmente o RELATO do cliente sem fazer julgamentos, mas inclua todos os detalhes que ele fornecer.
 
 Responda APENAS com JSON válido:
 {
@@ -912,7 +914,8 @@ Responda APENAS com JSON válido:
   "contact_name": "nome do cliente",
   "type": "tipo da ocorrência",
   "priority": "alta/normal/baixa",
-  "summary": "Resumo detalhado: descreva o problema relatado pelo cliente com todas as informações fornecidas (produto, situação da loja, valores, datas, etc). Máximo 3 frases."
+  "transaction_date": "data e horário aproximado da transação se informados, ou null",
+  "summary": "Resumo detalhado: descreva o problema relatado pelo cliente com todas as informações fornecidas (produto, situação da loja, valores, datas, horários, etc). Máximo 3 frases. Registre o relato fiel do cliente."
 }
 
 REGRAS PARA "ready":
@@ -952,7 +955,8 @@ REGRAS PARA "ready":
         }
 
         const storeName = parsed.store_name || "Não informada";
-        const occType = ["reclamacao", "duvida", "sugestao", "elogio", "outro"].includes(parsed.type) ? parsed.type : defaultType;
+        const validTypes = ["elogio", "reclamacao", "furto", "falta_produto", "produto_vencido", "loja_suja", "problema_pagamento", "loja_sem_energia", "acesso_bloqueado", "sugestao", "duvida", "outro"];
+        const occType = validTypes.includes(parsed.type) ? parsed.type : defaultType;
         const occPriority = ["alta", "normal", "baixa"].includes(parsed.priority) ? parsed.priority : priority;
         const contactName = parsed.contact_name || ctx.contactName || "";
         const description = parsed.summary || conversationContext.slice(0, 500);
@@ -1861,15 +1865,16 @@ REGRAS PARA "ready":
   }
 }
 
-// ── Auto-send PIX key when conversation is about payment ──
-const PIX_KEYWORDS = /\b(pix|pagamento|pagar|cobran[cç]a|cobrança indevida|valor cobrado|debito|débito|estorno|reembolso|devolu[cç][aã]o|totem.*pagamento|n[aã]o.*consegui.*pagar|cart[aã]o.*n[aã]o|problema.*pag)\b/i;
+// ── Auto-send PIX key ONLY when customer reports DIFFICULTY paying ──
+// Matches problems/failures with payment, NOT general payment mentions or inquiries
+const PIX_DIFFICULTY_KEYWORDS = /\b(n[aã]o.*consig[ou].*pagar|n[aã]o.*passou|n[aã]o.*aceito[ua]?|n[aã]o.*funciono[ua]|problema.*pag|erro.*pag|pag.*erro|pag.*n[aã]o.*foi|cobran[cç]a.*indevid|valor.*cobrado.*errado|cobrou.*errado|cobrou.*mais|cobrou.*a\s*mais|cobrou.*diferente|estorno|reembolso|devolu[cç][aã]o|totem.*n[aã]o|totem.*com.*defeito|totem.*erro|totem.*travou|cart[aã]o.*recus|cart[aã]o.*n[aã]o|pix.*n[aã]o.*funciono|pix.*erro|pix.*problema|dificuldade.*pag|n[aã]o.*conseg.*pix)\b/i;
 const PIX_KEY_MESSAGE = `💳 *Chave PIX para pagamento:*\n\n📧 financeiro@nutricarbrasil.com.br\n\n_Após efetuar o pagamento, por favor envie o comprovante aqui para darmos seguimento._`;
 
 async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext): Promise<boolean> {
   // Check if PIX was already sent in this execution
   if (ctx.variables["_pix_key_sent"] === "true") return false;
 
-  // Check all available context for payment-related keywords
+  // Check all available context for payment DIFFICULTY keywords (not general payment mentions)
   const allContext = [
     ctx.messageContent,
     ctx.variables["mensagens_agrupadas"] || "",
@@ -1878,12 +1883,12 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
     ctx.variables["intencao"] || "",
   ].join(" ");
 
-  if (!PIX_KEYWORDS.test(allContext)) return false;
+  if (!PIX_DIFFICULTY_KEYWORDS.test(allContext)) return false;
 
   // Mark as sent to avoid duplicates
   ctx.variables["_pix_key_sent"] = "true";
 
-  console.log(`[PIX] Payment context detected, sending PIX key to ${ctx.contactPhone}`);
+  console.log(`[PIX] Payment DIFFICULTY detected, sending PIX key to ${ctx.contactPhone}`);
   await sendWhatsAppMessage(supabase, ctx, PIX_KEY_MESSAGE);
   return true;
 }
