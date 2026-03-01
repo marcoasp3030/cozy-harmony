@@ -1,7 +1,8 @@
 import {
   MessageSquare, Search, Clock, UserPlus, Tag, ArrowRight,
   Send, Bot, Globe, Zap, Volume2, BarChart3, GitBranch,
-  Variable, Timer, Mail, Phone, Filter, Users, Building2
+  Variable, Timer, Mail, Phone, Filter, Users, Building2,
+  FileType, Layers, AudioLines, FileText
 } from "lucide-react";
 
 export type NodeCategory = "trigger" | "condition" | "action";
@@ -315,6 +316,64 @@ export const NODE_TYPES: NodeTypeConfig[] = [
     fields: [
       { key: "variable_name", label: "Nome da Variável", type: "text", placeholder: "status_cliente", required: true },
       { key: "variable_value", label: "Valor", type: "text", placeholder: "ativo", required: true },
+    ],
+  },
+
+  // ── Multimodal Nodes ──────────────────────────────────
+  {
+    type: "condition_media_type",
+    label: "Tipo de Mídia",
+    category: "condition",
+    icon: FileType,
+    color: "#f59e0b",
+    description: "Verifica o tipo de mídia da mensagem (texto, áudio, documento, imagem)",
+    fields: [
+      { key: "media_type", label: "Tipo esperado", type: "select", options: [
+        { value: "text", label: "Texto" },
+        { value: "audio", label: "Áudio" },
+        { value: "document", label: "Documento (PDF, DOC...)" },
+        { value: "image", label: "Imagem" },
+        { value: "video", label: "Vídeo" },
+      ], defaultValue: "text", required: true },
+    ],
+  },
+  {
+    type: "action_collect_messages",
+    label: "Aguardar & Agrupar",
+    category: "action",
+    icon: Layers,
+    color: "#8b5cf6",
+    description: "Aguarda um intervalo e agrupa todas as mensagens recebidas antes de responder",
+    fields: [
+      { key: "wait_seconds", label: "Tempo de espera (segundos)", type: "number", placeholder: "15", defaultValue: 15, required: true },
+      { key: "max_messages", label: "Máx. mensagens para agrupar", type: "number", placeholder: "10", defaultValue: 10 },
+    ],
+  },
+  {
+    type: "action_transcribe_audio",
+    label: "Transcrever Áudio",
+    category: "action",
+    icon: AudioLines,
+    color: "#8b5cf6",
+    description: "Transcreve o áudio da mensagem em texto usando IA (Whisper / ElevenLabs)",
+    fields: [
+      { key: "provider", label: "Provedor", type: "select", options: [
+        { value: "whisper", label: "OpenAI Whisper" },
+        { value: "elevenlabs", label: "ElevenLabs Scribe" },
+      ], defaultValue: "whisper" },
+      { key: "language", label: "Idioma", type: "text", placeholder: "pt", defaultValue: "pt" },
+    ],
+  },
+  {
+    type: "action_extract_pdf",
+    label: "Extrair Texto PDF",
+    category: "action",
+    icon: FileText,
+    color: "#8b5cf6",
+    description: "Extrai o conteúdo textual de um documento PDF enviado pelo cliente",
+    fields: [
+      { key: "max_pages", label: "Máx. páginas", type: "number", placeholder: "10", defaultValue: 10 },
+      { key: "summarize", label: "Resumir conteúdo com IA", type: "switch", defaultValue: false },
     ],
   },
 ];

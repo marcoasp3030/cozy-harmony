@@ -351,8 +351,144 @@ export function createBusinessHoursTemplate(): FlowTemplate {
   };
 }
 
+/**
+ * Template multimodal: texto, áudio, PDF → agrupamento → IA humanizada
+ */
+export function createMultimodalTemplate(): FlowTemplate {
+  const X = 350;
+  const nodes: Node[] = [
+    // 1. Gatilho
+    {
+      id: "trigger_msg_multi",
+      type: "flowNode",
+      position: { x: X, y: 0 },
+      data: { nodeType: "trigger_message" },
+    },
+    // 2. Agrupar mensagens (espera 15s para o cliente enviar tudo)
+    {
+      id: "multi_collect",
+      type: "flowNode",
+      position: { x: X, y: 120 },
+      data: {
+        nodeType: "action_collect_messages",
+        wait_seconds: 15,
+        max_messages: 10,
+      },
+    },
+    // 3. Verificar se há áudio
+    {
+      id: "multi_check_audio",
+      type: "flowNode",
+      position: { x: X - 300, y: 280 },
+      data: { nodeType: "condition_media_type", media_type: "audio" },
+    },
+    // 4. Verificar se há documento (PDF)
+    {
+      id: "multi_check_doc",
+      type: "flowNode",
+      position: { x: X + 300, y: 280 },
+      data: { nodeType: "condition_media_type", media_type: "document" },
+    },
+
+    // ── Rota Áudio ──
+    {
+      id: "multi_transcribe",
+      type: "flowNode",
+      position: { x: X - 300, y: 440 },
+      data: {
+        nodeType: "action_transcribe_audio",
+        provider: "whisper",
+        language: "pt",
+      },
+    },
+    {
+      id: "multi_audio_tag",
+      type: "flowNode",
+      position: { x: X - 300, y: 580 },
+      data: { nodeType: "action_add_tag", tag_name: "enviou-audio" },
+    },
+
+    // ── Rota Documento ──
+    {
+      id: "multi_extract_pdf",
+      type: "flowNode",
+      position: { x: X + 300, y: 440 },
+      data: {
+        nodeType: "action_extract_pdf",
+        max_pages: 10,
+        summarize: true,
+      },
+    },
+    {
+      id: "multi_doc_tag",
+      type: "flowNode",
+      position: { x: X + 300, y: 580 },
+      data: { nodeType: "action_add_tag", tag_name: "enviou-documento" },
+    },
+
+    // ── Resposta IA Humanizada (convergência) ──
+    {
+      id: "multi_ia_reply",
+      type: "flowNode",
+      position: { x: X, y: 740 },
+      data: {
+        nodeType: "action_llm_reply",
+        system_prompt:
+          "Você é um atendente de SAC humano, empático e atencioso. O cliente enviou uma ou mais mensagens que podem incluir texto, transcrições de áudio e/ou conteúdo extraído de documentos PDF.\n\nRegras:\n1. Analise TODAS as mensagens agrupadas como um contexto único — não responda a cada uma separadamente.\n2. Identifique a real necessidade do cliente e responda de forma clara, objetiva e acolhedora.\n3. Use linguagem natural, como se fosse uma conversa pessoal. Evite respostas robóticas.\n4. Se o cliente enviou um documento, referencie o conteúdo naturalmente (\"Vi no documento que você enviou...\").\n5. Se o cliente enviou áudio, trate a transcrição como se ele tivesse falado diretamente com você.\n6. Sempre finalize perguntando se pode ajudar em mais alguma coisa.\n7. Seja conciso — máximo 3 parágrafos.",
+        provider: "openai",
+        model: "gpt-4o",
+        max_tokens: 600,
+      },
+    },
+
+    // ── Mensagem de acolhimento (texto puro, sem mídia especial) ──
+    {
+      id: "multi_text_ack",
+      type: "flowNode",
+      position: { x: X, y: 440 },
+      data: {
+        nodeType: "action_send_message",
+        message: "Recebi suas mensagens, {{nome}}! 📝 Estou analisando tudo para te dar a melhor resposta...",
+      },
+    },
+  ];
+
+  const edges: Edge[] = [
+    // Trigger → Collect
+    makeEdge("trigger_msg_multi", "multi_collect"),
+    // Collect → Check audio & Check doc
+    makeEdge("multi_collect", "multi_check_audio"),
+    makeEdge("multi_collect", "multi_check_doc"),
+
+    // Audio: yes → transcribe → tag → IA
+    makeEdge("multi_check_audio", "multi_transcribe", "yes"),
+    makeEdge("multi_transcribe", "multi_audio_tag"),
+    makeEdge("multi_audio_tag", "multi_ia_reply"),
+
+    // Audio: no → acknowledgment text → IA
+    makeEdge("multi_check_audio", "multi_text_ack", "no"),
+    makeEdge("multi_text_ack", "multi_ia_reply"),
+
+    // Doc: yes → extract → tag → IA
+    makeEdge("multi_check_doc", "multi_extract_pdf", "yes"),
+    makeEdge("multi_extract_pdf", "multi_doc_tag"),
+    makeEdge("multi_doc_tag", "multi_ia_reply"),
+  ];
+
+  return {
+    id: "atendimento_multimodal",
+    name: "Atendimento Multimodal",
+    description: "Recebe texto, áudio e PDF, agrupa mensagens e responde com IA humanizada",
+    emoji: "🎙️",
+    triggerType: "message",
+    nodes,
+    edges,
+  };
+}
+
 export const ALL_TEMPLATES: (() => FlowTemplate)[] = [
   createSACTemplate,
   createWelcomeTemplate,
   createBusinessHoursTemplate,
+  createMultimodalTemplate,
 ];
