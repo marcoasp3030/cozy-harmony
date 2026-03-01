@@ -42,14 +42,28 @@ import {
   CheckCircle2,
   Clock,
   XCircle,
+  ShieldAlert,
+  PackageX,
+  CalendarX,
+  Trash2,
+  CreditCard,
+  Zap,
+  DoorClosed,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 const OCCURRENCE_TYPES = [
-  { value: "reclamacao", label: "Reclamação", icon: MessageSquareWarning, color: "bg-destructive/15 text-destructive" },
-  { value: "sugestao", label: "Sugestão", icon: Lightbulb, color: "bg-amber-500/15 text-amber-600" },
   { value: "elogio", label: "Elogio", icon: ThumbsUp, color: "bg-emerald-500/15 text-emerald-600" },
+  { value: "reclamacao", label: "Reclamação", icon: MessageSquareWarning, color: "bg-destructive/15 text-destructive" },
+  { value: "furto", label: "Furto", icon: ShieldAlert, color: "bg-red-600/15 text-red-700" },
+  { value: "falta_produto", label: "Falta de Produto", icon: PackageX, color: "bg-orange-500/15 text-orange-600" },
+  { value: "produto_vencido", label: "Produto Vencido", icon: CalendarX, color: "bg-rose-500/15 text-rose-600" },
+  { value: "loja_suja", label: "Loja Suja", icon: Trash2, color: "bg-amber-600/15 text-amber-700" },
+  { value: "problema_pagamento", label: "Problema Pagamento", icon: CreditCard, color: "bg-violet-500/15 text-violet-600" },
+  { value: "loja_sem_energia", label: "Sem Energia", icon: Zap, color: "bg-yellow-500/15 text-yellow-700" },
+  { value: "acesso_bloqueado", label: "Acesso Bloqueado", icon: DoorClosed, color: "bg-slate-500/15 text-slate-600" },
+  { value: "sugestao", label: "Sugestão", icon: Lightbulb, color: "bg-amber-500/15 text-amber-600" },
   { value: "duvida", label: "Dúvida", icon: HelpCircle, color: "bg-blue-500/15 text-blue-600" },
   { value: "outro", label: "Outro", icon: AlertTriangle, color: "bg-muted text-muted-foreground" },
 ];
@@ -159,7 +173,7 @@ const OccurrencesPage = () => {
     resolvido: occurrences.filter((o: any) => o.status === "resolvido").length,
   };
 
-  const getTypeMeta = (type: string) => OCCURRENCE_TYPES.find((t) => t.value === type) || OCCURRENCE_TYPES[4];
+  const getTypeMeta = (type: string) => OCCURRENCE_TYPES.find((t) => t.value === type) || OCCURRENCE_TYPES[OCCURRENCE_TYPES.length - 1];
   const getStatusMeta = (status: string) => STATUS_OPTIONS.find((s) => s.value === status) || STATUS_OPTIONS[0];
   const getPriorityColor = (p: string) => {
     if (p === "urgente") return "bg-destructive text-destructive-foreground";
