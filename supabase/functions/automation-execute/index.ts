@@ -398,8 +398,6 @@ async function executeNode(
       const daySchedule = bhConfig.days?.[dayKey];
 
       if (!daySchedule || !daySchedule.enabled) {
-        // Day is disabled = outside business hours
-        // Send out-of-hours message if configured
         const outMsg = d.out_of_hours_message || bhConfig.outOfHoursMessage;
         if (outMsg) {
           const interpolated = outMsg
@@ -410,9 +408,14 @@ async function executeNode(
         return false;
       }
 
-      const isWithin = currentTime >= daySchedule.start && currentTime <= daySchedule.end;
+      // Support multi-shift format (shifts array) and legacy single-shift (start/end)
+      const shifts: Array<{ start: string; end: string }> = Array.isArray(daySchedule.shifts)
+        ? daySchedule.shifts
+        : [{ start: daySchedule.start || "00:00", end: daySchedule.end || "23:59" }];
+
+      const isWithin = shifts.some((s: any) => currentTime >= s.start && currentTime <= s.end);
+
       if (!isWithin) {
-        // Outside hours - send message
         const outMsg = d.out_of_hours_message || bhConfig.outOfHoursMessage;
         if (outMsg) {
           const interpolated = outMsg
