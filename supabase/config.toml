@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.elevenlabs-sfx]
 verify_jwt = false
+
+[functions.automation-execute]
+verify_jwt = false

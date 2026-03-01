@@ -1,0 +1,638 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
+
+interface FlowNode {
+  id: string;
+  type: string;
+  data: Record<string, any>;
+  position: { x: number; y: number };
+}
+
+interface FlowEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string | null;
+}
+
+interface FlowData {
+  nodes: FlowNode[];
+  edges: FlowEdge[];
+}
+
+interface ExecutionContext {
+  contactId: string;
+  contactPhone: string;
+  contactName: string;
+  messageContent: string;
+  messageType: string;
+  conversationId: string;
+  variables: Record<string, string>;
+  isFirstContact: boolean;
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  try {
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    const {
+      contactId,
+      contactPhone,
+      contactName,
+      messageContent,
+      messageType,
+      conversationId,
+      isFirstContact,
+    } = await req.json();
+
+    console.log(`Automation trigger: phone=${contactPhone}, msg="${(messageContent || "").slice(0, 50)}", firstContact=${isFirstContact}`);
+
+    // Load all active automations
+    const { data: automations, error: autoErr } = await supabase
+      .from("automations")
+      .select("*")
+      .eq("is_active", true);
+
+    if (autoErr || !automations || automations.length === 0) {
+      console.log("No active automations found");
+      return json({ success: true, executed: 0 });
+    }
+
+    let totalExecuted = 0;
+
+    for (const automation of automations) {
+      const flow = automation.flow as FlowData;
+      if (!flow?.nodes?.length || !flow?.edges?.length) continue;
+
+      // Find trigger nodes
+      const triggerNodes = flow.nodes.filter((n) => n.data?.nodeType?.startsWith("trigger_"));
+      if (triggerNodes.length === 0) continue;
+
+      // Check if any trigger matches
+      let triggered = false;
+      for (const trigger of triggerNodes) {
+        const nodeType = trigger.data.nodeType as string;
+
+        if (nodeType === "trigger_message") {
+          triggered = true;
+          break;
+        }
+
+        if (nodeType === "trigger_first_contact" && isFirstContact) {
+          triggered = true;
+          break;
+        }
+
+        if (nodeType === "trigger_keyword") {
+          const keywords = String(trigger.data.keywords || "")
+            .split(",")
+            .map((k: string) => k.trim().toLowerCase())
+            .filter(Boolean);
+          const matchType = trigger.data.match_type || "contains";
+          const content = (messageContent || "").toLowerCase();
+
+          if (keywords.length > 0) {
+            const match = keywords.some((kw: string) => {
+              if (matchType === "exact") return content === kw;
+              if (matchType === "starts_with") return content.startsWith(kw);
+              return content.includes(kw);
+            });
+            if (match) {
+              triggered = true;
+              break;
+            }
+          }
+        }
+
+        // trigger_schedule is handled by cron, not by message events
+      }
+
+      if (!triggered) continue;
+
+      console.log(`Automation "${automation.name}" (${automation.id}) triggered`);
+
+      const ctx: ExecutionContext = {
+        contactId,
+        contactPhone,
+        contactName: contactName || "",
+        messageContent: messageContent || "",
+        messageType: messageType || "text",
+        conversationId,
+        variables: {},
+        isFirstContact: !!isFirstContact,
+      };
+
+      // Execute flow starting from trigger nodes
+      const visited = new Set<string>();
+      for (const trigger of triggerNodes) {
+        await executeFromNode(supabase, flow, trigger.id, ctx, visited);
+      }
+
+      // Update stats
+      const stats = (automation.stats as any) || { executions: 0, success: 0, failed: 0 };
+      stats.executions = (stats.executions || 0) + 1;
+      stats.success = (stats.success || 0) + 1;
+      await supabase.from("automations").update({ stats }).eq("id", automation.id);
+
+      totalExecuted++;
+    }
+
+    console.log(`Automations executed: ${totalExecuted}`);
+    return json({ success: true, executed: totalExecuted });
+  } catch (e) {
+    console.error("automation-execute error:", e);
+    return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500);
+  }
+});
+
+const json = (data: unknown, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+
+// ── Recursive flow executor ──────────────────────────────────
+async function executeFromNode(
+  supabase: any,
+  flow: FlowData,
+  nodeId: string,
+  ctx: ExecutionContext,
+  visited: Set<string>
+) {
+  if (visited.has(nodeId)) return; // prevent loops
+  visited.add(nodeId);
+
+  const node = flow.nodes.find((n) => n.id === nodeId);
+  if (!node) return;
+
+  const nodeType = node.data.nodeType as string;
+
+  // Skip trigger nodes (already evaluated)
+  if (!nodeType.startsWith("trigger_")) {
+    const result = await executeNode(supabase, node, ctx);
+
+    // For condition nodes, follow yes/no paths
+    if (nodeType.startsWith("condition_")) {
+      const handle = result ? "yes" : "no";
+      // Also follow default (bottom) handle
+      const nextEdges = flow.edges.filter(
+        (e) => e.source === nodeId && (e.sourceHandle === handle || (!e.sourceHandle && handle === "yes"))
+      );
+      for (const edge of nextEdges) {
+        await executeFromNode(supabase, flow, edge.target, ctx, visited);
+      }
+      return;
+    }
+  }
+
+  // Follow all outgoing edges from bottom handle
+  const nextEdges = flow.edges.filter(
+    (e) => e.source === nodeId && (!e.sourceHandle || e.sourceHandle === null)
+  );
+  for (const edge of nextEdges) {
+    await executeFromNode(supabase, flow, edge.target, ctx, visited);
+  }
+}
+
+// ── Execute a single node ────────────────────────────────────
+async function executeNode(
+  supabase: any,
+  node: FlowNode,
+  ctx: ExecutionContext
+): Promise<boolean> {
+  const type = node.data.nodeType as string;
+  const d = node.data;
+
+  try {
+    // ── CONDITIONS ──
+    if (type === "condition_contains") {
+      const texts = String(d.text || "").split(",").map((t: string) => t.trim().toLowerCase()).filter(Boolean);
+      const content = d.case_sensitive ? ctx.messageContent : ctx.messageContent.toLowerCase();
+      const searchTexts = d.case_sensitive ? texts.map((t: string) => t) : texts;
+      return searchTexts.some((t: string) => content.includes(t));
+    }
+
+    if (type === "condition_tag") {
+      const tagName = String(d.tag_name || "").trim().toLowerCase();
+      if (!tagName) return false;
+      const { data: tags } = await supabase
+        .from("tags")
+        .select("id")
+        .ilike("name", tagName);
+      if (!tags || tags.length === 0) return false;
+      const tagIds = tags.map((t: any) => t.id);
+      const { data: contactTags } = await supabase
+        .from("contact_tags")
+        .select("tag_id")
+        .eq("contact_id", ctx.contactId)
+        .in("tag_id", tagIds);
+      return (contactTags?.length || 0) > 0;
+    }
+
+    if (type === "condition_time") {
+      const now = new Date();
+      const tz = "America/Sao_Paulo";
+      const formatter = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false });
+      const dayFormatter = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short" });
+      const currentTime = formatter.format(now);
+      const dayMap: Record<string, number> = { Sun: 7, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+      const currentDay = dayMap[dayFormatter.format(now)] || 0;
+
+      const startTime = d.start_time || "00:00";
+      const endTime = d.end_time || "23:59";
+      const days = String(d.days || "1,2,3,4,5,6,7").split(",").map((x: string) => parseInt(x.trim())).filter(Boolean);
+
+      if (!days.includes(currentDay)) return false;
+      return currentTime >= startTime && currentTime <= endTime;
+    }
+
+    if (type === "condition_contact_field") {
+      const { data: contact } = await supabase
+        .from("contacts")
+        .select("name, email, phone, about")
+        .eq("id", ctx.contactId)
+        .single();
+      if (!contact) return false;
+      const fieldVal = String(contact[d.field as string] || "");
+      const op = d.operator || "exists";
+      const compareVal = String(d.value || "").toLowerCase();
+      if (op === "exists") return !!fieldVal;
+      if (op === "not_exists") return !fieldVal;
+      if (op === "contains") return fieldVal.toLowerCase().includes(compareVal);
+      if (op === "equals") return fieldVal.toLowerCase() === compareVal;
+      return false;
+    }
+
+    // ── ACTIONS ──
+    if (type === "action_send_message") {
+      const message = interpolate(String(d.message || ""), ctx);
+      if (!message) return true;
+      await sendWhatsAppMessage(supabase, ctx, message);
+      return true;
+    }
+
+    if (type === "action_send_template") {
+      const templateName = String(d.template_name || "").trim();
+      const { data: template } = await supabase
+        .from("templates")
+        .select("content")
+        .ilike("name", templateName)
+        .single();
+      if (template) {
+        const message = interpolate(template.content, ctx);
+        await sendWhatsAppMessage(supabase, ctx, message);
+      }
+      return true;
+    }
+
+    if (type === "action_add_tag") {
+      const tagName = String(d.tag_name || "").trim();
+      if (!tagName) return true;
+      // Find or create tag
+      let { data: tag } = await supabase.from("tags").select("id").ilike("name", tagName).single();
+      if (!tag) {
+        const { data: newTag } = await supabase.from("tags").insert({ name: tagName }).select("id").single();
+        tag = newTag;
+      }
+      if (tag) {
+        await supabase.from("contact_tags").upsert({ contact_id: ctx.contactId, tag_id: tag.id }, { onConflict: "contact_id,tag_id" });
+      }
+      return true;
+    }
+
+    if (type === "action_remove_tag") {
+      const tagName = String(d.tag_name || "").trim();
+      const { data: tag } = await supabase.from("tags").select("id").ilike("name", tagName).single();
+      if (tag) {
+        await supabase.from("contact_tags").delete().eq("contact_id", ctx.contactId).eq("tag_id", tag.id);
+      }
+      return true;
+    }
+
+    if (type === "action_assign_agent") {
+      const agentEmail = String(d.agent_email || "").trim();
+      if (!agentEmail) return true;
+      const { data: profile } = await supabase.from("profiles").select("user_id").eq("email", agentEmail).single();
+      if (profile) {
+        await supabase.from("conversations").update({ assigned_to: profile.user_id }).eq("id", ctx.conversationId);
+      }
+      return true;
+    }
+
+    if (type === "action_move_funnel") {
+      const funnelName = String(d.funnel_name || "").trim();
+      const stageName = String(d.stage_name || "").trim();
+      if (!funnelName) return true;
+      const { data: funnel } = await supabase.from("funnels").select("id").ilike("name", funnelName).single();
+      if (!funnel) return true;
+      const updateData: Record<string, any> = { funnel_id: funnel.id };
+      if (stageName) {
+        const { data: stage } = await supabase
+          .from("funnel_stages")
+          .select("id")
+          .eq("funnel_id", funnel.id)
+          .ilike("name", stageName)
+          .single();
+        if (stage) updateData.funnel_stage_id = stage.id;
+      }
+      await supabase.from("conversations").update(updateData).eq("id", ctx.conversationId);
+      return true;
+    }
+
+    if (type === "action_delay") {
+      const duration = parseInt(d.duration) || 0;
+      const unit = d.unit || "seconds";
+      let ms = duration * 1000;
+      if (unit === "minutes") ms = duration * 60 * 1000;
+      if (unit === "hours") ms = duration * 3600 * 1000;
+      if (unit === "days") ms = duration * 86400 * 1000;
+      // Cap at 25 seconds (edge function timeout limit)
+      ms = Math.min(ms, 25000);
+      if (ms > 0) await new Promise((r) => setTimeout(r, ms));
+      return true;
+    }
+
+    if (type === "action_set_variable") {
+      ctx.variables[d.variable_name || ""] = interpolate(String(d.variable_value || ""), ctx);
+      return true;
+    }
+
+    if (type === "action_update_score") {
+      const points = parseInt(d.points) || 0;
+      const op = d.operation || "add";
+      const { data: conv } = await supabase
+        .from("conversations")
+        .select("score")
+        .eq("id", ctx.conversationId)
+        .single();
+      let newScore = conv?.score || 0;
+      if (op === "add") newScore += points;
+      else if (op === "subtract") newScore -= points;
+      else if (op === "set") newScore = points;
+      await supabase.from("conversations").update({ score: newScore }).eq("id", ctx.conversationId);
+      return true;
+    }
+
+    if (type === "action_http_webhook") {
+      const url = interpolate(String(d.url || ""), ctx);
+      const method = d.method || "POST";
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      try {
+        const extraHeaders = JSON.parse(d.headers || "{}");
+        Object.assign(headers, extraHeaders);
+      } catch { /* ignore parse errors */ }
+      const bodyTemplate = interpolate(d.body_template || JSON.stringify({
+        phone: ctx.contactPhone,
+        name: ctx.contactName,
+        message: ctx.messageContent,
+      }), ctx);
+      await fetch(url, { method, headers, body: bodyTemplate });
+      return true;
+    }
+
+    if (type === "action_llm_reply") {
+      // Get recent messages for context
+      const { data: recentMsgs } = await supabase
+        .from("messages")
+        .select("direction, content, type")
+        .eq("contact_id", ctx.contactId)
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      const messages = (recentMsgs || []).reverse().map((m: any) => ({
+        direction: m.direction,
+        content: m.content || "[mídia]",
+      }));
+
+      const systemPrompt = interpolate(String(d.system_prompt || "Você é um assistente de atendimento."), ctx);
+      const provider = d.provider || "openai";
+      const model = d.model || (provider === "openai" ? "gpt-4o-mini" : "gemini-2.5-flash");
+
+      // Call llm-reply edge function internally
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+      // First get user settings to find API keys
+      const { data: ownerAutomation } = await supabase
+        .from("automations")
+        .select("created_by")
+        .limit(1)
+        .single();
+
+      if (ownerAutomation?.created_by) {
+        const { data: settings } = await supabase
+          .from("settings")
+          .select("key, value")
+          .eq("user_id", ownerAutomation.created_by)
+          .in("key", ["llm_openai", "llm_gemini"]);
+
+        const keys: Record<string, string> = {};
+        for (const s of (settings || [])) {
+          const val = s.value as { apiKey?: string };
+          if (s.key === "llm_openai" && val?.apiKey) keys.openai = val.apiKey;
+          if (s.key === "llm_gemini" && val?.apiKey) keys.gemini = val.apiKey;
+        }
+
+        const selectedProvider = provider || (keys.openai ? "openai" : keys.gemini ? "gemini" : null);
+        if (selectedProvider && keys[selectedProvider]) {
+          const chatMessages = [
+            { role: "system", content: systemPrompt },
+            ...messages.map((m: any) => ({
+              role: m.direction === "inbound" ? "user" : "assistant",
+              content: m.content,
+            })),
+          ];
+
+          let reply = "";
+          if (selectedProvider === "openai") {
+            const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ model, messages: chatMessages, max_tokens: parseInt(d.max_tokens) || 500, temperature: 0.7 }),
+            });
+            if (resp.ok) {
+              const data = await resp.json();
+              reply = data.choices?.[0]?.message?.content?.trim() || "";
+            }
+          } else {
+            const geminiContents = chatMessages.filter((m: any) => m.role !== "system").map((m: any) => ({
+              role: m.role === "assistant" ? "model" : "user",
+              parts: [{ text: m.content }],
+            }));
+            const resp = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${keys.gemini}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  system_instruction: { parts: [{ text: systemPrompt }] },
+                  contents: geminiContents,
+                  generationConfig: { maxOutputTokens: parseInt(d.max_tokens) || 500, temperature: 0.7 },
+                }),
+              }
+            );
+            if (resp.ok) {
+              const data = await resp.json();
+              reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+            }
+          }
+
+          if (reply) {
+            await sendWhatsAppMessage(supabase, ctx, reply);
+          }
+        }
+      }
+      return true;
+    }
+
+    if (type === "action_elevenlabs_tts") {
+      const text = interpolate(String(d.text || ""), ctx);
+      const voiceId = d.voice_id || "21m00Tcm4TlvDq8ikWAM";
+      // Call elevenlabs-tts function
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const resp = await fetch(`${supabaseUrl}/functions/v1/elevenlabs-tts`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ text, voice_id: voiceId }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.audio_base64) {
+          // Send as audio message via WhatsApp
+          await sendWhatsAppAudio(supabase, ctx, data.audio_base64);
+        }
+      }
+      return true;
+    }
+
+    if (type === "action_ab_split") {
+      const splitPct = parseInt(d.split_percentage) || 50;
+      return Math.random() * 100 < splitPct; // true = path A, false = path B
+    }
+
+    console.log(`Unknown node type: ${type}`);
+    return true;
+  } catch (err) {
+    console.error(`Error executing node ${type} (${node.id}):`, err);
+    return false;
+  }
+}
+
+// ── Helpers ──────────────────────────────────────────────────
+
+function interpolate(text: string, ctx: ExecutionContext): string {
+  return text
+    .replace(/\{\{nome\}\}/gi, ctx.contactName)
+    .replace(/\{\{name\}\}/gi, ctx.contactName)
+    .replace(/\{\{phone\}\}/gi, ctx.contactPhone)
+    .replace(/\{\{telefone\}\}/gi, ctx.contactPhone)
+    .replace(/\{\{mensagem\}\}/gi, ctx.messageContent)
+    .replace(/\{\{message\}\}/gi, ctx.messageContent)
+    .replace(/\{\{([^}]+)\}\}/g, (_, key) => ctx.variables[key.trim()] || `{{${key}}}`);
+}
+
+async function sendWhatsAppMessage(supabase: any, ctx: ExecutionContext, message: string) {
+  try {
+    // Get default instance
+    const { data: instance } = await supabase
+      .from("whatsapp_instances")
+      .select("id, base_url, instance_token")
+      .eq("is_default", true)
+      .limit(1)
+      .single();
+
+    if (!instance) {
+      // Fallback: get any instance
+      const { data: anyInstance } = await supabase
+        .from("whatsapp_instances")
+        .select("id, base_url, instance_token")
+        .limit(1)
+        .single();
+      if (!anyInstance) {
+        console.error("No WhatsApp instance found");
+        return;
+      }
+      Object.assign(instance || {}, anyInstance);
+    }
+
+    const inst = instance!;
+    const resp = await fetch(`${inst.base_url}/message/send-text`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        token: inst.instance_token || "",
+      },
+      body: JSON.stringify({
+        phone: ctx.contactPhone,
+        message,
+      }),
+    });
+
+    const result = await resp.json();
+    const externalId = result?.key?.id || result?.id || null;
+
+    // Save outbound message
+    await supabase.from("messages").insert({
+      contact_id: ctx.contactId,
+      direction: "outbound",
+      type: "text",
+      content: message,
+      status: "sent",
+      external_id: externalId,
+    });
+
+    console.log(`Sent message to ${ctx.contactPhone}: "${message.slice(0, 50)}"`);
+  } catch (err) {
+    console.error("Failed to send WhatsApp message:", err);
+  }
+}
+
+async function sendWhatsAppAudio(supabase: any, ctx: ExecutionContext, audioBase64: string) {
+  try {
+    const { data: instance } = await supabase
+      .from("whatsapp_instances")
+      .select("id, base_url, instance_token")
+      .eq("is_default", true)
+      .limit(1)
+      .single();
+
+    if (!instance) return;
+
+    await fetch(`${instance.base_url}/message/send-audio`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        token: instance.instance_token || "",
+      },
+      body: JSON.stringify({
+        phone: ctx.contactPhone,
+        audio: audioBase64,
+        ptt: true,
+      }),
+    });
+
+    await supabase.from("messages").insert({
+      contact_id: ctx.contactId,
+      direction: "outbound",
+      type: "audio",
+      content: "[Áudio automático]",
+      status: "sent",
+    });
+
+    console.log(`Sent audio to ${ctx.contactPhone}`);
+  } catch (err) {
+    console.error("Failed to send audio:", err);
+  }
+}
