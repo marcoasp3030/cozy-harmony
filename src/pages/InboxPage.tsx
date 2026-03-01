@@ -105,6 +105,8 @@ const InboxPage = () => {
   const [interactiveOpen, setInteractiveOpen] = useState(false);
   const [interactiveMsg, setInteractiveMsg] = useState<InteractiveMessage>(getDefaultInteractive());
   const [aiSuggestion, setAiSuggestion] = useState<{ stage_id: string; stage_name: string; stage_color: string; reason: string; intent: string } | null>(null);
+  const [replySuggestions, setReplySuggestions] = useState<{ label: string; text: string }[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const smartFunnelConfigRef = useRef<{ enabled: boolean; provider: string; model: string; min_confidence: number } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pendingTempIdsRef = useRef<Set<string>>(new Set());
@@ -223,6 +225,7 @@ const InboxPage = () => {
 
   useEffect(() => {
     if (!selectedConv?.contact_id) return;
+    setReplySuggestions([]);
     loadMessages(selectedConv.contact_id);
     loadContactTags(selectedConv.contact_id);
     if (selectedConv.unread_count && selectedConv.unread_count > 0) {
@@ -677,6 +680,32 @@ const InboxPage = () => {
     }
   };
 
+  // AI reply suggestions
+  const fetchReplySuggestions = useCallback(async () => {
+    if (!selectedConvId || !contact?.id || messages.length === 0) return;
+    // Only suggest if last message is inbound
+    const lastMsg = messages[messages.length - 1];
+    if (!lastMsg || lastMsg.direction !== "inbound") return;
+    
+    setSuggestionsLoading(true);
+    setReplySuggestions([]);
+    try {
+      const { data, error } = await supabase.functions.invoke("ai-suggestions", {
+        body: { conversation_id: selectedConvId, contact_id: contact.id },
+      });
+      if (error) throw error;
+      if (data?.error) {
+        toast.error(data.error);
+        return;
+      }
+      setReplySuggestions(data?.suggestions || []);
+    } catch (err: any) {
+      console.error("AI suggestions error:", err);
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  }, [selectedConvId, contact?.id, messages]);
+
   // Quick replies from slash commands
   const quickReplies = [
     { cmd: "/obrigado", text: "Obrigado pelo contato! Estamos à disposição. 😊" },
@@ -978,6 +1007,39 @@ const InboxPage = () => {
                 </div>
               )}
 
+              {/* AI Reply Suggestions */}
+              {(replySuggestions.length > 0 || suggestionsLoading) && (
+                <div className="mx-3 mb-2 flex flex-wrap items-center gap-2 animate-in slide-in-from-bottom-2">
+                  <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+                  {suggestionsLoading ? (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Gerando sugestões...
+                    </div>
+                  ) : (
+                    <>
+                      {replySuggestions.map((s, i) => (
+                        <button
+                          key={i}
+                          onClick={() => {
+                            setNewMessage(s.text);
+                            setReplySuggestions([]);
+                            textareaRef.current?.focus();
+                          }}
+                          className="rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs text-foreground hover:bg-primary/10 hover:border-primary/40 transition-colors max-w-[250px] truncate"
+                          title={s.text}
+                        >
+                          <span className="font-medium text-primary mr-1">{s.label}:</span>
+                          {s.text}
+                        </button>
+                      ))}
+                      <button onClick={() => setReplySuggestions([])} className="text-muted-foreground hover:text-foreground">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
               {/* Message Input */}
               <div className="border-t border-border p-3">
                 {isNoteMode && (
@@ -1058,6 +1120,16 @@ const InboxPage = () => {
                       disabled={sending || isNoteMode}
                     >
                       <MousePointerClick className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0 h-9 w-9 text-primary hover:text-primary"
+                      title="Sugestões de resposta com IA"
+                      onClick={fetchReplySuggestions}
+                      disabled={suggestionsLoading || messages.length === 0}
+                    >
+                      {suggestionsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Brain className="h-4 w-4" />}
                     </Button>
                     {aiProvider && (
                       <>
