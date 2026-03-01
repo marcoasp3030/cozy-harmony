@@ -133,27 +133,49 @@ serve(async (req) => {
 
       if (!triggered) continue;
 
-      // ── Debounce: skip if same automation+contact is already running or ran recently ──
-      // Check for a collect_messages node to determine the debounce window
+      // ── Debounce: use insert-first pattern to prevent race conditions ──
       const collectNode = flow.nodes.find((n: FlowNode) => n.data?.nodeType === "action_collect_messages");
-      const debounceSeconds = collectNode ? (parseInt(collectNode.data.wait_seconds) || 15) + 5 : 8;
-      const debounceCutoff = new Date(Date.now() - debounceSeconds * 1000).toISOString();
+      const debounceSeconds = collectNode ? (parseInt(collectNode.data.wait_seconds) || 15) + 10 : 12;
 
+      // Create log entry FIRST to claim the slot (atomic insert)
+      const { data: logEntry, error: logInsertErr } = await supabase
+        .from("automation_logs")
+        .insert({
+          automation_id: automation.id,
+          contact_id: contactId || null,
+          contact_phone: contactPhone,
+          trigger_type: automation.trigger_type,
+          status: "running",
+        })
+        .select("id, started_at")
+        .single();
+
+      if (logInsertErr) {
+        console.error(`Failed to create log entry: ${logInsertErr.message}`, logInsertErr);
+        continue;
+      }
+
+      // Now check if there's an OLDER run within the debounce window (not our own)
+      const debounceCutoff = new Date(Date.now() - debounceSeconds * 1000).toISOString();
       const { data: recentRuns } = await supabase
         .from("automation_logs")
         .select("id, status, started_at")
         .eq("automation_id", automation.id)
         .eq("contact_phone", contactPhone)
         .gte("started_at", debounceCutoff)
+        .neq("id", logEntry.id)
         .in("status", ["running", "completed"])
+        .order("started_at", { ascending: true })
         .limit(1);
 
       if (recentRuns && recentRuns.length > 0) {
-        console.log(`Debounce: skipping automation "${automation.name}" for ${contactPhone} (recent run ${recentRuns[0].id} at ${recentRuns[0].started_at})`);
+        // Delete our duplicate log entry
+        await supabase.from("automation_logs").delete().eq("id", logEntry.id);
+        console.log(`Debounce: skipping automation "${automation.name}" for ${contactPhone} (older run ${recentRuns[0].id})`);
         continue;
       }
 
-      console.log(`Automation "${automation.name}" (${automation.id}) triggered`);
+      console.log(`Automation "${automation.name}" (${automation.id}) triggered, log=${logEntry.id}`);
 
       const startTime = Date.now();
       const ctx: ExecutionContext = {
@@ -168,25 +190,6 @@ serve(async (req) => {
         isFirstContact: !!isFirstContact,
         nodeLog: [],
       };
-
-      // Create log entry
-      const { data: logEntry, error: logInsertErr } = await supabase
-        .from("automation_logs")
-        .insert({
-          automation_id: automation.id,
-          contact_id: contactId || null,
-          contact_phone: contactPhone,
-          trigger_type: automation.trigger_type,
-          status: "running",
-        })
-        .select("id")
-        .single();
-
-      if (logInsertErr) {
-        console.error(`Failed to create log entry: ${logInsertErr.message}`, logInsertErr);
-      } else {
-        console.log(`Log entry created: ${logEntry?.id}`);
-      }
 
       let execError: string | null = null;
 
@@ -1259,8 +1262,9 @@ Mensagem do cliente: "${ctx.messageContent}"`;
         const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
         if (LOVABLE_API_KEY) {
           console.log("Using Lovable AI Gateway as fallback");
-          // Map model to Lovable AI supported model
-          const lovableModel = model.startsWith("gemini") ? "google/gemini-2.5-flash" : "google/gemini-3-flash-preview";
+          // Use vision-capable model when images are present, otherwise fastest model
+          const hasImage = !!imageBase64;
+          const lovableModel = hasImage ? "google/gemini-2.5-flash" : "google/gemini-3-flash-preview";
           const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
             method: "POST",
             headers: {
