@@ -266,7 +266,7 @@ async function executeFromNode(
       action_http_webhook: "HTTP Webhook", action_llm_reply: "Resposta IA",
       action_elevenlabs_tts: "Áudio ElevenLabs", action_ab_split: "Split A/B",
       action_collect_messages: "Aguardar & Agrupar", action_transcribe_audio: "Transcrever Áudio",
-      action_extract_pdf: "Extrair Texto PDF",
+      action_extract_pdf: "Extrair Texto PDF", action_send_interactive: "Mensagem Interativa",
     };
 
     // Build result object for logging
@@ -525,6 +525,86 @@ Mensagem do cliente: "${ctx.messageContent}"`;
       if (!message) return { sent: false, reason: "empty_message" };
       const sendResult = await sendWhatsAppMessage(supabase, ctx, message);
       return { sent: true, ...sendResult };
+    }
+
+    if (type === "action_send_interactive") {
+      const interactiveType = d.interactive_type || "buttons";
+      const bodyText = interpolate(String(d.body_text || ""), ctx);
+      const footer = interpolate(String(d.footer || ""), ctx);
+      const buttonTitle = interpolate(String(d.button_title || "Ver opções"), ctx);
+      const optionsRaw = String(d.options || "").trim();
+
+      if (!bodyText || !optionsRaw) return { sent: false, reason: "empty_body_or_options" };
+
+      const lines = optionsRaw.split("\n").map((l: string) => l.trim()).filter(Boolean);
+
+      // Get WhatsApp instance
+      let query = supabase
+        .from("whatsapp_instances")
+        .select("id, base_url, instance_token")
+        .order("is_default", { ascending: false })
+        .limit(1);
+      if (ctx.userId) query = query.eq("user_id", ctx.userId);
+      const { data: instance } = await query.maybeSingle();
+      if (!instance?.base_url || !instance?.instance_token) {
+        throw new Error("Instância WhatsApp não configurada");
+      }
+
+      const cleanNumber = String(ctx.contactPhone || "").replace(/\D/g, "");
+      const baseUrl = String(instance.base_url).replace(/\/+$/, "");
+
+      // Build UazAPI /send/menu payload
+      const optionStrings = lines.map((line: string) => {
+        const parts = line.split("|").map((p: string) => p.trim());
+        // Format: título|id or título|id|descrição
+        return parts.join("|");
+      });
+
+      const payload: Record<string, any> = {
+        number: cleanNumber,
+        message: bodyText,
+        options: optionStrings,
+      };
+
+      if (interactiveType === "buttons") {
+        payload.type = "button";
+      } else {
+        payload.type = "list";
+        payload.title = buttonTitle;
+      }
+
+      if (footer) payload.footer = footer;
+
+      const resp = await fetch(`${baseUrl}/send/menu`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          token: instance.instance_token,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const rawResponse = await resp.text();
+      let result: any = {};
+      try { result = rawResponse ? JSON.parse(rawResponse) : {}; } catch { result = { raw: rawResponse }; }
+
+      if (!resp.ok || result?.error) {
+        throw new Error(result?.error || `Falha no envio interativo (HTTP ${resp.status})`);
+      }
+
+      // Save to messages table
+      const contentPreview = `[${interactiveType === "buttons" ? "Botões" : "Lista"}] ${bodyText.slice(0, 100)}`;
+      await supabase.from("messages").insert({
+        contact_id: ctx.contactId,
+        direction: "outbound",
+        type: "interactive",
+        content: contentPreview,
+        status: "sent",
+        metadata: { interactive_type: interactiveType, options: optionStrings, footer },
+      });
+
+      console.log(`Sent interactive (${interactiveType}) to ${cleanNumber}: ${optionStrings.length} options`);
+      return { sent: true, type: interactiveType, options: optionStrings.length };
     }
 
     if (type === "action_send_template") {
