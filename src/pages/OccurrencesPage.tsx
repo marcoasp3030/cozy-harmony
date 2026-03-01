@@ -160,6 +160,10 @@ const OccurrencesPage = () => {
         updates.resolved_at = new Date().toISOString();
         if (resolution) updates.resolution = resolution;
       }
+      if (status === "aberto") {
+        updates.resolved_at = null;
+        updates.resolution = null;
+      }
       const { error } = await supabase.from("occurrences").update(updates).eq("id", id);
       if (error) throw error;
     },
@@ -511,6 +515,13 @@ const OccurrencesPage = () => {
                 </div>
 
                 {/* Status actions */}
+                {!isEditing && (selectedOccurrence.status === "resolvido" || selectedOccurrence.status === "cancelado") && (
+                  <div className="border-t pt-3">
+                    <Button variant="outline" className="w-full" onClick={() => updateStatusMutation.mutate({ id: selectedOccurrence.id, status: "aberto" })}>
+                      <Clock className="mr-2 h-4 w-4" /> Reabrir Ocorrência
+                    </Button>
+                  </div>
+                )}
                 {selectedOccurrence.status !== "resolvido" && selectedOccurrence.status !== "cancelado" && !isEditing && (
                   <div className="space-y-3 border-t pt-3">
                     <div className="space-y-2">
