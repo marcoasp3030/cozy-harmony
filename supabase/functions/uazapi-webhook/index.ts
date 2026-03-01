@@ -231,12 +231,37 @@ serve(async (req) => {
                   if (contentType.includes('application/json')) {
                     const dlData = await dlResp.json();
                     console.log(`[MEDIA] UazAPI download JSON response: ${JSON.stringify(dlData).slice(0, 300)}`);
-                    const downloadedUrl = dlData.url || dlData.mediaUrl || dlData.file || dlData.data?.url || dlData.base64Url || '';
+                    const downloadedUrl = dlData.url || dlData.fileURL || dlData.fileUrl || dlData.mediaUrl || dlData.file || dlData.data?.url || dlData.base64Url || '';
                     const base64Data = dlData.base64 || dlData.data || '';
                     
                     if (downloadedUrl && typeof downloadedUrl === 'string' && downloadedUrl.startsWith('http')) {
-                      mediaUrl = downloadedUrl;
-                      console.log(`[MEDIA] Got download URL from UazAPI: ${mediaUrl.slice(0, 80)}`);
+                      // Download from UazAPI file server and upload to our storage for reliable access
+                      console.log(`[MEDIA] Got download URL from UazAPI: ${downloadedUrl.slice(0, 80)}`);
+                      try {
+                        const fileResp = await fetch(downloadedUrl);
+                        if (fileResp.ok) {
+                          const fileBuffer = await fileResp.arrayBuffer();
+                          const fileMime = dlData.mimetype || fileResp.headers.get('content-type') || 'application/octet-stream';
+                          const ext = fileMime.includes('mpeg') ? 'mp3' : fileMime.includes('ogg') ? 'ogg' : messageType === 'audio' ? 'ogg' : messageType === 'video' ? 'mp4' : messageType === 'image' ? 'jpg' : 'bin';
+                          const fileName = `media/${phone}/${Date.now()}_${externalId.slice(-8)}.${ext}`;
+                          const { data: upload } = await supabase.storage
+                            .from('chat-media')
+                            .upload(fileName, new Uint8Array(fileBuffer), { contentType: fileMime });
+                          if (upload?.path) {
+                            const { data: urlData } = supabase.storage.from('chat-media').getPublicUrl(upload.path);
+                            mediaUrl = urlData.publicUrl;
+                            console.log(`[MEDIA] Re-uploaded UazAPI file to storage: ${mediaUrl.slice(0, 80)}`);
+                          } else {
+                            mediaUrl = downloadedUrl; // fallback to UazAPI URL
+                          }
+                        } else {
+                          console.log(`[MEDIA] Failed to download from UazAPI file URL (${fileResp.status}), using URL directly`);
+                          mediaUrl = downloadedUrl;
+                        }
+                      } catch (reUploadErr) {
+                        console.log(`[MEDIA] Re-upload failed, using UazAPI URL directly: ${reUploadErr}`);
+                        mediaUrl = downloadedUrl;
+                      }
                     } else if (base64Data && typeof base64Data === 'string' && base64Data.length > 100) {
                       const ext = messageType === 'audio' ? 'ogg' : messageType === 'video' ? 'mp4' : messageType === 'image' ? 'jpg' : 'bin';
                       const fileName = `media/${phone}/${Date.now()}_${externalId.slice(-8)}.${ext}`;
