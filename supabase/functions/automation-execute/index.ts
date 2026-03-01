@@ -313,7 +313,7 @@ async function executeFromNode(
       action_elevenlabs_tts: "Áudio ElevenLabs", action_ab_split: "Split A/B",
       action_collect_messages: "Aguardar & Agrupar", action_transcribe_audio: "Transcrever Áudio",
       action_extract_pdf: "Extrair Texto PDF", action_send_interactive: "Mensagem Interativa",
-      action_send_media: "Enviar Mídia",
+      action_send_media: "Enviar Mídia", action_register_occurrence: "Registrar Ocorrência",
     };
 
     // Build result object for logging
@@ -821,6 +821,40 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
       else if (op === "set") newScore = points;
       await supabase.from("conversations").update({ score: newScore }).eq("id", ctx.conversationId);
       return true;
+    }
+
+    if (type === "action_register_occurrence") {
+      const occType = d.occurrence_type || "reclamacao";
+      const storeName = interpolate(String(d.store_name || "Não informada"), ctx);
+      const priority = d.priority || "normal";
+
+      // Build description from grouped messages or current message
+      const grouped = ctx.variables["mensagens_agrupadas"] || "";
+      const transcription = ctx.variables["transcricao"] || "";
+      const descriptionParts: string[] = [];
+      if (grouped) descriptionParts.push(grouped);
+      else if (transcription) descriptionParts.push(`[Áudio transcrito] ${transcription}`);
+      else if (ctx.messageContent) descriptionParts.push(ctx.messageContent);
+      const description = descriptionParts.join("\n").slice(0, 2000) || "Ocorrência registrada automaticamente via automação";
+
+      const { error: occErr } = await supabase.from("occurrences").insert({
+        store_name: storeName,
+        type: occType,
+        description,
+        contact_phone: ctx.contactPhone || null,
+        contact_name: ctx.contactName || null,
+        priority,
+        status: "aberto",
+        created_by: ctx.userId || null,
+      });
+
+      if (occErr) {
+        console.error("Failed to register occurrence:", occErr.message);
+        throw new Error(`Erro ao registrar ocorrência: ${occErr.message}`);
+      }
+
+      console.log(`Occurrence registered: type=${occType}, store=${storeName}, phone=${ctx.contactPhone}`);
+      return { registered: true, type: occType, store: storeName };
     }
 
     if (type === "action_http_webhook") {

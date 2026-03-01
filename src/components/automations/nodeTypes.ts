@@ -3,7 +3,7 @@ import {
   Send, Bot, Globe, Zap, Volume2, BarChart3, GitBranch,
   Variable, Timer, Mail, Phone, Filter, Users, Building2,
   FileType, Layers, AudioLines, FileText, BrainCircuit, ListOrdered,
-  ImagePlus
+  ImagePlus, ClipboardList
 } from "lucide-react";
 
 export type NodeCategory = "trigger" | "condition" | "action";
@@ -427,6 +427,30 @@ export const NODE_TYPES: NodeTypeConfig[] = [
       { key: "media_url", label: "URL da mídia", type: "text", placeholder: "https://exemplo.com/imagem.jpg", required: true },
       { key: "caption", label: "Legenda (opcional)", type: "textarea", placeholder: "Olá {{nome}}, segue o arquivo solicitado!" },
       { key: "file_name", label: "Nome do arquivo (só documentos)", type: "text", placeholder: "relatorio.pdf" },
+    ],
+  },
+  {
+    type: "action_register_occurrence",
+    label: "Registrar Ocorrência",
+    category: "action",
+    icon: ClipboardList,
+    color: "#ef4444",
+    description: "Registra automaticamente uma ocorrência (reclamação, sugestão, elogio, etc.)",
+    fields: [
+      { key: "occurrence_type", label: "Tipo", type: "select", options: [
+        { value: "reclamacao", label: "Reclamação" },
+        { value: "sugestao", label: "Sugestão" },
+        { value: "elogio", label: "Elogio" },
+        { value: "duvida", label: "Dúvida" },
+        { value: "outro", label: "Outro" },
+      ], defaultValue: "reclamacao", required: true },
+      { key: "store_name", label: "Nome da loja (ou variável)", type: "text", placeholder: "{{loja}} ou Unidade Central", defaultValue: "Não informada" },
+      { key: "priority", label: "Prioridade", type: "select", options: [
+        { value: "baixa", label: "Baixa" },
+        { value: "normal", label: "Normal" },
+        { value: "alta", label: "Alta" },
+        { value: "urgente", label: "Urgente" },
+      ], defaultValue: "normal" },
     ],
   },
 ];
