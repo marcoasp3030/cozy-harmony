@@ -837,7 +837,7 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
       const defaultType = d.occurrence_type || "reclamacao";
       const priority = d.priority || "normal";
 
-      // Build full conversation context for AI analysis
+      // Build full conversation context for AI analysis (include both inbound AND outbound)
       const grouped = ctx.variables["mensagens_agrupadas"] || "";
       const transcription = ctx.variables["transcricao"] || "";
       const iaReply = ctx.variables["ia_reply"] || "";
@@ -845,7 +845,26 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
       if (grouped) contextParts.push(grouped);
       if (transcription) contextParts.push(`[Áudio transcrito] ${transcription}`);
       if (ctx.messageContent && !grouped) contextParts.push(ctx.messageContent);
-      const conversationContext = contextParts.join("\n").slice(0, 2500) || "";
+      if (iaReply) contextParts.push(`[Resposta da IA] ${iaReply}`);
+
+      // Also fetch recent conversation messages (inbound + outbound) for fuller context
+      const { data: recentMsgs } = await supabase
+        .from("messages")
+        .select("direction, content, type, created_at")
+        .eq("contact_id", ctx.contactId)
+        .order("created_at", { ascending: false })
+        .limit(10);
+      
+      if (recentMsgs && recentMsgs.length > 0) {
+        const msgHistory = recentMsgs
+          .reverse()
+          .filter((m: any) => m.content && m.content.trim())
+          .map((m: any) => `[${m.direction === "inbound" ? "Cliente" : "Atendente"}]: ${m.content}`)
+          .join("\n");
+        if (msgHistory) contextParts.push(`\n[Histórico da conversa]:\n${msgHistory}`);
+      }
+
+      const conversationContext = contextParts.join("\n").slice(0, 3500) || "";
 
       if (conversationContext.length < 5) {
         console.log("[OCCURRENCE] Skipping: no conversation context available");
@@ -893,18 +912,24 @@ DADOS DO CONTATO:
 - Nome no sistema: "${ctx.contactName || "Não informado"}"
 - Telefone: ${ctx.contactPhone}
 
-CONVERSA DO CLIENTE:
-"${conversationContext.slice(0, 1500)}"
-
-${iaReply ? `RESPOSTA DA IA AO CLIENTE:\n"${iaReply.slice(0, 500)}"` : ""}
+CONVERSA COMPLETA (inclui mensagens do cliente E respostas do atendente):
+"${conversationContext.slice(0, 2500)}"
 
 INSTRUÇÕES:
-1. Verifique se o cliente MENCIONOU ou se IDENTIFICOU com um nome na conversa. Se sim, use esse nome. Se não, use o nome do sistema.
-2. Verifique se o cliente MENCIONOU qual loja/unidade da Nutricar. Pode ser por nome, bairro ou referência indireta.
-3. Se for um problema de pagamento, tente identificar a DATA E HORÁRIO APROXIMADO da transação mencionados pelo cliente.
-4. Avalie se há informações SUFICIENTES para registrar a ocorrência (precisa ter pelo menos o motivo do contato claro).
-5. Crie um RESUMO DETALHADO incluindo: o que aconteceu, quando (data/horário se informados), detalhes específicos (produto, valor, situação da loja, etc).
-6. ATENÇÃO: O cliente pode interpretar situações de forma diferente da realidade (ex: dizer "fui cobrado indevidamente" quando houve uma cobrança dupla por erro do sistema). Registre fielmente o RELATO do cliente sem fazer julgamentos, mas inclua todos os detalhes que ele fornecer.
+1. Extraia o NOME do cliente: verifique se ele se identificou na conversa. Se não, use o nome do sistema.
+2. Extraia a LOJA/UNIDADE: verifique se mencionou qual loja, bairro ou referência indireta.
+3. Extraia DETALHES ESPECÍFICOS conforme a categoria:
+   - Pagamento/cobrança: data e horário da transação, forma de pagamento, valor cobrado, valor esperado
+   - Produto vencido: nome do produto, data de validade (se informada)
+   - Falta de produto: nome do produto procurado
+   - Loja suja: qual área afetada (chão, banheiro, prateleiras)
+   - Acesso bloqueado: tipo de acesso (facial, porta), se é cadastro novo ou antigo
+   - Loja sem energia: desde quando, quais equipamentos afetados
+   - Furto/divergência: quando aconteceu, o que foi relatado
+4. Avalie se há informações SUFICIENTES para registrar (precisa ter pelo menos o motivo claro).
+5. Crie um RESUMO DETALHADO incluindo TODOS os detalhes fornecidos pelo cliente: o que aconteceu, quando, onde, valores, produtos, etc.
+6. ATENÇÃO: O cliente pode interpretar situações de forma diferente da realidade. Registre fielmente o RELATO do cliente sem fazer julgamentos.
+7. Analise TODA a conversa (incluindo respostas do atendente) para extrair informações que o cliente pode ter fornecido em resposta a perguntas.
 
 Responda APENAS com JSON válido:
 {
@@ -914,8 +939,11 @@ Responda APENAS com JSON válido:
   "contact_name": "nome do cliente",
   "type": "tipo da ocorrência",
   "priority": "alta/normal/baixa",
-  "transaction_date": "data e horário aproximado da transação se informados, ou null",
-  "summary": "Resumo detalhado: descreva o problema relatado pelo cliente com todas as informações fornecidas (produto, situação da loja, valores, datas, horários, etc). Máximo 3 frases. Registre o relato fiel do cliente."
+  "transaction_date": "data e horário da transação se informados, ou null",
+  "product_name": "nome do produto envolvido se aplicável, ou null",
+  "payment_method": "forma de pagamento se informada, ou null",
+  "amount": "valor mencionado se informado, ou null",
+  "summary": "Resumo detalhado com TODAS as informações coletadas: problema, local, data/horário, produto, valores, detalhes específicos. Máximo 4 frases."
 }
 
 REGRAS PARA "ready":
@@ -928,7 +956,7 @@ REGRAS PARA "ready":
           body: JSON.stringify({
             model: "google/gemini-2.5-flash-lite",
             messages: [{ role: "user", content: extractPrompt }],
-            max_tokens: 300,
+            max_tokens: 500,
             temperature: 0.1,
           }),
         });
@@ -959,7 +987,14 @@ REGRAS PARA "ready":
         const occType = validTypes.includes(parsed.type) ? parsed.type : defaultType;
         const occPriority = ["alta", "normal", "baixa"].includes(parsed.priority) ? parsed.priority : priority;
         const contactName = parsed.contact_name || ctx.contactName || "";
-        const description = parsed.summary || conversationContext.slice(0, 500);
+        // Build enriched description with all extracted details
+        const descParts: string[] = [];
+        if (parsed.summary) descParts.push(parsed.summary);
+        if (parsed.transaction_date) descParts.push(`Data/horário: ${parsed.transaction_date}`);
+        if (parsed.product_name) descParts.push(`Produto: ${parsed.product_name}`);
+        if (parsed.payment_method) descParts.push(`Pagamento: ${parsed.payment_method}`);
+        if (parsed.amount) descParts.push(`Valor: ${parsed.amount}`);
+        const description = descParts.length > 0 ? descParts.join(" | ") : conversationContext.slice(0, 500);
 
         console.log(`[OCCURRENCE] Registering: store="${storeName}", type="${occType}", priority="${occPriority}", name="${contactName}"`);
 
