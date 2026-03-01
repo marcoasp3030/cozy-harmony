@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import {
   Plus, Trash2, Star, Loader2, QrCode, Wifi, WifiOff,
-  CheckCircle2, RefreshCw, Smartphone, Clock, Unplug, Pencil,
+  CheckCircle2, RefreshCw, Smartphone, Clock, Unplug, Pencil, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,15 +23,22 @@ const extractError = (data: any, fallback: string): string => {
   return extra ? `${mainError}\n\nDetalhes: ${extra}` : mainError || fallback;
 };
 
+interface LinkedAutomation {
+  id: string;
+  name: string;
+  is_active: boolean | null;
+}
+
 interface InstanceCardProps {
   instance: WhatsAppInstance;
+  automations: LinkedAutomation[];
   onUpdate: () => void;
   onSetDefault: (id: string) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => Promise<void>;
 }
 
-const InstanceCard = ({ instance, onUpdate, onSetDefault, onDelete, onRename }: InstanceCardProps) => {
+const InstanceCard = ({ instance, automations, onUpdate, onSetDefault, onDelete, onRename }: InstanceCardProps) => {
   const [checking, setChecking] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "checking" | "connected" | "disconnected" | "error">(
     instance.status === "connected" ? "connected" : "idle"
@@ -282,6 +289,24 @@ const InstanceCard = ({ instance, onUpdate, onSetDefault, onDelete, onRename }: 
           )}
         </div>
 
+        {/* Linked automations */}
+        {automations.length > 0 && (
+          <div className="rounded-lg border bg-muted/30 p-2.5 space-y-1.5">
+            <p className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+              <Zap className="h-3 w-3" /> Automações vinculadas ({automations.length})
+            </p>
+            {automations.map((auto) => (
+              <div key={auto.id} className="flex items-center gap-2 text-xs">
+                <span className={`h-1.5 w-1.5 rounded-full ${auto.is_active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
+                <span className="truncate">{auto.name}</span>
+                <Badge variant="outline" className="text-[9px] ml-auto">
+                  {auto.is_active ? "Ativo" : "Inativo"}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        )}
+
         {qrCode && (
           <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-card p-4">
             <p className="text-sm font-medium">Escaneie o QR Code</p>
@@ -306,6 +331,13 @@ export default function InstanceManager() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [linkedAutomations, setLinkedAutomations] = useState<LinkedAutomation[]>([]);
+
+  useEffect(() => {
+    supabase.from("automations").select("id, name, is_active, instance_id").then(({ data }) => {
+      if (data) setLinkedAutomations(data as any);
+    });
+  }, []);
 
   const handleAdd = async () => {
     if (!newName.trim()) {
@@ -453,6 +485,7 @@ export default function InstanceManager() {
             <InstanceCard
               key={inst.id}
               instance={inst}
+              automations={linkedAutomations.filter((a: any) => a.instance_id === inst.id)}
               onUpdate={load}
               onSetDefault={handleSetDefault}
               onDelete={handleDelete}

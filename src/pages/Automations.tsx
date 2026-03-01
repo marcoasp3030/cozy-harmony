@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Zap, Pencil, Trash2, Loader2, Play, Pause, Copy, History } from "lucide-react";
+import { Plus, Zap, Pencil, Trash2, Loader2, Play, Pause, Copy, History, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useWhatsAppInstances } from "@/hooks/useWhatsAppInstances";
 import FlowBuilder from "@/components/automations/FlowBuilder";
 import AutomationLogsDialog from "@/components/automations/AutomationLogsDialog";
 import { getNodeTypeConfig } from "@/components/automations/nodeTypes";
@@ -28,6 +29,7 @@ interface Automation {
   is_active: boolean | null;
   stats: any;
   created_at: string;
+  instance_id: string | null;
 }
 
 const TRIGGER_LABELS: Record<string, string> = {
@@ -39,6 +41,7 @@ const TRIGGER_LABELS: Record<string, string> = {
 
 const Automations = () => {
   const { user } = useAuth();
+  const { instances } = useWhatsAppInstances();
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingAutomation, setEditingAutomation] = useState<Automation | null>(null);
@@ -51,6 +54,7 @@ const Automations = () => {
   const [formName, setFormName] = useState("");
   const [formDesc, setFormDesc] = useState("");
   const [formTrigger, setFormTrigger] = useState("message");
+  const [formInstanceId, setFormInstanceId] = useState<string>("all");
 
   const fetchAutomations = useCallback(async () => {
     const { data, error } = await supabase
@@ -69,6 +73,7 @@ const Automations = () => {
     setFormName("");
     setFormDesc("");
     setFormTrigger("message");
+    setFormInstanceId("all");
     setEditingAutomation(null);
     setShowCreateDialog(true);
   };
@@ -97,6 +102,7 @@ const Automations = () => {
         flow: { nodes: [initialNode], edges: [] } as unknown as Json,
         is_active: false,
         created_by: user?.id || null,
+        instance_id: formInstanceId === "all" ? null : formInstanceId,
       })
       .select()
       .single();
@@ -286,6 +292,16 @@ const Automations = () => {
                     <Badge variant="outline" className="text-[10px]">
                       {nodeCount} nós
                     </Badge>
+                    {auto.instance_id ? (
+                      <Badge variant="outline" className="text-[10px] gap-1">
+                        <Smartphone className="h-2.5 w-2.5" />
+                        {instances.find(i => i.id === auto.instance_id)?.name || "Instância"}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                        Todas instâncias
+                      </Badge>
+                    )}
                     <span className="text-xs text-muted-foreground ml-auto">
                       {(stats?.executions || 0).toLocaleString()} exec.
                     </span>
@@ -340,6 +356,28 @@ const Automations = () => {
                   <SelectItem value="schedule">Agendamento</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Instância WhatsApp</Label>
+              <Select value={formInstanceId} onValueChange={setFormInstanceId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as instâncias</SelectItem>
+                  {instances.map((inst) => (
+                    <SelectItem key={inst.id} value={inst.id}>
+                      <span className="flex items-center gap-1.5">
+                        <Smartphone className="h-3 w-3" />
+                        {inst.name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Vincule a uma instância específica ou deixe em "Todas" para executar em qualquer uma.
+              </p>
             </div>
           </div>
           <DialogFooter>
