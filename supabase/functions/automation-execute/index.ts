@@ -1107,6 +1107,7 @@ REGRAS PARA "ready":
         }
 
         if (transcription) {
+          transcription = normalizeTranscription(transcription);
           const replyText = systemPrompt
             ? interpolate(systemPrompt.replace(/\{\{transcricao\}\}/gi, transcription), ctx)
             : `Transcrição: ${transcription}`;
@@ -1746,8 +1747,12 @@ REGRAS PARA "ready":
         }
       }
 
-      // ── Combine all transcriptions into one coherent text ──
-      const fullTranscription = transcriptions.join(" ");
+      // ── Combine all transcriptions and apply post-processing corrections ──
+      const rawTranscription = transcriptions.join(" ");
+      const fullTranscription = normalizeTranscription(rawTranscription);
+      if (rawTranscription !== fullTranscription) {
+        console.log(`[TRANSCRIBE] Post-processing corrections applied: "${rawTranscription.slice(0, 80)}" → "${fullTranscription.slice(0, 80)}"`);
+      }
 
       ctx.variables["transcricao"] = fullTranscription;
       ctx.variables["total_audios_transcritos"] = String(transcriptions.length);
@@ -1852,6 +1857,87 @@ REGRAS PARA "ready":
 
 // ── Helpers ──────────────────────────────────────────────────
 
+// ── Post-processing: fix common STT misinterpretations ──
+function normalizeTranscription(text: string): string {
+  if (!text) return text;
+  let result = text;
+
+  // Known STT misinterpretations map (case-insensitive replacements)
+  const corrections: Array<[RegExp, string]> = [
+    // "Alphaville Indaial" → "Alpha 10" / "Alphaville 10"
+    [/alphaville\s+indaial/gi, "Alphaville 10"],
+    [/alpha\s*ville?\s+indaial/gi, "Alphaville 10"],
+    [/alfa\s*v[iy]le?\s+indaial/gi, "Alphaville 10"],
+    // "alpha dez" → "Alpha 10"
+    [/alpha\s+dez\b/gi, "Alpha 10"],
+    [/alfa\s+dez\b/gi, "Alpha 10"],
+    // Common number misheard as words
+    [/\bum\s+zero\b/gi, "10"],
+    [/\bdois\s+zero\b/gi, "20"],
+    // Nutricar specific store name corrections
+    [/\bnutri\s*car\b/gi, "Nutricar"],
+  ];
+
+  for (const [pattern, replacement] of corrections) {
+    result = result.replace(pattern, replacement);
+  }
+
+  return result;
+}
+
+// ── Normalize numbers for better TTS pronunciation ──
+function normalizeNumbersForTTS(text: string): string {
+  if (!text) return text;
+
+  const numberWords: Record<number, string> = {
+    0: "zero", 1: "um", 2: "dois", 3: "três", 4: "quatro",
+    5: "cinco", 6: "seis", 7: "sete", 8: "oito", 9: "nove",
+    10: "dez", 11: "onze", 12: "doze", 13: "treze", 14: "quatorze",
+    15: "quinze", 16: "dezesseis", 17: "dezessete", 18: "dezoito", 19: "dezenove",
+    20: "vinte", 30: "trinta", 40: "quarenta", 50: "cinquenta",
+    60: "sessenta", 70: "setenta", 80: "oitenta", 90: "noventa",
+    100: "cem", 200: "duzentos", 300: "trezentos", 400: "quatrocentos",
+    500: "quinhentos", 600: "seiscentos", 700: "setecentos", 800: "oitocentos",
+    900: "novecentos", 1000: "mil",
+  };
+
+  function numberToWords(n: number): string {
+    if (n < 0) return "menos " + numberToWords(-n);
+    if (n <= 20) return numberWords[n] || String(n);
+    if (n < 100) {
+      const tens = Math.floor(n / 10) * 10;
+      const units = n % 10;
+      return units === 0 ? numberWords[tens] : `${numberWords[tens]} e ${numberWords[units]}`;
+    }
+    if (n === 100) return "cem";
+    if (n < 200) return `cento e ${numberToWords(n - 100)}`;
+    if (n < 1000) {
+      const hundreds = Math.floor(n / 100) * 100;
+      const remainder = n % 100;
+      return remainder === 0 ? numberWords[hundreds] : `${numberWords[hundreds]} e ${numberToWords(remainder)}`;
+    }
+    if (n === 1000) return "mil";
+    if (n < 2000) {
+      const remainder = n % 1000;
+      return remainder === 0 ? "mil" : `mil e ${numberToWords(remainder)}`;
+    }
+    if (n < 1000000) {
+      const thousands = Math.floor(n / 1000);
+      const remainder = n % 1000;
+      const thousandStr = thousands === 1 ? "mil" : `${numberToWords(thousands)} mil`;
+      return remainder === 0 ? thousandStr : `${thousandStr} e ${numberToWords(remainder)}`;
+    }
+    return String(n); // Fallback for very large numbers
+  }
+
+  // Replace standalone numbers (1-999999) but NOT inside URLs, dates (dd/mm), phone numbers, or IDs
+  return text.replace(/(?<![\/\d\w.:-])(\d{1,6})(?![\/\d\w.:-])/g, (match) => {
+    const num = parseInt(match);
+    if (isNaN(num) || num > 999999) return match;
+    return numberToWords(num);
+  });
+}
+
 async function sendElevenLabsAudioFromText(
   supabase: any,
   ctx: ExecutionContext,
@@ -1906,9 +1992,13 @@ async function sendElevenLabsAudioFromText(
 
   console.log(`[TTS] Using voice=${userVoiceId}, model=${userModel}, hasSettings=${!!voiceSettings}`);
 
+  // Normalize numbers for better pronunciation
+  const ttsText = normalizeNumbersForTTS(text);
+  console.log(`[TTS] Number normalization: "${text.slice(0, 60)}" → "${ttsText.slice(0, 60)}"`);
+
   // Call ElevenLabs TTS API directly
   const ttsBody: any = {
-    text,
+    text: ttsText,
     model_id: userModel,
   };
   if (voiceSettings) {
