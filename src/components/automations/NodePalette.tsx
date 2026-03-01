@@ -8,32 +8,59 @@ import { getNodeTypeConfig } from "./nodeTypes";
 
 const categories: NodeCategory[] = ["trigger", "condition", "action"];
 
+const NODE_WIDTH = 230;
+const NODE_GAP_Y = 120;
+
 const NodePalette = () => {
   const [search, setSearch] = useState("");
-  const { addNodes, getNodes } = useReactFlow();
+  const { addNodes, getNodes, fitView } = useReactFlow();
 
   const onDragStart = (event: React.DragEvent, nodeType: string) => {
     event.dataTransfer.setData("application/reactflow", nodeType);
     event.dataTransfer.effectAllowed = "move";
   };
 
+  const findBestPosition = () => {
+    const existingNodes = getNodes();
+    if (existingNodes.length === 0) return { x: 250, y: 50 };
+
+    // Find the bottommost node
+    let bottomNode = existingNodes[0];
+    for (const n of existingNodes) {
+      if (n.position.y > bottomNode.position.y) {
+        bottomNode = n;
+      }
+    }
+
+    // Place below and centered with the bottommost node
+    return {
+      x: bottomNode.position.x,
+      y: bottomNode.position.y + NODE_GAP_Y,
+    };
+  };
+
   const handleDoubleClick = (nodeType: string) => {
     const config = getNodeTypeConfig(nodeType);
     if (!config) return;
-    const existingNodes = getNodes();
-    const lastNode = existingNodes[existingNodes.length - 1];
-    const x = lastNode ? lastNode.position.x : 250;
-    const y = lastNode ? lastNode.position.y + 120 : 50;
+
+    const position = findBestPosition();
+    const newId = `${nodeType}_${Date.now()}`;
 
     addNodes({
-      id: `${nodeType}_${Date.now()}`,
+      id: newId,
       type: "flowNode",
-      position: { x, y },
+      position,
+      selected: true,
       data: {
         nodeType,
         ...Object.fromEntries(config.fields.map((f) => [f.key, f.defaultValue ?? ""])),
       },
     });
+
+    // Scroll to new node after it renders
+    setTimeout(() => {
+      fitView({ nodes: [{ id: newId }], padding: 0.5, duration: 300 });
+    }, 50);
   };
 
   const filtered = search.trim()
