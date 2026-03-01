@@ -13,7 +13,7 @@ import {
 const FlowNode = memo(({ id, data, selected }: NodeProps) => {
   const config = getNodeTypeConfig(data.nodeType as string);
   const [showActions, setShowActions] = useState(false);
-  const { deleteElements, addNodes, addEdges, getNode, getEdges, setEdges } = useReactFlow();
+  const { deleteElements, addNodes, addEdges, getNode, getEdges, setEdges, fitView } = useReactFlow();
 
   if (!config) return null;
 
@@ -31,13 +31,16 @@ const FlowNode = memo(({ id, data, selected }: NodeProps) => {
     e?.stopPropagation();
     const currentNode = getNode(id);
     if (!currentNode) return;
+    const newId = `${data.nodeType}_${Date.now()}`;
     const newNode = {
-      id: `${data.nodeType}_${Date.now()}`,
+      id: newId,
       type: "flowNode",
-      position: { x: currentNode.position.x + 30, y: currentNode.position.y + 80 },
+      position: { x: currentNode.position.x + 30, y: currentNode.position.y + 120 },
       data: { ...currentNode.data },
+      selected: true,
     };
     addNodes(newNode);
+    setTimeout(() => fitView({ nodes: [{ id: newId }], padding: 0.5, duration: 300 }), 50);
   };
 
   const handleAddBelow = (e?: React.MouseEvent) => {
@@ -50,6 +53,7 @@ const FlowNode = memo(({ id, data, selected }: NodeProps) => {
       type: "flowNode",
       position: { x: currentNode.position.x, y: currentNode.position.y + 140 },
       data: { nodeType: "action_send_message", message: "" },
+      selected: true,
     };
     addNodes(newNode);
     addEdges({
@@ -60,6 +64,7 @@ const FlowNode = memo(({ id, data, selected }: NodeProps) => {
       style: { strokeWidth: 2, stroke: "hsl(var(--primary))" },
       markerEnd: { type: "arrowclosed" as any, color: "hsl(var(--primary))" },
     });
+    setTimeout(() => fitView({ nodes: [{ id: newId }], padding: 0.5, duration: 300 }), 50);
   };
 
   const handleDisconnect = () => {
