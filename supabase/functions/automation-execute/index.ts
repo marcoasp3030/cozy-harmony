@@ -133,6 +133,26 @@ serve(async (req) => {
 
       if (!triggered) continue;
 
+      // ── Debounce: skip if same automation+contact is already running or ran recently ──
+      // Check for a collect_messages node to determine the debounce window
+      const collectNode = flow.nodes.find((n: FlowNode) => n.data?.nodeType === "action_collect_messages");
+      const debounceSeconds = collectNode ? (parseInt(collectNode.data.wait_seconds) || 15) + 5 : 8;
+      const debounceCutoff = new Date(Date.now() - debounceSeconds * 1000).toISOString();
+
+      const { data: recentRuns } = await supabase
+        .from("automation_logs")
+        .select("id, status, started_at")
+        .eq("automation_id", automation.id)
+        .eq("contact_phone", contactPhone)
+        .gte("started_at", debounceCutoff)
+        .in("status", ["running", "completed"])
+        .limit(1);
+
+      if (recentRuns && recentRuns.length > 0) {
+        console.log(`Debounce: skipping automation "${automation.name}" for ${contactPhone} (recent run ${recentRuns[0].id} at ${recentRuns[0].started_at})`);
+        continue;
+      }
+
       console.log(`Automation "${automation.name}" (${automation.id}) triggered`);
 
       const startTime = Date.now();
@@ -1349,24 +1369,44 @@ Mensagem do cliente: "${ctx.messageContent}"`;
         .order("created_at", { ascending: true })
         .limit(maxMessages);
 
+      // Also fetch the last 5 messages overall for broader context (regardless of time window)
+      const { data: recentContextMsgs } = await supabase
+        .from("messages")
+        .select("content, type, media_url, created_at, direction")
+        .eq("contact_id", ctx.contactId)
+        .eq("direction", "inbound")
+        .order("created_at", { ascending: false })
+        .limit(5);
+
+      // Merge: use time-windowed batch if available, otherwise recent messages
+      const msgsToAggregate = (batchMsgs && batchMsgs.length > 0) 
+        ? batchMsgs 
+        : (recentContextMsgs || []).reverse();
+
       // Aggregate all message contents into context
-      const aggregated = (batchMsgs || [])
+      const aggregated = msgsToAggregate
         .map((m: any) => {
           if (m.type === "text" || m.type === "chat") return m.content || "";
           if (m.type === "audio" || m.type === "ptt") return `[Áudio: ${m.media_url || "sem URL"}]`;
           if (m.type === "document") return `[Documento: ${m.media_url || "sem URL"}]`;
-          if (m.type === "image") return `[Imagem: ${m.media_url || "sem URL"}]`;
+          if (m.type === "image") return `[Imagem enviada: ${m.media_url || "sem URL"}]`;
           return m.content || `[${m.type}]`;
         })
         .filter(Boolean)
         .join("\n");
 
+      // Check if any collected message is an image (store URL for vision)
+      const lastImageMsg = msgsToAggregate.reverse().find((m: any) => m.type === "image" && m.media_url);
+      if (lastImageMsg) {
+        ctx.variables["imagem_url"] = lastImageMsg.media_url;
+      }
+
       // Update context with aggregated messages
       ctx.messageContent = aggregated || ctx.messageContent;
       ctx.variables["mensagens_agrupadas"] = aggregated;
-      ctx.variables["total_mensagens"] = String((batchMsgs || []).length);
+      ctx.variables["total_mensagens"] = String(msgsToAggregate.length);
 
-      return { collected: (batchMsgs || []).length, aggregated: aggregated.slice(0, 200) };
+      return { collected: msgsToAggregate.length, aggregated: aggregated.slice(0, 200) };
     }
 
     if (type === "action_transcribe_audio") {
