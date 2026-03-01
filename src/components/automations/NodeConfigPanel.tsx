@@ -1,4 +1,4 @@
-import { X, Copy, Trash2, Plus, Check, ChevronsUpDown } from "lucide-react";
+import { X, Copy, Trash2, Plus, Check, ChevronsUpDown, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import { getNodeTypeConfig } from "./nodeTypes";
 import { useReactFlow, type Node } from "@xyflow/react";
 import { toast } from "sonner";
@@ -49,7 +51,7 @@ const TagFieldCombobox = ({ value, onChange }: { value: string; onChange: (v: st
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" role="combobox" className="h-8 w-full justify-between text-xs font-normal">
+        <Button variant="outline" role="combobox" className="h-9 w-full justify-between text-xs font-normal rounded-lg">
           {value ? (
             <span className="flex items-center gap-1.5">
               {(() => { const t = tags.find(t => t.name === value); return t ? <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: t.color }} /> : null; })()}
@@ -124,100 +126,154 @@ const NodeConfigPanel = ({ node, onUpdate, onClose, onDelete }: NodeConfigPanelP
     toast.info("Nó duplicado");
   };
 
+  const filledCount = config.fields.filter(f => (node.data as Record<string, any>)[f.key]).length;
+  const requiredCount = config.fields.filter(f => f.required).length;
+  const filledRequired = config.fields.filter(f => f.required && (node.data as Record<string, any>)[f.key]).length;
+
   return (
-    <div className="w-72 border-l bg-card flex flex-col h-full">
+    <div className="w-80 border-l bg-card/95 backdrop-blur-sm flex flex-col h-full shadow-lg">
       {/* Header */}
-      <div className="flex items-center justify-between p-3 border-b" style={{ backgroundColor: config.color + "10" }}>
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: config.color + "25" }}>
-            <Icon className="h-4 w-4" style={{ color: config.color }} />
+      <div
+        className="p-4 border-b"
+        style={{ background: `linear-gradient(135deg, ${config.color}12, ${config.color}05)` }}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-start gap-3 min-w-0">
+            <div
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl shadow-sm"
+              style={{ backgroundColor: config.color + "20", border: `1px solid ${config.color}30` }}
+            >
+              <Icon className="h-5 w-5" style={{ color: config.color }} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-bold truncate">{config.label}</p>
+              <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">{config.description}</p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold truncate">{config.label}</p>
-            <p className="text-[10px] text-muted-foreground truncate">{config.description}</p>
-          </div>
+          <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 rounded-lg hover:bg-background/80" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
         </div>
-        <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </Button>
+
+        {/* Progress indicator */}
+        {config.fields.length > 0 && (
+          <div className="mt-3 flex items-center gap-2">
+            <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{
+                  width: `${config.fields.length > 0 ? (filledCount / config.fields.length) * 100 : 0}%`,
+                  backgroundColor: filledRequired < requiredCount ? "#f59e0b" : config.color,
+                }}
+              />
+            </div>
+            <span className="text-[10px] text-muted-foreground tabular-nums">
+              {filledCount}/{config.fields.length}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Fields */}
       <ScrollArea className="flex-1">
-        <div className="p-3 space-y-4">
+        <div className="p-4 space-y-4">
           {config.fields.length === 0 && (
-            <p className="text-xs text-muted-foreground text-center py-4">
-              Este nó não possui configurações adicionais.
-            </p>
+            <div className="flex flex-col items-center py-8 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted mb-3">
+                <Icon className="h-5 w-5 text-muted-foreground/50" />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Este nó não possui configurações adicionais.
+              </p>
+              <p className="text-[10px] text-muted-foreground/60 mt-1">
+                Ele funcionará automaticamente no fluxo.
+              </p>
+            </div>
           )}
-          {config.fields.map((field) => {
+          {config.fields.map((field, idx) => {
             const val = (node.data as Record<string, any>)[field.key] ?? field.defaultValue ?? "";
+            const isFilled = !!val && val !== "";
             return (
-              <div key={field.key} className="space-y-1.5">
-                <Label className="text-xs">
-                  {field.label}
-                  {field.required && <span className="text-destructive ml-0.5">*</span>}
-                </Label>
-                {field.key === "tag_name" && (
-                  <TagFieldCombobox value={val} onChange={(v) => updateField(field.key, v)} />
-                )}
-                {field.type === "text" && field.key !== "tag_name" && (
-                  <Input
-                    value={val}
-                    onChange={(e) => updateField(field.key, e.target.value)}
-                    placeholder={field.placeholder}
-                    className="h-8 text-xs"
-                  />
-                )}
-                {field.type === "textarea" && (
-                  <Textarea
-                    value={val}
-                    onChange={(e) => updateField(field.key, e.target.value)}
-                    placeholder={field.placeholder}
-                    className="text-xs min-h-[80px] resize-y"
-                  />
-                )}
-                {field.type === "number" && (
-                  <Input
-                    type="number"
-                    value={val}
-                    onChange={(e) => updateField(field.key, e.target.value)}
-                    placeholder={field.placeholder}
-                    className="h-8 text-xs"
-                  />
-                )}
-                {field.type === "select" && (
-                  <Select value={val} onValueChange={(v) => updateField(field.key, v)}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder="Selecione..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {field.options?.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                {field.type === "switch" && (
-                  <Switch checked={!!val} onCheckedChange={(v) => updateField(field.key, v)} />
-                )}
+              <div key={field.key}>
+                {idx > 0 && <Separator className="mb-4" />}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold flex items-center gap-1.5">
+                      {field.label}
+                      {field.required && (
+                        <span className="text-[9px] text-destructive font-bold">*</span>
+                      )}
+                    </Label>
+                    {isFilled && (
+                      <Check className="h-3 w-3 text-green-500" />
+                    )}
+                  </div>
+                  {field.key === "tag_name" && (
+                    <TagFieldCombobox value={val} onChange={(v) => updateField(field.key, v)} />
+                  )}
+                  {field.type === "text" && field.key !== "tag_name" && (
+                    <Input
+                      value={val}
+                      onChange={(e) => updateField(field.key, e.target.value)}
+                      placeholder={field.placeholder}
+                      className="h-9 text-xs rounded-lg"
+                    />
+                  )}
+                  {field.type === "textarea" && (
+                    <Textarea
+                      value={val}
+                      onChange={(e) => updateField(field.key, e.target.value)}
+                      placeholder={field.placeholder}
+                      className="text-xs min-h-[90px] resize-y rounded-lg"
+                    />
+                  )}
+                  {field.type === "number" && (
+                    <Input
+                      type="number"
+                      value={val}
+                      onChange={(e) => updateField(field.key, e.target.value)}
+                      placeholder={field.placeholder}
+                      className="h-9 text-xs rounded-lg"
+                    />
+                  )}
+                  {field.type === "select" && (
+                    <Select value={val} onValueChange={(v) => updateField(field.key, v)}>
+                      <SelectTrigger className="h-9 text-xs rounded-lg">
+                        <SelectValue placeholder="Selecione..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {field.options?.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {field.type === "switch" && (
+                    <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
+                      <span className="text-[11px] text-muted-foreground">{val ? "Ativado" : "Desativado"}</span>
+                      <Switch checked={!!val} onCheckedChange={(v) => updateField(field.key, v)} />
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
 
-          {/* Variables hint for text/textarea fields */}
+          {/* Variables hint */}
           {config.fields.some((f) => f.type === "textarea" || f.type === "text") && (
-            <div className="rounded-md bg-muted/50 p-2">
-              <p className="text-[10px] font-medium text-muted-foreground mb-1">Variáveis disponíveis:</p>
-              <div className="flex flex-wrap gap-1">
+            <div className="rounded-xl bg-gradient-to-br from-primary/5 to-primary/10 border border-primary/10 p-3">
+              <div className="flex items-center gap-1.5 mb-2">
+                <Sparkles className="h-3 w-3 text-primary" />
+                <p className="text-[10px] font-semibold text-primary">Variáveis disponíveis</p>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
                 {["{{nome}}", "{{phone}}", "{{mensagem}}", "{{transcricao}}"].map((v) => (
                   <button
                     key={v}
-                    className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-mono hover:bg-primary/20 transition-colors"
+                    className="text-[9px] px-2 py-1 rounded-md bg-card border border-primary/20 text-primary font-mono hover:bg-primary/10 hover:border-primary/30 transition-all active:scale-95"
                     onClick={() => {
-                      // Copy to clipboard
                       navigator.clipboard.writeText(v);
                       toast.info(`${v} copiado!`);
                     }}
@@ -232,11 +288,11 @@ const NodeConfigPanel = ({ node, onUpdate, onClose, onDelete }: NodeConfigPanelP
       </ScrollArea>
 
       {/* Actions */}
-      <div className="p-3 border-t flex gap-2">
+      <div className="p-3 border-t bg-muted/20 flex gap-2">
         <Button
           variant="outline"
           size="sm"
-          className="flex-1 text-xs gap-1"
+          className="flex-1 text-xs gap-1.5 rounded-lg h-9"
           onClick={handleDuplicate}
         >
           <Copy className="h-3.5 w-3.5" />
@@ -246,7 +302,7 @@ const NodeConfigPanel = ({ node, onUpdate, onClose, onDelete }: NodeConfigPanelP
           <Button
             variant="destructive"
             size="sm"
-            className="flex-1 text-xs gap-1"
+            className="flex-1 text-xs gap-1.5 rounded-lg h-9"
             onClick={() => onDelete(node.id)}
           >
             <Trash2 className="h-3.5 w-3.5" />
