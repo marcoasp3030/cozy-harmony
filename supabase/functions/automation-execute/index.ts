@@ -257,6 +257,7 @@ async function executeFromNode(
       condition_contains: "Contém Texto", condition_tag: "Tem Tag", condition_time: "Horário",
       condition_business_hours: "Verificar Expediente",
       condition_contact_field: "Campo do Contato", condition_media_type: "Tipo de Mídia",
+      condition_intent_classifier: "Classificar Intenção",
       action_send_message: "Enviar Mensagem",
       action_send_template: "Enviar Template", action_add_tag: "Adicionar Tag",
       action_remove_tag: "Remover Tag", action_assign_agent: "Atribuir Atendente",
@@ -444,6 +445,77 @@ async function executeNode(
       if (op === "not_exists") return !fieldVal;
       if (op === "contains") return fieldVal.toLowerCase().includes(compareVal);
       if (op === "equals") return fieldVal.toLowerCase() === compareVal;
+      return false;
+    }
+
+    if (type === "condition_intent_classifier") {
+      const intentsRaw = String(d.intents || "dúvida, reclamação, compra, suporte, saudação");
+      const intents = intentsRaw.split(",").map((i: string) => i.trim()).filter(Boolean);
+      const threshold = parseInt(d.confidence_threshold) || 60;
+      const customPrompt = d.custom_prompt || "";
+
+      const classifyPrompt = `Você é um classificador de intenções de mensagens de clientes via WhatsApp.
+Classifique a mensagem do cliente em UMA das seguintes intenções: ${intents.join(", ")}.
+${customPrompt ? `Contexto adicional: ${customPrompt}` : ""}
+
+Responda APENAS com um JSON válido no formato:
+{"intent": "<intenção>", "confidence": <0-100>}
+
+Mensagem do cliente: "${ctx.messageContent}"`;
+
+      let reply = "";
+      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+
+      if (LOVABLE_API_KEY) {
+        try {
+          const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "google/gemini-2.5-flash-lite",
+              messages: [{ role: "user", content: classifyPrompt }],
+              max_tokens: 100,
+              temperature: 0.1,
+            }),
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            reply = data.choices?.[0]?.message?.content?.trim() || "";
+          }
+        } catch (e) {
+          console.error("Intent classifier AI error:", e);
+        }
+      }
+
+      if (!reply) {
+        // No AI available, default to first intent
+        ctx.variables["intencao"] = intents[0] || "desconhecido";
+        ctx.variables["intencao_confianca"] = "0";
+        return true; // pass through yes path
+      }
+
+      // Parse JSON response
+      try {
+        const jsonMatch = reply.match(/\{[^}]+\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          const detectedIntent = String(parsed.intent || "").toLowerCase().trim();
+          const confidence = parseInt(parsed.confidence) || 0;
+
+          ctx.variables["intencao"] = detectedIntent;
+          ctx.variables["intencao_confianca"] = String(confidence);
+
+          console.log(`Intent classified: "${detectedIntent}" (${confidence}%) threshold=${threshold}%`);
+
+          // Returns true (yes path) if confidence meets threshold
+          return confidence >= threshold;
+        }
+      } catch (e) {
+        console.error("Intent parse error:", e, "raw:", reply);
+      }
+
+      ctx.variables["intencao"] = "desconhecido";
+      ctx.variables["intencao_confianca"] = "0";
       return false;
     }
 
