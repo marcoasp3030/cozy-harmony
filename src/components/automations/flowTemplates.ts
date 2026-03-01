@@ -486,9 +486,345 @@ export function createMultimodalTemplate(): FlowTemplate {
   };
 }
 
+/**
+ * Qualificação de Leads: Classifica intenção → scoring → move no funil
+ */
+export function createLeadQualificationTemplate(): FlowTemplate {
+  const X = 350;
+  const nodes: Node[] = [
+    {
+      id: "lq_trigger",
+      type: "flowNode",
+      position: { x: X, y: 0 },
+      data: { nodeType: "trigger_message" },
+    },
+    {
+      id: "lq_collect",
+      type: "flowNode",
+      position: { x: X, y: 120 },
+      data: { nodeType: "action_collect_messages", wait_seconds: 10, max_messages: 5 },
+    },
+    {
+      id: "lq_classify",
+      type: "flowNode",
+      position: { x: X, y: 260 },
+      data: {
+        nodeType: "condition_intent_classifier",
+        intents: "compra, orçamento, dúvida, suporte, saudação",
+        confidence_threshold: 50,
+        custom_prompt: "Classifique se o lead tem intenção de compra/orçamento (quente) ou apenas dúvida/suporte (frio).",
+      },
+    },
+    {
+      id: "lq_hot_score",
+      type: "flowNode",
+      position: { x: X + 280, y: 420 },
+      data: { nodeType: "action_update_score", points: "30", operation: "add" },
+    },
+    {
+      id: "lq_hot_tag",
+      type: "flowNode",
+      position: { x: X + 280, y: 560 },
+      data: { nodeType: "action_add_tag", tag_name: "lead-quente" },
+    },
+    {
+      id: "lq_hot_funnel",
+      type: "flowNode",
+      position: { x: X + 280, y: 700 },
+      data: { nodeType: "action_move_funnel", funnel_name: "Vendas", stage_name: "Qualificado" },
+    },
+    {
+      id: "lq_hot_msg",
+      type: "flowNode",
+      position: { x: X + 280, y: 840 },
+      data: {
+        nodeType: "action_send_message",
+        message: "Ótimo, {{nome}}! 🔥 Vi que você tem interesse em nossos produtos/serviços.\n\nVou te conectar com um especialista que vai te ajudar com o melhor orçamento. Aguarde um momento! 🚀",
+      },
+    },
+    {
+      id: "lq_cold_score",
+      type: "flowNode",
+      position: { x: X - 280, y: 420 },
+      data: { nodeType: "action_update_score", points: "5", operation: "add" },
+    },
+    {
+      id: "lq_cold_tag",
+      type: "flowNode",
+      position: { x: X - 280, y: 560 },
+      data: { nodeType: "action_add_tag", tag_name: "lead-frio" },
+    },
+    {
+      id: "lq_cold_ia",
+      type: "flowNode",
+      position: { x: X - 280, y: 700 },
+      data: {
+        nodeType: "action_llm_reply",
+        system_prompt: "Você é um assistente de atendimento. O cliente parece ter uma dúvida ou precisa de suporte. Responda de forma útil, objetiva e amigável. Tente entender a necessidade e, se possível, direcione para uma oportunidade de venda de forma sutil.",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        max_tokens: 400,
+      },
+    },
+  ];
+
+  const edges: Edge[] = [
+    makeEdge("lq_trigger", "lq_collect"),
+    makeEdge("lq_collect", "lq_classify"),
+    makeEdge("lq_classify", "lq_hot_score", "yes"),
+    makeEdge("lq_hot_score", "lq_hot_tag"),
+    makeEdge("lq_hot_tag", "lq_hot_funnel"),
+    makeEdge("lq_hot_funnel", "lq_hot_msg"),
+    makeEdge("lq_classify", "lq_cold_score", "no"),
+    makeEdge("lq_cold_score", "lq_cold_tag"),
+    makeEdge("lq_cold_tag", "lq_cold_ia"),
+  ];
+
+  return {
+    id: "qualificacao_leads",
+    name: "Qualificação de Leads",
+    description: "Classifica intenção com IA, aplica scoring automático e move leads quentes para o funil de vendas",
+    emoji: "🎯",
+    triggerType: "message",
+    nodes,
+    edges,
+  };
+}
+
+/**
+ * Agendamento de Reuniões: Coleta dados → confirma → agenda
+ */
+export function createMeetingScheduleTemplate(): FlowTemplate {
+  const X = 350;
+  const nodes: Node[] = [
+    {
+      id: "meet_trigger",
+      type: "flowNode",
+      position: { x: X, y: 0 },
+      data: { nodeType: "trigger_keyword", keywords: "agendar,reunião,reuniao,meeting,horário,agenda,marcar", match_type: "contains" },
+    },
+    {
+      id: "meet_hours_check",
+      type: "flowNode",
+      position: { x: X, y: 140 },
+      data: { nodeType: "condition_business_hours", use_saved_config: true, out_of_hours_message: "" },
+    },
+    {
+      id: "meet_out_msg",
+      type: "flowNode",
+      position: { x: X - 280, y: 300 },
+      data: {
+        nodeType: "action_send_message",
+        message: "Olá {{nome}}! ⏰\n\nEstamos fora do horário de atendimento agora.\n\nNossos horários disponíveis são de segunda a sexta, das 09:00 às 18:00.\n\nEnvie uma mensagem no próximo dia útil e agendaremos sua reunião! 📅",
+      },
+    },
+    {
+      id: "meet_welcome",
+      type: "flowNode",
+      position: { x: X + 280, y: 300 },
+      data: {
+        nodeType: "action_send_message",
+        message: "Olá {{nome}}! 📅 Vamos agendar sua reunião.\n\nPor favor, me informe:\n\n1️⃣ Qual o assunto da reunião?\n2️⃣ Data e horário de preferência?\n3️⃣ Será presencial ou online?\n\nPode responder em uma única mensagem! 😊",
+      },
+    },
+    {
+      id: "meet_collect",
+      type: "flowNode",
+      position: { x: X + 280, y: 460 },
+      data: { nodeType: "action_collect_messages", wait_seconds: 20, max_messages: 5 },
+    },
+    {
+      id: "meet_tag",
+      type: "flowNode",
+      position: { x: X + 280, y: 600 },
+      data: { nodeType: "action_add_tag", tag_name: "agendamento-pendente" },
+    },
+    {
+      id: "meet_score",
+      type: "flowNode",
+      position: { x: X + 280, y: 740 },
+      data: { nodeType: "action_update_score", points: "15", operation: "add" },
+    },
+    {
+      id: "meet_ia_confirm",
+      type: "flowNode",
+      position: { x: X + 280, y: 880 },
+      data: {
+        nodeType: "action_llm_reply",
+        system_prompt: "Você é um assistente de agendamento. O cliente quer marcar uma reunião e enviou informações sobre data, horário e assunto.\n\nRegras:\n1. Extraia e confirme: assunto, data/horário sugerido e formato (presencial/online).\n2. Se faltar alguma informação, pergunte educadamente.\n3. Confirme o agendamento de forma clara e profissional.\n4. Informe que a equipe vai confirmar a disponibilidade em breve.\n5. Seja objetivo — máximo 2 parágrafos.",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        max_tokens: 400,
+      },
+    },
+    {
+      id: "meet_webhook",
+      type: "flowNode",
+      position: { x: X + 280, y: 1020 },
+      data: {
+        nodeType: "action_http_webhook",
+        url: "https://seu-sistema.com/api/agendamentos",
+        method: "POST",
+        headers: '{"Content-Type": "application/json"}',
+        body_template: '{"phone": "{{phone}}", "name": "{{nome}}", "message": "{{mensagens_agrupadas}}"}',
+      },
+    },
+  ];
+
+  const edges: Edge[] = [
+    makeEdge("meet_trigger", "meet_hours_check"),
+    makeEdge("meet_hours_check", "meet_welcome", "yes"),
+    makeEdge("meet_hours_check", "meet_out_msg", "no"),
+    makeEdge("meet_welcome", "meet_collect"),
+    makeEdge("meet_collect", "meet_tag"),
+    makeEdge("meet_tag", "meet_score"),
+    makeEdge("meet_score", "meet_ia_confirm"),
+    makeEdge("meet_ia_confirm", "meet_webhook"),
+  ];
+
+  return {
+    id: "agendamento_reunioes",
+    name: "Agendamento de Reuniões",
+    description: "Coleta dados de agendamento, confirma com IA e envia para webhook externo",
+    emoji: "📅",
+    triggerType: "keyword",
+    nodes,
+    edges,
+  };
+}
+
+/**
+ * Pesquisa NPS: Pergunta nota → classifica → agradece ou escala
+ */
+export function createNPSTemplate(): FlowTemplate {
+  const X = 350;
+  const nodes: Node[] = [
+    {
+      id: "nps_trigger",
+      type: "flowNode",
+      position: { x: X, y: 0 },
+      data: { nodeType: "trigger_keyword", keywords: "nps,pesquisa,satisfação,satisfacao,avaliar,avaliação", match_type: "contains" },
+    },
+    {
+      id: "nps_ask",
+      type: "flowNode",
+      position: { x: X, y: 140 },
+      data: {
+        nodeType: "action_send_message",
+        message: "Olá {{nome}}! 📊\n\nGostaríamos de saber como foi sua experiência conosco.\n\nEm uma escala de *0 a 10*, o quanto você recomendaria nossos serviços para um amigo ou colega?\n\nResponda apenas com o número! 🙏",
+      },
+    },
+    {
+      id: "nps_collect",
+      type: "flowNode",
+      position: { x: X, y: 280 },
+      data: { nodeType: "action_collect_messages", wait_seconds: 20, max_messages: 3 },
+    },
+    {
+      id: "nps_set_var",
+      type: "flowNode",
+      position: { x: X, y: 420 },
+      data: { nodeType: "action_set_variable", variable_name: "nps_resposta", variable_value: "{{mensagens_agrupadas}}" },
+    },
+    {
+      id: "nps_classify",
+      type: "flowNode",
+      position: { x: X, y: 560 },
+      data: {
+        nodeType: "condition_intent_classifier",
+        intents: "promotor, neutro, detrator",
+        confidence_threshold: 40,
+        custom_prompt: "Analise a resposta do NPS. Se o número é 9 ou 10: promotor. Se 7 ou 8: neutro. Se 0 a 6: detrator. Se não for um número, tente inferir pelo sentimento da mensagem.",
+      },
+    },
+    {
+      id: "nps_promoter_msg",
+      type: "flowNode",
+      position: { x: X + 300, y: 720 },
+      data: {
+        nodeType: "action_send_message",
+        message: "Que maravilha, {{nome}}! 🎉🥳\n\nFicamos muito felizes com sua avaliação! Seu feedback nos motiva a continuar melhorando.\n\nSe quiser, compartilhe sua experiência com amigos. Isso nos ajuda muito! 💚\n\nMuito obrigado! 🙏",
+      },
+    },
+    {
+      id: "nps_promoter_tag",
+      type: "flowNode",
+      position: { x: X + 300, y: 860 },
+      data: { nodeType: "action_add_tag", tag_name: "nps-promotor" },
+    },
+    {
+      id: "nps_promoter_score",
+      type: "flowNode",
+      position: { x: X + 300, y: 1000 },
+      data: { nodeType: "action_update_score", points: "25", operation: "add" },
+    },
+    {
+      id: "nps_detractor_msg",
+      type: "flowNode",
+      position: { x: X - 300, y: 720 },
+      data: {
+        nodeType: "action_send_message",
+        message: "Obrigado pelo seu feedback, {{nome}}. 🙏\n\nLamentamos que sua experiência não tenha sido a melhor. Seu retorno é muito importante para nós.\n\nPoderia nos contar o que podemos melhorar? Vou encaminhar para nossa equipe de qualidade. 💬",
+      },
+    },
+    {
+      id: "nps_detractor_tag",
+      type: "flowNode",
+      position: { x: X - 300, y: 860 },
+      data: { nodeType: "action_add_tag", tag_name: "nps-detrator" },
+    },
+    {
+      id: "nps_detractor_score",
+      type: "flowNode",
+      position: { x: X - 300, y: 1000 },
+      data: { nodeType: "action_update_score", points: "10", operation: "add" },
+    },
+    {
+      id: "nps_webhook",
+      type: "flowNode",
+      position: { x: X, y: 1160 },
+      data: {
+        nodeType: "action_http_webhook",
+        url: "https://seu-sistema.com/api/nps",
+        method: "POST",
+        headers: '{"Content-Type": "application/json"}',
+        body_template: '{"phone": "{{phone}}", "name": "{{nome}}", "nps": "{{nps_resposta}}", "intent": "{{intencao}}"}',
+      },
+    },
+  ];
+
+  const edges: Edge[] = [
+    makeEdge("nps_trigger", "nps_ask"),
+    makeEdge("nps_ask", "nps_collect"),
+    makeEdge("nps_collect", "nps_set_var"),
+    makeEdge("nps_set_var", "nps_classify"),
+    makeEdge("nps_classify", "nps_promoter_msg", "yes"),
+    makeEdge("nps_promoter_msg", "nps_promoter_tag"),
+    makeEdge("nps_promoter_tag", "nps_promoter_score"),
+    makeEdge("nps_promoter_score", "nps_webhook"),
+    makeEdge("nps_classify", "nps_detractor_msg", "no"),
+    makeEdge("nps_detractor_msg", "nps_detractor_tag"),
+    makeEdge("nps_detractor_tag", "nps_detractor_score"),
+    makeEdge("nps_detractor_score", "nps_webhook"),
+  ];
+
+  return {
+    id: "pesquisa_nps",
+    name: "Pesquisa NPS",
+    description: "Pesquisa de satisfação com classificação automática (Promotor/Detrator) e webhook",
+    emoji: "📊",
+    triggerType: "keyword",
+    nodes,
+    edges,
+  };
+}
+
 export const ALL_TEMPLATES: (() => FlowTemplate)[] = [
   createSACTemplate,
   createWelcomeTemplate,
   createBusinessHoursTemplate,
   createMultimodalTemplate,
+  createLeadQualificationTemplate,
+  createMeetingScheduleTemplate,
+  createNPSTemplate,
 ];
