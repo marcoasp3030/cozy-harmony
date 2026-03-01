@@ -1498,6 +1498,7 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
       ctx.messageContent = aggregated || ctx.messageContent;
       ctx.variables["mensagens_agrupadas"] = aggregated;
       ctx.variables["total_mensagens"] = String(msgsToAggregate.length);
+      ctx.variables["_collect_wait_seconds"] = String(waitSeconds);
 
       return { collected: msgsToAggregate.length, aggregated: aggregated.slice(0, 200) };
     }
@@ -1506,90 +1507,106 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
       const provider = d.provider || "whisper";
       const language = d.language || "pt";
 
-      // Find last audio message from contact
+      // ── Determine time window: use collect node's window if available ──
+      const collectWaitSeconds = parseInt(ctx.variables["_collect_wait_seconds"] || "0");
+      const lookbackMs = collectWaitSeconds > 0 ? (collectWaitSeconds + 15) * 1000 : 120_000; // default 2min
+      const cutoff = new Date(Date.now() - lookbackMs).toISOString();
+
+      // Find ALL recent audio messages from contact (not just the last one)
       const { data: audioMsgs } = await supabase
         .from("messages")
-        .select("media_url, type")
+        .select("media_url, type, created_at")
         .eq("contact_id", ctx.contactId)
         .eq("direction", "inbound")
         .in("type", ["audio", "ptt"])
-        .order("created_at", { ascending: false })
-        .limit(1);
+        .gte("created_at", cutoff)
+        .order("created_at", { ascending: true })
+        .limit(10);
 
-      const audioUrl = audioMsgs?.[0]?.media_url;
-      if (!audioUrl) {
+      if (!audioMsgs || audioMsgs.length === 0) {
         ctx.variables["transcricao"] = "";
         return { transcribed: false, reason: "no_audio_found" };
       }
 
-      // Download audio
-      const audioResp = await fetch(audioUrl);
-      if (!audioResp.ok) {
-        return { transcribed: false, reason: "audio_download_failed" };
+      console.log(`[TRANSCRIBE] Found ${audioMsgs.length} audio(s) to transcribe within ${Math.round(lookbackMs/1000)}s window`);
+
+      // ── Prepare API keys once (reused for all audios) ──
+      const { data: ownerAuto } = await supabase.from("automations").select("created_by").limit(1).single();
+      let openaiKey = "";
+      let elevenlabsKey = "";
+      if (ownerAuto?.created_by) {
+        const { data: s } = await supabase.from("settings").select("value").eq("user_id", ownerAuto.created_by).eq("key", "llm_openai").single();
+        openaiKey = (s?.value as any)?.apiKey || "";
+        const { data: elS } = await supabase.from("settings").select("value").eq("user_id", ownerAuto.created_by).eq("key", "elevenlabs").single();
+        elevenlabsKey = (elS?.value as any)?.apiKey || "";
       }
-      const audioBlob = await audioResp.blob();
+      if (!elevenlabsKey) elevenlabsKey = Deno.env.get("ELEVENLABS_API_KEY") || "";
 
-      let transcription = "";
+      // ── Transcribe each audio sequentially ──
+      const transcriptions: string[] = [];
 
-      if (provider === "elevenlabs") {
-        // Use ElevenLabs STT edge function
-        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-        const formData = new FormData();
-        formData.append("audio", audioBlob, "audio.ogg");
-        formData.append("language_code", language === "pt" ? "por" : language);
-        const resp = await fetch(`${supabaseUrl}/functions/v1/elevenlabs-stt`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${serviceKey}` },
-          body: formData,
-        });
-        if (resp.ok) {
-          const result = await resp.json();
-          transcription = result.text || "";
-        }
-      } else {
-        // Try Whisper first (user's OpenAI key), then fallback to ElevenLabs STT
-        const { data: ownerAuto } = await supabase.from("automations").select("created_by").limit(1).single();
-        let openaiKey = "";
-        if (ownerAuto?.created_by) {
-          const { data: s } = await supabase.from("settings").select("value").eq("user_id", ownerAuto.created_by).eq("key", "llm_openai").single();
-          openaiKey = (s?.value as any)?.apiKey || "";
+      for (let i = 0; i < audioMsgs.length; i++) {
+        const audioUrl = audioMsgs[i].media_url;
+        if (!audioUrl) continue;
+
+        console.log(`[TRANSCRIBE] Processing audio ${i + 1}/${audioMsgs.length}: ${audioUrl.slice(0, 60)}`);
+
+        let audioBlob: Blob;
+        try {
+          const audioResp = await fetch(audioUrl);
+          if (!audioResp.ok) {
+            console.error(`[TRANSCRIBE] Download failed for audio ${i + 1} (HTTP ${audioResp.status})`);
+            continue;
+          }
+          audioBlob = await audioResp.blob();
+        } catch (e) {
+          console.error(`[TRANSCRIBE] Download error for audio ${i + 1}:`, e);
+          continue;
         }
 
-        if (openaiKey) {
+        let singleTranscription = "";
+
+        if (provider === "elevenlabs") {
+          const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+          const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
           const formData = new FormData();
-          formData.append("file", audioBlob, "audio.ogg");
-          formData.append("model", "whisper-1");
-          formData.append("language", language);
-          const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+          formData.append("audio", audioBlob, "audio.ogg");
+          formData.append("language_code", language === "pt" ? "por" : language);
+          const resp = await fetch(`${supabaseUrl}/functions/v1/elevenlabs-stt`, {
             method: "POST",
-            headers: { Authorization: `Bearer ${openaiKey}` },
+            headers: { Authorization: `Bearer ${serviceKey}` },
             body: formData,
           });
           if (resp.ok) {
             const result = await resp.json();
-            transcription = result.text || "";
-          } else {
-            console.error(`Whisper failed (${resp.status}), falling back to ElevenLabs STT`);
+            singleTranscription = result.text || "";
           }
-        }
-
-        // Fallback to ElevenLabs STT if Whisper failed or no OpenAI key
-        if (!transcription) {
-          let elevenlabsKey = "";
-          if (ownerAuto?.created_by) {
-            const { data: elS } = await supabase.from("settings").select("value").eq("user_id", ownerAuto.created_by).eq("key", "elevenlabs").single();
-            elevenlabsKey = (elS?.value as any)?.apiKey || "";
+        } else {
+          // Try Whisper first
+          if (openaiKey) {
+            const formData = new FormData();
+            formData.append("file", audioBlob, "audio.ogg");
+            formData.append("model", "whisper-1");
+            formData.append("language", language);
+            const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${openaiKey}` },
+              body: formData,
+            });
+            if (resp.ok) {
+              const result = await resp.json();
+              singleTranscription = result.text || "";
+            } else {
+              console.error(`[TRANSCRIBE] Whisper failed for audio ${i + 1} (${resp.status})`);
+            }
           }
-          if (!elevenlabsKey) elevenlabsKey = Deno.env.get("ELEVENLABS_API_KEY") || "";
 
-          if (elevenlabsKey) {
-            console.log("Trying ElevenLabs STT as fallback for transcription");
+          // Fallback to ElevenLabs STT
+          if (!singleTranscription && elevenlabsKey) {
             const elFormData = new FormData();
             elFormData.append("file", audioBlob, "audio.ogg");
             elFormData.append("model_id", "scribe_v2");
             elFormData.append("language_code", language === "pt" ? "por" : language);
-
             const elResp = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
               method: "POST",
               headers: { "xi-api-key": elevenlabsKey },
@@ -1597,24 +1614,35 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
             });
             if (elResp.ok) {
               const elResult = await elResp.json();
-              transcription = elResult.text || "";
-              console.log(`ElevenLabs STT transcription: "${transcription.slice(0, 80)}"`);
+              singleTranscription = elResult.text || "";
             } else {
               const elErr = await elResp.text();
-              console.error(`ElevenLabs STT failed (${elResp.status}): ${elErr.slice(0, 200)}`);
+              console.error(`[TRANSCRIBE] ElevenLabs STT failed for audio ${i + 1}: ${elErr.slice(0, 100)}`);
             }
-          } else {
-            console.error("No API key available for audio transcription (Whisper/ElevenLabs)");
           }
+        }
+
+        if (singleTranscription) {
+          transcriptions.push(singleTranscription);
+          console.log(`[TRANSCRIBE] Audio ${i + 1} transcribed: "${singleTranscription.slice(0, 60)}"`);
+        } else {
+          console.warn(`[TRANSCRIBE] Audio ${i + 1} could not be transcribed`);
         }
       }
 
-      ctx.variables["transcricao"] = transcription;
+      // ── Combine all transcriptions into one coherent text ──
+      const fullTranscription = transcriptions.join(" ");
+
+      ctx.variables["transcricao"] = fullTranscription;
+      ctx.variables["total_audios_transcritos"] = String(transcriptions.length);
+
       // Append transcription to message content for downstream IA nodes
-      if (transcription) {
-        ctx.messageContent += `\n\n[Transcrição do áudio]: ${transcription}`;
+      if (fullTranscription) {
+        ctx.messageContent += `\n\n[Transcrição de ${transcriptions.length} áudio(s)]: ${fullTranscription}`;
       }
-      return { transcribed: !!transcription, transcription: transcription.slice(0, 200) };
+
+      console.log(`[TRANSCRIBE] Completed: ${transcriptions.length}/${audioMsgs.length} audios transcribed, total ${fullTranscription.length} chars`);
+      return { transcribed: transcriptions.length > 0, audioCount: audioMsgs.length, transcribedCount: transcriptions.length, transcription: fullTranscription.slice(0, 300) };
     }
 
     if (type === "action_extract_pdf") {
