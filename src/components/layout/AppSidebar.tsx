@@ -9,6 +9,7 @@ import {
   BarChart3,
   Settings,
   GitBranchPlus,
+  ClipboardList,
   ChevronsLeft,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
@@ -40,6 +41,7 @@ const mainItems = [
   { to: "/campaigns", label: "Campanhas", icon: Megaphone, badgeKey: "campaigns" as const },
   { to: "/automations", label: "Automações", icon: Bot, badgeKey: "automations" as const },
   { to: "/funnels", label: "Funis", icon: GitBranchPlus, badgeKey: null },
+  { to: "/occurrences", label: "Ocorrências", icon: ClipboardList, badgeKey: null },
 ];
 
 const secondaryItems = [

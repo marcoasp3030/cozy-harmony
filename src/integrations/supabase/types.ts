@@ -541,6 +541,54 @@ export type Database = {
           },
         ]
       }
+      occurrences: {
+        Row: {
+          contact_name: string | null
+          contact_phone: string | null
+          created_at: string
+          created_by: string | null
+          description: string
+          id: string
+          priority: string
+          resolution: string | null
+          resolved_at: string | null
+          status: string
+          store_name: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          contact_name?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          created_by?: string | null
+          description: string
+          id?: string
+          priority?: string
+          resolution?: string | null
+          resolved_at?: string | null
+          status?: string
+          store_name: string
+          type?: string
+          updated_at?: string
+        }
+        Update: {
+          contact_name?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          id?: string
+          priority?: string
+          resolution?: string | null
+          resolved_at?: string | null
+          status?: string
+          store_name?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
