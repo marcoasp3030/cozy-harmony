@@ -147,8 +147,9 @@ serve(async (req) => {
       const mediaFromContentString = /^https?:\/\//i.test(contentStr) ? contentStr : null;
 
       const mediaUrl = msg.mediaUrl || msg.MediaUrl || msg.media_url || msg.url || msg.fileUrl || msg.downloadUrl
-        || contentObj?.url || contentObj?.mediaUrl || contentObj?.media_url || contentObj?.fileUrl || contentObj?.downloadUrl
-        || contentObj?.audio?.url || contentObj?.video?.url || contentObj?.image?.url || contentObj?.document?.url
+        || contentObj?.URL || contentObj?.url || contentObj?.mediaUrl || contentObj?.media_url || contentObj?.fileUrl || contentObj?.downloadUrl
+        || contentObj?.audio?.url || contentObj?.audio?.URL || contentObj?.video?.url || contentObj?.video?.URL
+        || contentObj?.image?.url || contentObj?.image?.URL || contentObj?.document?.url || contentObj?.document?.URL
         || mediaFromContentString
         || null;
       const externalId = msg.messageid || msg.id || msg.Id || null;
