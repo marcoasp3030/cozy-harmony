@@ -42,6 +42,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import WhatsAppHealthPanel from "@/components/dashboard/WhatsAppHealthPanel";
 import FunnelLeadsPanel from "@/components/dashboard/FunnelLeadsPanel";
+import RealtimeMetricsPanel from "@/components/dashboard/RealtimeMetricsPanel";
 
 // ── SLA types & helpers ─────────────────────────────────────────────
 
@@ -482,6 +483,9 @@ const Dashboard = () => {
           </Card>
         ))}
       </div>
+
+      {/* Realtime Metrics */}
+      <RealtimeMetricsPanel />
 
       {/* SLA Panel */}
       <SlaSummaryPanel />
