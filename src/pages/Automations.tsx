@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Zap, Pencil, Trash2, Loader2, Play, Pause, Copy } from "lucide-react";
+import { Plus, Zap, Pencil, Trash2, Loader2, Play, Pause, Copy, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import FlowBuilder from "@/components/automations/FlowBuilder";
+import AutomationLogsDialog from "@/components/automations/AutomationLogsDialog";
 import { getNodeTypeConfig } from "@/components/automations/nodeTypes";
 import type { Node, Edge } from "@xyflow/react";
 import type { Json } from "@/integrations/supabase/types";
@@ -44,6 +45,7 @@ const Automations = () => {
   const [showBuilder, setShowBuilder] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [logsAutomation, setLogsAutomation] = useState<Automation | null>(null);
 
   // Create form state
   const [formName, setFormName] = useState("");
@@ -296,6 +298,9 @@ const Automations = () => {
                     <Button size="sm" variant="outline" className="text-xs h-7 gap-1" onClick={() => duplicateAutomation(auto)}>
                       <Copy className="h-3 w-3" /> Duplicar
                     </Button>
+                    <Button size="sm" variant="outline" className="text-xs h-7 gap-1" onClick={() => setLogsAutomation(auto)}>
+                      <History className="h-3 w-3" /> Logs
+                    </Button>
                     <Button size="sm" variant="ghost" className="text-xs h-7 gap-1 text-destructive hover:text-destructive" onClick={() => deleteAutomation(auto.id)}>
                       <Trash2 className="h-3 w-3" />
                     </Button>
@@ -346,6 +351,16 @@ const Automations = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Logs Dialog */}
+      {logsAutomation && (
+        <AutomationLogsDialog
+          automationId={logsAutomation.id}
+          automationName={logsAutomation.name}
+          open={!!logsAutomation}
+          onOpenChange={(open) => !open && setLogsAutomation(null)}
+        />
+      )}
     </div>
   );
 };
