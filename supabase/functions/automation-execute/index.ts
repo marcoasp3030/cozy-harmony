@@ -828,7 +828,6 @@ Mensagem do cliente: "${ctx.messageContent}"`;
 
       // ── Whisper: transcribe last inbound audio ──
       if (model === "whisper-1") {
-        if (!keys.openai) return { sent: false, reason: "openai_key_missing" };
         // Find last audio message from contact
         const { data: audioMsgs } = await supabase
           .from("messages")
@@ -850,30 +849,70 @@ Mensagem do cliente: "${ctx.messageContent}"`;
         if (!audioResp.ok) return { sent: false, reason: "audio_download_failed" };
         const audioBlob = await audioResp.blob();
 
-        const formData = new FormData();
-        formData.append("file", audioBlob, "audio.ogg");
-        formData.append("model", "whisper-1");
-        formData.append("language", "pt");
+        let transcription = "";
 
-        const whisperResp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${keys.openai}` },
-          body: formData,
-        });
+        // Try Whisper first
+        if (keys.openai) {
+          const formData = new FormData();
+          formData.append("file", audioBlob, "audio.ogg");
+          formData.append("model", "whisper-1");
+          formData.append("language", "pt");
 
-        if (whisperResp.ok) {
-          const result = await whisperResp.json();
-          const transcription = result.text || "";
-          if (transcription) {
-            const replyText = systemPrompt
-              ? interpolate(systemPrompt.replace(/\{\{transcricao\}\}/gi, transcription), ctx)
-              : `Transcrição: ${transcription}`;
-            await sendWhatsAppMessage(supabase, ctx, replyText);
+          const whisperResp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${keys.openai}` },
+            body: formData,
+          });
+
+          if (whisperResp.ok) {
+            const result = await whisperResp.json();
+            transcription = result.text || "";
+          } else {
+            console.error(`Whisper failed (${whisperResp.status}), trying ElevenLabs STT fallback`);
           }
+        }
+
+        // Fallback to ElevenLabs STT
+        if (!transcription) {
+          let elevenlabsKey = "";
+          if (ctx.userId) {
+            const { data: elS } = await supabase.from("settings").select("value").eq("user_id", ctx.userId).eq("key", "elevenlabs").single();
+            elevenlabsKey = (elS?.value as any)?.apiKey || "";
+          }
+          if (!elevenlabsKey) elevenlabsKey = Deno.env.get("ELEVENLABS_API_KEY") || "";
+
+          if (elevenlabsKey) {
+            console.log("Using ElevenLabs STT fallback for Whisper model");
+            const elFormData = new FormData();
+            elFormData.append("file", audioBlob, "audio.ogg");
+            elFormData.append("model_id", "scribe_v2");
+            elFormData.append("language_code", "por");
+
+            const elResp = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
+              method: "POST",
+              headers: { "xi-api-key": elevenlabsKey },
+              body: elFormData,
+            });
+            if (elResp.ok) {
+              const elResult = await elResp.json();
+              transcription = elResult.text || "";
+              console.log(`ElevenLabs STT result: "${transcription.slice(0, 80)}"`);
+            } else {
+              const elErr = await elResp.text();
+              console.error(`ElevenLabs STT also failed (${elResp.status}): ${elErr.slice(0, 200)}`);
+            }
+          }
+        }
+
+        if (transcription) {
+          const replyText = systemPrompt
+            ? interpolate(systemPrompt.replace(/\{\{transcricao\}\}/gi, transcription), ctx)
+            : `Transcrição: ${transcription}`;
+          await sendWhatsAppMessage(supabase, ctx, replyText);
           return { sent: true, model, transcription: transcription.slice(0, 100) };
         }
-        const errText = await whisperResp.text();
-        throw new Error(`Whisper error (${whisperResp.status}): ${errText.slice(0, 200)}`);
+
+        return { sent: false, reason: "transcription_failed_all_providers" };
       }
 
       // ── DALL-E: generate image ──
@@ -1275,7 +1314,7 @@ Mensagem do cliente: "${ctx.messageContent}"`;
           transcription = result.text || "";
         }
       } else {
-        // Use Lovable AI Gateway (no user key needed) or fallback to user's OpenAI key
+        // Try Whisper first (user's OpenAI key), then fallback to ElevenLabs STT
         const { data: ownerAuto } = await supabase.from("automations").select("created_by").limit(1).single();
         let openaiKey = "";
         if (ownerAuto?.created_by) {
@@ -1297,10 +1336,42 @@ Mensagem do cliente: "${ctx.messageContent}"`;
             const result = await resp.json();
             transcription = result.text || "";
           } else {
-            console.error(`Whisper failed, no fallback for audio transcription`);
+            console.error(`Whisper failed (${resp.status}), falling back to ElevenLabs STT`);
           }
-        } else {
-          console.log("No OpenAI key for Whisper, skipping transcription");
+        }
+
+        // Fallback to ElevenLabs STT if Whisper failed or no OpenAI key
+        if (!transcription) {
+          let elevenlabsKey = "";
+          if (ownerAuto?.created_by) {
+            const { data: elS } = await supabase.from("settings").select("value").eq("user_id", ownerAuto.created_by).eq("key", "elevenlabs").single();
+            elevenlabsKey = (elS?.value as any)?.apiKey || "";
+          }
+          if (!elevenlabsKey) elevenlabsKey = Deno.env.get("ELEVENLABS_API_KEY") || "";
+
+          if (elevenlabsKey) {
+            console.log("Trying ElevenLabs STT as fallback for transcription");
+            const elFormData = new FormData();
+            elFormData.append("file", audioBlob, "audio.ogg");
+            elFormData.append("model_id", "scribe_v2");
+            elFormData.append("language_code", language === "pt" ? "por" : language);
+
+            const elResp = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
+              method: "POST",
+              headers: { "xi-api-key": elevenlabsKey },
+              body: elFormData,
+            });
+            if (elResp.ok) {
+              const elResult = await elResp.json();
+              transcription = elResult.text || "";
+              console.log(`ElevenLabs STT transcription: "${transcription.slice(0, 80)}"`);
+            } else {
+              const elErr = await elResp.text();
+              console.error(`ElevenLabs STT failed (${elResp.status}): ${elErr.slice(0, 200)}`);
+            }
+          } else {
+            console.error("No API key available for audio transcription (Whisper/ElevenLabs)");
+          }
         }
       }
 
@@ -1577,27 +1648,60 @@ async function sendWhatsAppAudio(supabase: any, ctx: ExecutionContext, audioBase
     // Upload audio to storage, then send via public URL
     const audioBytes = Uint8Array.from(atob(audioBase64), c => c.charCodeAt(0));
     const fileName = `tts_${Date.now()}.mp3`;
-    const { data: upload } = await supabase.storage
+    const { data: upload, error: uploadErr } = await supabase.storage
       .from("chat-media")
       .upload(`audio/${fileName}`, audioBytes, { contentType: "audio/mpeg" });
+
+    if (uploadErr) {
+      console.error("Storage upload error:", uploadErr.message);
+      return;
+    }
 
     if (upload?.path) {
       const { data: urlData } = supabase.storage.from("chat-media").getPublicUrl(upload.path);
       const audioUrl = urlData?.publicUrl;
 
       if (audioUrl) {
-        await fetch(`${baseUrl}/send/audio`, {
+        // Use /send/media with type=ptt (matching uazapi-send pattern)
+        const sendBody = {
+          number: cleanNumber,
+          type: "ptt",
+          file: audioUrl,
+        };
+
+        console.log(`[AUDIO SEND] Sending PTT to ${cleanNumber} via /send/media, url=${audioUrl.slice(0, 60)}`);
+
+        const resp = await fetch(`${baseUrl}/send/media`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             token: instance.instance_token,
           },
-          body: JSON.stringify({
-            number: cleanNumber,
-            url: audioUrl,
-            ptt: true,
-          }),
+          body: JSON.stringify(sendBody),
         });
+
+        const respText = await resp.text();
+        console.log(`[AUDIO SEND] Response: status=${resp.status}, body=${respText.slice(0, 200)}`);
+
+        if (!resp.ok) {
+          // Fallback: try /send/audio with file param
+          console.log("[AUDIO SEND] /send/media failed, trying /send/audio fallback");
+          const resp2 = await fetch(`${baseUrl}/send/audio`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              token: instance.instance_token,
+            },
+            body: JSON.stringify({
+              number: cleanNumber,
+              file: audioUrl,
+              ptt: true,
+            }),
+          });
+          const respText2 = await resp2.text();
+          console.log(`[AUDIO SEND] /send/audio response: status=${resp2.status}, body=${respText2.slice(0, 200)}`);
+        }
+
         console.log(`Sent audio to ${cleanNumber} via storage URL`);
       }
     }
