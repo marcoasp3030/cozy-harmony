@@ -703,7 +703,17 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
       try { result = rawResponse ? JSON.parse(rawResponse) : {}; } catch { result = { raw: rawResponse }; }
 
       if (!resp.ok || result?.error) {
-        throw new Error(result?.error || `Falha no envio de mídia (HTTP ${resp.status})`);
+        const reason = result?.error || `Falha no envio de mídia (HTTP ${resp.status})`;
+        console.error(`[MEDIA SEND] ${reason}. Falling back to text message.`);
+
+        // Fallback: send caption as plain text so automation can continue
+        if (caption) {
+          await sendWhatsAppMessage(supabase, ctx, caption);
+          return { sent: false, fallback: "text", reason };
+        }
+
+        // No caption to fallback, but do not crash whole flow
+        return { sent: false, reason };
       }
 
       // Save to messages table
