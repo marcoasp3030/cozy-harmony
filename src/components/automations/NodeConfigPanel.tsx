@@ -1,4 +1,4 @@
-import { X, Copy, Trash2 } from "lucide-react";
+import { X, Copy, Trash2, Plus, Check, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -6,9 +6,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { getNodeTypeConfig } from "./nodeTypes";
 import { useReactFlow, type Node } from "@xyflow/react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { cn } from "@/lib/utils";
 
 interface NodeConfigPanelProps {
   node: Node;
@@ -16,6 +22,82 @@ interface NodeConfigPanelProps {
   onClose: () => void;
   onDelete: (id: string) => void;
 }
+
+const TagFieldCombobox = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => {
+  const [open, setOpen] = useState(false);
+  const [newTag, setNewTag] = useState("");
+  const queryClient = useQueryClient();
+
+  const { data: tags = [] } = useQuery({
+    queryKey: ["tags"],
+    queryFn: async () => {
+      const { data } = await supabase.from("tags").select("id, name, color").order("name");
+      return data || [];
+    },
+  });
+
+  const handleCreateTag = async () => {
+    if (!newTag.trim()) return;
+    const { error } = await supabase.from("tags").insert({ name: newTag.trim() });
+    if (error) { toast.error("Erro ao criar tag"); return; }
+    queryClient.invalidateQueries({ queryKey: ["tags"] });
+    onChange(newTag.trim());
+    setNewTag("");
+    toast.success("Tag criada!");
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" className="h-8 w-full justify-between text-xs font-normal">
+          {value ? (
+            <span className="flex items-center gap-1.5">
+              {(() => { const t = tags.find(t => t.name === value); return t ? <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: t.color }} /> : null; })()}
+              {value}
+            </span>
+          ) : "Selecione uma tag..."}
+          <ChevronsUpDown className="h-3 w-3 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[220px] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Buscar tag..." className="h-8 text-xs" />
+          <CommandList>
+            <CommandEmpty className="py-2 text-center text-xs">
+              Nenhuma tag encontrada.
+            </CommandEmpty>
+            <CommandGroup heading="Tags existentes">
+              {tags.map((tag) => (
+                <CommandItem
+                  key={tag.id}
+                  value={tag.name}
+                  onSelect={() => { onChange(tag.name); setOpen(false); }}
+                  className="text-xs gap-2"
+                >
+                  <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: tag.color }} />
+                  {tag.name}
+                  <Check className={cn("ml-auto h-3 w-3", value === tag.name ? "opacity-100" : "opacity-0")} />
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+          <div className="border-t p-2 flex gap-1">
+            <Input
+              value={newTag}
+              onChange={(e) => setNewTag(e.target.value)}
+              placeholder="Nova tag..."
+              className="h-7 text-xs flex-1"
+              onKeyDown={(e) => e.key === "Enter" && handleCreateTag()}
+            />
+            <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={handleCreateTag} disabled={!newTag.trim()}>
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+};
 
 const NodeConfigPanel = ({ node, onUpdate, onClose, onDelete }: NodeConfigPanelProps) => {
   const config = getNodeTypeConfig(node.data.nodeType as string);
@@ -76,7 +158,10 @@ const NodeConfigPanel = ({ node, onUpdate, onClose, onDelete }: NodeConfigPanelP
                   {field.label}
                   {field.required && <span className="text-destructive ml-0.5">*</span>}
                 </Label>
-                {field.type === "text" && (
+                {field.key === "tag_name" && (
+                  <TagFieldCombobox value={val} onChange={(v) => updateField(field.key, v)} />
+                )}
+                {field.type === "text" && field.key !== "tag_name" && (
                   <Input
                     value={val}
                     onChange={(e) => updateField(field.key, e.target.value)}
