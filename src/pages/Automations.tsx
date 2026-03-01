@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Plus, Zap, Pencil, Trash2, Loader2, Copy, History, Smartphone,
-  Search, MoreHorizontal, Activity, CheckCircle2, XCircle, Power
+  Search, MoreHorizontal, Activity, CheckCircle2, XCircle, Power,
+  LayoutTemplate, ArrowRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,6 +22,7 @@ import { useWhatsAppInstances } from "@/hooks/useWhatsAppInstances";
 import FlowBuilder from "@/components/automations/FlowBuilder";
 import AutomationLogsDialog from "@/components/automations/AutomationLogsDialog";
 import { getNodeTypeConfig } from "@/components/automations/nodeTypes";
+import { ALL_TEMPLATES, type FlowTemplate } from "@/components/automations/flowTemplates";
 import type { Node, Edge } from "@xyflow/react";
 import type { Json } from "@/integrations/supabase/types";
 
@@ -207,6 +209,35 @@ const Automations = () => {
     }
   };
 
+  const createFromTemplate = async (template: FlowTemplate) => {
+    setSaving(true);
+    const { data, error } = await supabase
+      .from("automations")
+      .insert({
+        name: template.name,
+        description: template.description,
+        trigger_type: template.triggerType,
+        trigger_config: {} as Json,
+        flow: { nodes: template.nodes, edges: template.edges } as unknown as Json,
+        is_active: false,
+        created_by: user?.id || null,
+      })
+      .select()
+      .single();
+
+    setSaving(false);
+    if (error) {
+      toast.error("Erro ao criar: " + error.message);
+      return;
+    }
+    toast.success(`Template "${template.name}" criado com sucesso!`);
+    if (data) {
+      setEditingAutomation(data);
+      setShowBuilder(true);
+    }
+    fetchAutomations();
+  };
+
   const updateInstanceId = async (autoId: string, instanceId: string | null) => {
     const { error } = await supabase
       .from("automations")
@@ -374,18 +405,61 @@ const Automations = () => {
           <p className="text-sm text-muted-foreground">Carregando automações...</p>
         </div>
       ) : automations.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-primary/10 mb-5">
-            <Zap className="h-10 w-10 text-primary" />
+        <div className="space-y-8">
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-primary/10 mb-5">
+              <Zap className="h-10 w-10 text-primary" />
+            </div>
+            <h3 className="font-heading font-bold text-xl">Crie sua primeira automação</h3>
+            <p className="text-sm text-muted-foreground mt-2 max-w-md">
+              Automatize o atendimento com fluxos visuais ou comece com um template pronto.
+            </p>
+            <Button className="mt-6 gap-2 shadow-md" size="lg" onClick={openCreate}>
+              <Plus className="h-5 w-5" />
+              Criar do Zero
+            </Button>
           </div>
-          <h3 className="font-heading font-bold text-xl">Crie sua primeira automação</h3>
-          <p className="text-sm text-muted-foreground mt-2 max-w-md">
-            Automatize o atendimento com fluxos visuais: responda mensagens, classifique contatos, envie IA e muito mais.
-          </p>
-          <Button className="mt-6 gap-2 shadow-md" size="lg" onClick={openCreate}>
-            <Plus className="h-5 w-5" />
-            Criar Automação
-          </Button>
+
+          {/* Templates section */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <LayoutTemplate className="h-5 w-5 text-primary" />
+              <h3 className="font-heading font-semibold text-lg">Templates Prontos</h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Comece rapidamente com um fluxo pré-configurado. Você pode personalizar depois.
+            </p>
+            <div className="grid gap-3 md:grid-cols-3">
+              {ALL_TEMPLATES.map((createTemplate) => {
+                const tpl = createTemplate();
+                return (
+                  <Card
+                    key={tpl.id}
+                    className="group cursor-pointer transition-all hover:shadow-lg hover:border-primary/30"
+                    onClick={() => createFromTemplate(tpl)}
+                  >
+                    <CardContent className="p-5">
+                      <div className="flex items-start gap-3">
+                        <span className="text-3xl">{tpl.emoji}</span>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="font-heading font-semibold text-sm">{tpl.name}</h4>
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{tpl.description}</p>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between">
+                        <Badge variant="secondary" className="text-[10px]">
+                          {tpl.nodes.length} nós
+                        </Badge>
+                        <span className="text-xs text-primary font-medium flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          Usar <ArrowRight className="h-3 w-3" />
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
         </div>
       ) : filteredAutomations.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -516,6 +590,36 @@ const Automations = () => {
               </Card>
             );
           })}
+        </div>
+      )}
+
+      {/* Templates section (always visible when not loading) */}
+      {!loading && automations.length > 0 && (
+        <div className="pt-2">
+          <div className="flex items-center gap-2 mb-3">
+            <LayoutTemplate className="h-4 w-4 text-muted-foreground" />
+            <h3 className="font-heading font-semibold text-sm text-muted-foreground">Criar a partir de template</h3>
+          </div>
+          <div className="grid gap-2 md:grid-cols-3">
+            {ALL_TEMPLATES.map((createTemplate) => {
+              const tpl = createTemplate();
+              return (
+                <button
+                  key={tpl.id}
+                  onClick={() => createFromTemplate(tpl)}
+                  disabled={saving}
+                  className="flex items-center gap-3 rounded-xl border bg-card/50 p-3 text-left hover:bg-card hover:shadow-md hover:border-primary/30 transition-all group"
+                >
+                  <span className="text-xl">{tpl.emoji}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold truncate">{tpl.name}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{tpl.description}</p>
+                  </div>
+                  <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-primary transition-colors shrink-0" />
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
