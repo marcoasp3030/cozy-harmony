@@ -2,7 +2,7 @@ import {
   MessageSquare, Search, Clock, UserPlus, Tag, ArrowRight,
   Send, Bot, Globe, Zap, Volume2, BarChart3, GitBranch,
   Variable, Timer, Mail, Phone, Filter, Users, Building2,
-  FileType, Layers, AudioLines, FileText, BrainCircuit
+  FileType, Layers, AudioLines, FileText, BrainCircuit, ListOrdered
 } from "lucide-react";
 
 export type NodeCategory = "trigger" | "condition" | "action";
@@ -145,6 +145,24 @@ export const NODE_TYPES: NodeTypeConfig[] = [
     description: "Envia uma mensagem de texto ao contato",
     fields: [
       { key: "message", label: "Mensagem", type: "textarea", placeholder: "Olá {{nome}}, tudo bem?", required: true },
+    ],
+  },
+  {
+    type: "action_send_interactive",
+    label: "Mensagem Interativa",
+    category: "action",
+    icon: ListOrdered,
+    color: "#8b5cf6",
+    description: "Envia botões de resposta rápida ou lista de opções via WhatsApp",
+    fields: [
+      { key: "interactive_type", label: "Tipo", type: "select", options: [
+        { value: "buttons", label: "Botões de Resposta (até 3)" },
+        { value: "list", label: "Lista de Opções (menu)" },
+      ], defaultValue: "buttons", required: true },
+      { key: "body_text", label: "Texto da Mensagem", type: "textarea", placeholder: "Escolha uma opção abaixo:", required: true },
+      { key: "footer", label: "Rodapé (opcional)", type: "text", placeholder: "Powered by sua empresa" },
+      { key: "button_title", label: "Título do botão (só para lista)", type: "text", placeholder: "Ver opções", defaultValue: "Ver opções" },
+      { key: "options", label: "Opções (uma por linha: título|id ou título|id|descrição)", type: "textarea", placeholder: "Vendas|vendas|Falar com comercial\nSuporte|suporte|Ajuda técnica\nFinanceiro|financeiro|Boletos e pagamentos", required: true },
     ],
   },
   {
