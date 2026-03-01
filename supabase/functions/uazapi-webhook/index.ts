@@ -388,6 +388,72 @@ serve(async (req) => {
         return json({ success: false, error: 'Conversation creation failed' });
       }
 
+      // ── AUTO-ASSIGN to attendant with lowest workload ──────
+      try {
+        const convFull = await supabase
+          .from('conversations')
+          .select('assigned_to')
+          .eq('id', conversation.id)
+          .single();
+
+        // Only auto-assign if not already assigned
+        if (!convFull.data?.assigned_to) {
+          // Check if auto-assign is enabled (global setting)
+          const { data: autoAssignSetting } = await supabase
+            .from('settings')
+            .select('value')
+            .eq('key', 'auto_assign_enabled')
+            .limit(1)
+            .maybeSingle();
+
+          const isEnabled = autoAssignSetting?.value === true || (autoAssignSetting?.value as any)?.enabled === true;
+
+          if (isEnabled) {
+            // Get all attendants
+            const { data: attendants } = await supabase
+              .from('user_roles')
+              .select('user_id, role');
+
+            if (attendants && attendants.length > 0) {
+              const attendantIds = attendants.map((a: any) => a.user_id);
+
+              // Count active conversations per attendant
+              const { data: activeConvs } = await supabase
+                .from('conversations')
+                .select('assigned_to')
+                .in('assigned_to', attendantIds)
+                .in('status', ['open', 'in_progress', 'waiting']);
+
+              const countMap = new Map<string, number>();
+              attendantIds.forEach((id: string) => countMap.set(id, 0));
+              (activeConvs || []).forEach((c: any) => {
+                if (c.assigned_to) countMap.set(c.assigned_to, (countMap.get(c.assigned_to) || 0) + 1);
+              });
+
+              // Pick attendant with fewest active conversations
+              let minCount = Infinity;
+              let bestAgent: string | null = null;
+              for (const [userId, count] of countMap) {
+                if (count < minCount) {
+                  minCount = count;
+                  bestAgent = userId;
+                }
+              }
+
+              if (bestAgent) {
+                await supabase
+                  .from('conversations')
+                  .update({ assigned_to: bestAgent })
+                  .eq('id', conversation.id);
+                console.log(`Auto-assigned conversation ${conversation.id} to ${bestAgent} (${minCount} active)`);
+              }
+            }
+          }
+        }
+      } catch (autoAssignErr) {
+        console.error('Auto-assign error (non-fatal):', autoAssignErr);
+      }
+
       // Insert message
       const { error: msgError } = await supabase.from('messages').insert({
         contact_id: contact.id,
