@@ -158,6 +158,26 @@ serve(async (req) => {
 
       console.log(`Processing message from ${phone}, type=${messageType}, id=${externalId}, text="${messageContent?.slice(0, 50)}"`);
 
+      // Detailed debug for audio/media messages
+      if (messageType === 'audio' || messageType === 'video' || messageType === 'image' || messageType === 'document') {
+        console.log(`[MEDIA DEBUG] rawMsgType="${rawMsgType}", mediaUrl="${mediaUrl || 'NULL'}"`);
+        console.log(`[MEDIA DEBUG] msg.content type=${typeof msg.content}, value=${JSON.stringify(msg.content).slice(0, 500)}`);
+        console.log(`[MEDIA DEBUG] msg.mediaUrl="${msg.mediaUrl}", msg.url="${msg.url}", msg.fileUrl="${msg.fileUrl}", msg.downloadUrl="${msg.downloadUrl}"`);
+        console.log(`[MEDIA DEBUG] msg.MediaUrl="${msg.MediaUrl}", msg.media_url="${msg.media_url}"`);
+        console.log(`[MEDIA DEBUG] contentObj keys=${contentObj ? Object.keys(contentObj).join(',') : 'null'}`);
+        if (contentObj) {
+          console.log(`[MEDIA DEBUG] contentObj.url="${contentObj.url}", contentObj.audio=${JSON.stringify(contentObj.audio).slice(0, 200)}`);
+          console.log(`[MEDIA DEBUG] contentObj.fileUrl="${contentObj.fileUrl}", contentObj.downloadUrl="${contentObj.downloadUrl}"`);
+        }
+        // Log full msg keys and any nested media-related fields
+        const mediaKeys = ['media', 'file', 'audio', 'audioMessage', 'pttMessage', 'documentMessage', 'imageMessage', 'videoMessage'];
+        for (const k of mediaKeys) {
+          if (msg[k] !== undefined) {
+            console.log(`[MEDIA DEBUG] msg.${k}=${JSON.stringify(msg[k]).slice(0, 300)}`);
+          }
+        }
+      }
+
       // Find or create contact
       let { data: contact } = await supabase
         .from('contacts')
