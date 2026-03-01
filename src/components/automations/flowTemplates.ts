@@ -394,11 +394,47 @@ export function createMultimodalTemplate(): FlowTemplate {
       },
     },
 
+    // ═══ ROTA 0: ESCALONAMENTO JURÍDICO (antes de tudo) ═══
+    {
+      id: "multi_check_juridico",
+      type: "flowNode",
+      position: { x: X, y: 400 },
+      data: {
+        nodeType: "condition_contains",
+        text: "advogado,advogada,processo,processar,procon,juízo,juizo,judicial,jurídico,juridico,justiça,justica,tribunal,intimação,intimacao,denúncia,denuncia,ação judicial,acao judicial,consumidor,indenização,indenizacao,boletim de ocorrência,boletim de ocorrencia,delegacia,polícia,policia,reclame aqui",
+        case_sensitive: false,
+      },
+    },
+    // Mensagem de escalonamento
+    {
+      id: "multi_juridico_msg",
+      type: "flowNode",
+      position: { x: X, y: 560 },
+      data: {
+        nodeType: "action_send_message",
+        message: "{{nome}}, entendemos a sua preocupação e levamos isso muito a sério. 💚\n\nSeu atendimento será encaminhado para nossa equipe especializada, que vai analisar o caso com toda a atenção necessária.\n\nEm breve você receberá um retorno. Agradecemos a sua paciência! 🙏",
+      },
+    },
+    // Tag jurídica
+    {
+      id: "multi_juridico_tag",
+      type: "flowNode",
+      position: { x: X, y: 700 },
+      data: { nodeType: "action_add_tag", tag_name: "escalonamento-juridico" },
+    },
+    // Score alto para prioridade
+    {
+      id: "multi_juridico_score",
+      type: "flowNode",
+      position: { x: X, y: 840 },
+      data: { nodeType: "action_update_score", points: "50", operation: "add" },
+    },
+
     // ═══ ROTA 1: VERIFICAR ÁUDIO ═══
     {
       id: "multi_check_audio",
       type: "flowNode",
-      position: { x: X - 350, y: 420 },
+      position: { x: X - 350, y: 560 },
       data: { nodeType: "condition_media_type", media_type: "audio" },
     },
     // Transcrever áudio
@@ -618,8 +654,14 @@ FRASE INSTITUCIONAL: A Nutricar Brasil utiliza tecnologia, controle de acesso e 
     makeEdge("trigger_msg_multi", "multi_welcome_media"),
     makeEdge("multi_welcome_media", "multi_collect"),
 
-    // Collect → Check áudio (texto só segue pelo caminho "no" da condição)
-    makeEdge("multi_collect", "multi_check_audio"),
+    // Collect → Check jurídico PRIMEIRO
+    makeEdge("multi_collect", "multi_check_juridico"),
+    // Jurídico SIM → escalonamento
+    makeEdge("multi_check_juridico", "multi_juridico_msg", "yes"),
+    makeEdge("multi_juridico_msg", "multi_juridico_tag"),
+    makeEdge("multi_juridico_tag", "multi_juridico_score"),
+    // Jurídico NÃO → segue fluxo normal (check áudio)
+    makeEdge("multi_check_juridico", "multi_check_audio", "no"),
 
     // ── Rota Áudio ──
     makeEdge("multi_check_audio", "multi_transcribe", "yes"),
@@ -635,7 +677,6 @@ FRASE INSTITUCIONAL: A Nutricar Brasil utiliza tecnologia, controle de acesso e 
     makeEdge("multi_audio_pix_receipt", "multi_audio_pix_tag"),
 
     // ── Rota Texto ──
-    // Texto sem áudio + sem pagamento → IA
     makeEdge("multi_check_audio", "multi_text_pix_check", "no"),
     // Texto com pagamento → PIX interativo → comprovante → tag
     makeEdge("multi_text_pix_check", "multi_text_pix_interactive", "yes"),
