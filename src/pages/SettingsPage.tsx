@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Wifi, WifiOff, CheckCircle2, Loader2, QrCode, Unplug, Save, Plus, Link2, ExternalLink, Copy, Check, Volume2, VolumeX, Brain, Eye, EyeOff, Sparkles, FileText, Image, Mic, Video, MessageSquare, Wrench } from "lucide-react";
+import { Wifi, WifiOff, CheckCircle2, Loader2, QrCode, Unplug, Save, Plus, Link2, ExternalLink, Copy, Check, Volume2, VolumeX, Brain, Eye, EyeOff, Sparkles, FileText, Image, Mic, Video, MessageSquare, Wrench, Bell, BellOff } from "lucide-react";
 import InstanceManager from "@/components/settings/InstanceManager";
 import BusinessHoursSettings from "@/components/settings/BusinessHoursSettings";
 import ElevenLabsSettings from "@/components/settings/ElevenLabsSettings";
@@ -262,6 +262,74 @@ const AutoAssignToggle = () => {
           </div>
           <Switch checked={enabled} onCheckedChange={toggle} />
         </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+const PushNotificationToggle = () => {
+  const [enabled, setEnabled] = useState(() => {
+    return localStorage.getItem("push_notifications_enabled") !== "false" && "Notification" in window && Notification.permission === "granted";
+  });
+  const [permission, setPermission] = useState<NotificationPermission>(
+    "Notification" in window ? Notification.permission : "denied"
+  );
+
+  const toggle = async (checked: boolean) => {
+    if (checked) {
+      if (!("Notification" in window)) {
+        toast.error("Seu navegador não suporta notificações push");
+        return;
+      }
+      if (Notification.permission === "denied") {
+        toast.error("Notificações bloqueadas pelo navegador. Habilite nas configurações do navegador.");
+        return;
+      }
+      const result = await Notification.requestPermission();
+      setPermission(result);
+      if (result === "granted") {
+        localStorage.setItem("push_notifications_enabled", "true");
+        setEnabled(true);
+        toast.success("Notificações push ativadas!");
+        // Send a test notification
+        new Notification("✅ Notificações ativas", {
+          body: "Você será alertado sobre mensagens, SLA e ocorrências críticas.",
+          icon: "/favicon.ico",
+        });
+      } else {
+        toast.error("Permissão negada pelo navegador");
+      }
+    } else {
+      localStorage.setItem("push_notifications_enabled", "false");
+      setEnabled(false);
+      toast.success("Notificações push desativadas");
+    }
+  };
+
+  return (
+    <Card className="mt-4">
+      <CardHeader>
+        <CardTitle className="font-heading">Notificações Push</CardTitle>
+        <CardDescription>Receba alertas mesmo quando estiver em outra aba</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {enabled ? <Bell className="h-5 w-5 text-primary" /> : <BellOff className="h-5 w-5 text-muted-foreground" />}
+            <div>
+              <Label className="text-sm font-medium">Notificações do navegador</Label>
+              <p className="text-xs text-muted-foreground">
+                Alertas para novas mensagens, SLA e ocorrências críticas
+              </p>
+            </div>
+          </div>
+          <Switch checked={enabled} onCheckedChange={toggle} />
+        </div>
+        {permission === "denied" && (
+          <p className="text-xs text-destructive">
+            ⚠️ Notificações bloqueadas pelo navegador. Acesse as configurações do site no navegador para habilitar.
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -758,6 +826,7 @@ const SettingsPage = () => {
           </Card>
 
           <NotificationSoundToggle />
+          <PushNotificationToggle />
           <AutoAssignToggle />
         </TabsContent>
 

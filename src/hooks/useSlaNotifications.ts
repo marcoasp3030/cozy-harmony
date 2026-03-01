@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
+import { sendPushNotification, isPushEnabled } from "@/hooks/usePushNotifications";
 
 interface SlaConversation {
   id: string;
@@ -58,6 +59,11 @@ export const useSlaNotifications = (conversations: SlaConversation[]) => {
           duration: 8000,
         });
         if (soundEnabled) playWarningSound();
+        sendPushNotification({
+          title: "⏰ SLA Excedido",
+          body: `O SLA de ${conv.sla_hours}h de ${contactName} foi ultrapassado.`,
+          tag: `sla-expired-${conv.id}`,
+        });
       }
       // SLA warning (75%+)
       else if (ratio >= SLA_WARNING_THRESHOLD && ratio < 1 && !notifiedRef.current.has(conv.id)) {
@@ -73,6 +79,11 @@ export const useSlaNotifications = (conversations: SlaConversation[]) => {
           duration: 6000,
         });
         if (soundEnabled) playWarningSound();
+        sendPushNotification({
+          title: "⚠️ SLA próximo de expirar",
+          body: `Restam ${remainingLabel} do SLA de ${conv.sla_hours}h de ${contactName}.`,
+          tag: `sla-warning-${conv.id}`,
+        });
       }
     }
   }, [conversations]);

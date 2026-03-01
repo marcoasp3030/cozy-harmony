@@ -23,6 +23,7 @@ import KanbanView from "@/components/inbox/KanbanView";
 import MessageBubble from "@/components/inbox/MessageBubble";
 import ContactPanel from "@/components/inbox/ContactPanel";
 import { useSlaNotifications } from "@/hooks/useSlaNotifications";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { Message } from "@/components/inbox/MessageBubble";
 import InteractiveMessageBuilder, { getDefaultInteractive, type InteractiveMessage } from "@/components/shared/InteractiveMessageBuilder";
@@ -117,6 +118,7 @@ const InboxPage = () => {
 
   // SLA notifications
   useSlaNotifications(conversations);
+  const { notifyNewMessage } = usePushNotifications();
 
   // Load smart funnel config
   useEffect(() => {
@@ -276,6 +278,13 @@ const InboxPage = () => {
         if (msg.direction === "inbound") {
           const soundEnabled = localStorage.getItem("notification_sound_enabled") !== "false";
           if (soundEnabled) playNotificationSound();
+          // Push notification for inbound messages
+          const senderConv = conversations.find((c) => c.contact?.id === msg.contact_id);
+          notifyNewMessage(
+            senderConv?.contact?.name || "",
+            msg.content || "Mídia recebida",
+            senderConv?.contact?.phone
+          );
           // Trigger AI funnel suggestion
           const sfConfig = smartFunnelConfigRef.current;
           if (sfConfig?.enabled && selectedConv && msg.contact_id === selectedConv.contact_id && msg.content) {
