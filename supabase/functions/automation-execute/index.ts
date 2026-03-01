@@ -1064,15 +1064,57 @@ Mensagem do cliente: "${ctx.messageContent}"`;
       // ── Standard chat models (GPT, Gemini chat) ──
       const { data: recentMsgs } = await supabase
         .from("messages")
-        .select("direction, content, type")
+        .select("direction, content, type, media_url")
         .eq("contact_id", ctx.contactId)
         .order("created_at", { ascending: false })
-        .limit(10);
+        .limit(15);
 
-      const messages = (recentMsgs || []).reverse().map((m: any) => ({
-        direction: m.direction,
-        content: m.content || "[mídia]",
-      }));
+      const transcription = ctx.variables["transcricao"] || "";
+      const pdfContent = ctx.variables["pdf_conteudo"] || "";
+      const groupedMessages = ctx.variables["mensagens_agrupadas"] || "";
+
+      const messages = (recentMsgs || []).reverse().map((m: any, idx: number, arr: any[]) => {
+        let content = m.content || "";
+        // For the last inbound message, enrich with transcription/extracted content
+        const isLastInbound = m.direction === "inbound" && idx === arr.length - 1;
+        
+        if (!content && (m.type === "audio" || m.type === "ptt")) {
+          // Use transcription if available for audio messages
+          if (isLastInbound && transcription) {
+            content = `[Áudio do cliente - transcrição]: ${transcription}`;
+          } else {
+            content = "[Áudio sem transcrição disponível]";
+          }
+        } else if (!content && m.type === "image") {
+          content = "[Imagem enviada pelo cliente]";
+        } else if (!content && m.type === "document") {
+          if (isLastInbound && pdfContent) {
+            content = `[Documento do cliente - conteúdo extraído]: ${pdfContent.slice(0, 1500)}`;
+          } else {
+            content = "[Documento enviado pelo cliente]";
+          }
+        } else if (!content) {
+          content = `[${m.type || "mídia"}]`;
+        }
+        
+        return { direction: m.direction, content };
+      });
+
+      // If we have grouped messages from collect_messages node, add as context
+      if (groupedMessages && !transcription) {
+        messages.push({
+          direction: "inbound",
+          content: `[Mensagens agrupadas do cliente]:\n${groupedMessages}`,
+        });
+      }
+
+      // If transcription exists but wasn't matched to last msg (e.g., collect+transcribe flow)
+      if (transcription && !messages.some((m: any) => m.content.includes(transcription))) {
+        messages.push({
+          direction: "inbound",
+          content: `[Transcrição do áudio do cliente]: ${transcription}`,
+        });
+      }
 
       const chatMessages = [
         { role: "system", content: systemPrompt },
