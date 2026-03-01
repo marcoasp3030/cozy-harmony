@@ -23,6 +23,7 @@ import NodeConfigPanel from "./NodeConfigPanel";
 import { getNodeTypeConfig } from "./nodeTypes";
 import { Button } from "@/components/ui/button";
 import { Save, Undo2, Redo2, Trash2, LayoutGrid } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 
 // ---------- Helpers ----------
@@ -440,52 +441,68 @@ const FlowBuilderInner = ({ initialNodes = [], initialEdges = [], onSave }: Flow
         </ReactFlow>
 
         {/* Toolbar floating top-right */}
-        <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5">
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 w-8 p-0"
-            onClick={undo}
-            disabled={!canUndo}
-            title="Desfazer (Ctrl+Z)"
-          >
-            <Undo2 className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 w-8 p-0"
-            onClick={redo}
-            disabled={!canRedo}
-            title="Refazer (Ctrl+Y)"
-          >
-            <Redo2 className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 w-8 p-0"
-            onClick={handleAutoLayout}
-            title="Auto-layout (organizar nós)"
-          >
-            <LayoutGrid className="h-3.5 w-3.5" />
-          </Button>
+        <div className="absolute top-3 right-3 z-10 flex items-center gap-1 bg-card/90 backdrop-blur-sm border rounded-xl px-1.5 py-1 shadow-lg">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 w-8 p-0"
+                onClick={undo}
+                disabled={!canUndo}
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">Desfazer (Ctrl+Z)</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 w-8 p-0"
+                onClick={redo}
+                disabled={!canRedo}
+              >
+                <Redo2 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">Refazer (Ctrl+Y)</TooltipContent>
+          </Tooltip>
+          <div className="h-5 w-px bg-border mx-0.5" />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 w-8 p-0"
+                onClick={handleAutoLayout}
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">Auto-layout</TooltipContent>
+          </Tooltip>
           {selectedCount > 1 && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 gap-1 text-xs text-destructive hover:text-destructive"
-              onClick={deleteSelectedNodes}
-              title="Excluir selecionados"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              {selectedCount}
-            </Button>
+            <>
+              <div className="h-5 w-px bg-border mx-0.5" />
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1 text-xs text-destructive hover:text-destructive"
+                onClick={deleteSelectedNodes}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {selectedCount}
+              </Button>
+            </>
           )}
+          <div className="h-5 w-px bg-border mx-0.5" />
           <Button
             size="sm"
             onClick={handleSave}
-            className="h-8 gap-1.5 text-xs font-semibold shadow-lg"
+            className="h-8 gap-1.5 text-xs font-semibold rounded-lg"
             title="Salvar (Ctrl+S)"
           >
             <Save className="h-3.5 w-3.5" />
@@ -494,7 +511,7 @@ const FlowBuilderInner = ({ initialNodes = [], initialEdges = [], onSave }: Flow
         </div>
 
         {/* Hints bar */}
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3 bg-card/90 backdrop-blur-sm border rounded-full px-4 py-1.5 shadow-md">
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3 bg-card/80 backdrop-blur-sm border rounded-full px-4 py-1.5 shadow-md">
           <span className="text-[10px] text-muted-foreground">
             <kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">Ctrl+Z</kbd> Desfazer
           </span>
