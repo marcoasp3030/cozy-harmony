@@ -497,18 +497,24 @@ async function executeNode(
 
     if (type === "condition_intent_classifier") {
       const intentsRaw = String(d.intents || "dúvida, reclamação, compra, suporte, saudação");
-      const intents = intentsRaw.split(",").map((i: string) => i.trim()).filter(Boolean);
+      const intents = intentsRaw.split(",").map((i: string) => i.trim().toLowerCase()).filter(Boolean);
       const threshold = parseInt(d.confidence_threshold) || 60;
       const customPrompt = d.custom_prompt || "";
+      // The FIRST intent in the list is the "positive" intent (yes path)
+      const positiveIntent = intents[0] || "";
+
+      // Use grouped messages + current message for better classification
+      const groupedMessages = ctx.variables["mensagens_agrupadas"] || "";
+      const classifyContent = groupedMessages || ctx.messageContent || "";
 
       const classifyPrompt = `Você é um classificador de intenções de mensagens de clientes via WhatsApp.
 Classifique a mensagem do cliente em UMA das seguintes intenções: ${intents.join(", ")}.
 ${customPrompt ? `Contexto adicional: ${customPrompt}` : ""}
 
 Responda APENAS com um JSON válido no formato:
-{"intent": "<intenção>", "confidence": <0-100>}
+{"intent": "<intenção>", "confidence": <0-100|}
 
-Mensagem do cliente: "${ctx.messageContent}"`;
+Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
 
       let reply = "";
       const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -535,10 +541,9 @@ Mensagem do cliente: "${ctx.messageContent}"`;
       }
 
       if (!reply) {
-        // No AI available, default to first intent
         ctx.variables["intencao"] = intents[0] || "desconhecido";
         ctx.variables["intencao_confianca"] = "0";
-        return true; // pass through yes path
+        return true;
       }
 
       // Parse JSON response
@@ -552,10 +557,12 @@ Mensagem do cliente: "${ctx.messageContent}"`;
           ctx.variables["intencao"] = detectedIntent;
           ctx.variables["intencao_confianca"] = String(confidence);
 
-          console.log(`Intent classified: "${detectedIntent}" (${confidence}%) threshold=${threshold}%`);
+          // YES path = first intent detected with HIGH confidence
+          // NO path = any other intent or low confidence
+          const isPositive = detectedIntent === positiveIntent && confidence >= threshold;
+          console.log(`Intent classified: "${detectedIntent}" (${confidence}%) positive="${positiveIntent}" match=${isPositive} threshold=${threshold}%`);
 
-          // Returns true (yes path) if confidence meets threshold
-          return confidence >= threshold;
+          return isPositive;
         }
       } catch (e) {
         console.error("Intent parse error:", e, "raw:", reply);
@@ -1710,7 +1717,11 @@ async function sendElevenLabsAudioFromText(
   const { encode: base64Encode } = await import("https://deno.land/std@0.168.0/encoding/base64.ts");
   const audioBase64 = base64Encode(audioBuffer);
 
-  await sendWhatsAppAudio(supabase, ctx, audioBase64);
+  const audioSent = await sendWhatsAppAudio(supabase, ctx, audioBase64);
+  if (!audioSent) {
+    console.error("[TTS] Audio generated but WhatsApp send failed");
+    return { sent: false, reason: "whatsapp_send_failed" };
+  }
   return { sent: true };
 }
 
@@ -1746,13 +1757,8 @@ async function sendWhatsAppMessage(supabase: any, ctx: ExecutionContext, message
   if (recentSent && recentSent.length > 0) {
     const isDuplicate = recentSent.some((m: any) => {
       const existing = (m.content || "").slice(0, 200).trim();
-      // Exact match or >80% overlap (first 200 chars)
-      if (existing === msgPreview) return true;
-      // Check if one contains the other (catches near-duplicates)
-      if (existing.length > 20 && msgPreview.length > 20) {
-        if (existing.includes(msgPreview.slice(0, 80)) || msgPreview.includes(existing.slice(0, 80))) return true;
-      }
-      return false;
+      // Only block EXACT matches (not partial) to avoid false positives
+      return existing === msgPreview;
     });
     if (isDuplicate) {
       console.log(`Anti-dup: skipping duplicate message to ${cleanNumber}: "${msgPreview.slice(0, 50)}"`);
@@ -1826,89 +1832,92 @@ async function sendWhatsAppMessage(supabase: any, ctx: ExecutionContext, message
   return { messageId: externalId, httpStatus: resp.status, apiResponse: apiResponseSummary };
 }
 
-async function sendWhatsAppAudio(supabase: any, ctx: ExecutionContext, audioBase64: string) {
+async function sendWhatsAppAudio(supabase: any, ctx: ExecutionContext, audioBase64: string): Promise<boolean> {
   try {
     const cleanNumber = String(ctx.contactPhone || "").replace(/\D/g, "");
-    if (!cleanNumber) return;
+    if (!cleanNumber) {
+      console.error("[AUDIO SEND] Invalid phone number");
+      return false;
+    }
 
     const instance = await getCachedInstance(supabase, ctx.userId);
     if (!instance) {
-      console.error("No WhatsApp instance for audio send");
-      return;
+      console.error("[AUDIO SEND] No WhatsApp instance configured");
+      return false;
     }
 
     const baseUrl = String(instance.base_url).replace(/\/+$/, "");
 
     // Upload audio to storage, then send via public URL
     const audioBytes = Uint8Array.from(atob(audioBase64), c => c.charCodeAt(0));
-    const fileName = `tts_${Date.now()}.mp3`;
+    const fileName = `tts_${Date.now()}_${cleanNumber}.mp3`;
     const { data: upload, error: uploadErr } = await supabase.storage
       .from("chat-media")
       .upload(`audio/${fileName}`, audioBytes, { contentType: "audio/mpeg" });
 
     if (uploadErr) {
-      console.error("Storage upload error:", uploadErr.message);
-      return;
+      console.error("[AUDIO SEND] Storage upload error:", uploadErr.message);
+      return false;
     }
 
-    if (upload?.path) {
-      const { data: urlData } = supabase.storage.from("chat-media").getPublicUrl(upload.path);
-      const audioUrl = urlData?.publicUrl;
-
-      if (audioUrl) {
-        // Use /send/media with type=ptt (matching uazapi-send pattern)
-        const sendBody = {
-          number: cleanNumber,
-          type: "ptt",
-          file: audioUrl,
-        };
-
-        console.log(`[AUDIO SEND] Sending PTT to ${cleanNumber} via /send/media, url=${audioUrl.slice(0, 60)}`);
-
-        const resp = await fetch(`${baseUrl}/send/media`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            token: instance.instance_token,
-          },
-          body: JSON.stringify(sendBody),
-        });
-
-        const respText = await resp.text();
-        console.log(`[AUDIO SEND] Response: status=${resp.status}, body=${respText.slice(0, 200)}`);
-
-        if (!resp.ok) {
-          // Fallback: try /send/audio with file param
-          console.log("[AUDIO SEND] /send/media failed, trying /send/audio fallback");
-          const resp2 = await fetch(`${baseUrl}/send/audio`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              token: instance.instance_token,
-            },
-            body: JSON.stringify({
-              number: cleanNumber,
-              file: audioUrl,
-              ptt: true,
-            }),
-          });
-          const respText2 = await resp2.text();
-          console.log(`[AUDIO SEND] /send/audio response: status=${resp2.status}, body=${respText2.slice(0, 200)}`);
-        }
-
-        console.log(`Sent audio to ${cleanNumber} via storage URL`);
-      }
+    if (!upload?.path) {
+      console.error("[AUDIO SEND] No upload path returned");
+      return false;
     }
 
-    await supabase.from("messages").insert({
-      contact_id: ctx.contactId,
-      direction: "outbound",
-      type: "audio",
-      content: "[Áudio automático - TTS]",
-      status: "sent",
+    const { data: urlData } = supabase.storage.from("chat-media").getPublicUrl(upload.path);
+    const audioUrl = urlData?.publicUrl;
+
+    if (!audioUrl) {
+      console.error("[AUDIO SEND] Failed to get public URL");
+      return false;
+    }
+
+    // Try /send/media with type=ptt first
+    const sendBody = { number: cleanNumber, type: "ptt", file: audioUrl };
+    console.log(`[AUDIO SEND] Sending PTT to ${cleanNumber} via /send/media, url=${audioUrl.slice(0, 60)}`);
+
+    const resp = await fetch(`${baseUrl}/send/media`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", token: instance.instance_token },
+      body: JSON.stringify(sendBody),
     });
+
+    const respText = await resp.text();
+    console.log(`[AUDIO SEND] /send/media response: status=${resp.status}, body=${respText.slice(0, 200)}`);
+
+    let sent = resp.ok;
+
+    if (!sent) {
+      // Fallback: try /send/audio
+      console.log("[AUDIO SEND] /send/media failed, trying /send/audio fallback");
+      const resp2 = await fetch(`${baseUrl}/send/audio`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", token: instance.instance_token },
+        body: JSON.stringify({ number: cleanNumber, file: audioUrl, ptt: true }),
+      });
+      const respText2 = await resp2.text();
+      console.log(`[AUDIO SEND] /send/audio response: status=${resp2.status}, body=${respText2.slice(0, 200)}`);
+      sent = resp2.ok;
+    }
+
+    if (sent) {
+      await supabase.from("messages").insert({
+        contact_id: ctx.contactId,
+        direction: "outbound",
+        type: "audio",
+        content: "[Áudio automático - TTS]",
+        status: "sent",
+      });
+      console.log(`[AUDIO SEND] Successfully sent audio to ${cleanNumber}`);
+    } else {
+      console.error(`[AUDIO SEND] All methods failed for ${cleanNumber}`);
+    }
+
+    return sent;
   } catch (err) {
-    console.error("Failed to send audio:", err);
+    console.error("[AUDIO SEND] Exception:", err);
+    return false;
   }
 }
 
