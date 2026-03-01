@@ -94,6 +94,7 @@ const InboxPage = () => {
     return (localStorage.getItem("inbox_view_mode") as "list" | "kanban") || "list";
   });
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [filterAgent, setFilterAgent] = useState<string>("all");
   const [isNoteMode, setIsNoteMode] = useState(false);
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
@@ -109,6 +110,7 @@ const InboxPage = () => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { instances, defaultInstance } = useWhatsAppInstances();
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
+  const [agentProfiles, setAgentProfiles] = useState<{ user_id: string; name: string }[]>([]);
 
   const selectedConv = conversations.find((c) => c.id === selectedConvId);
   const contact = selectedConv?.contact;
@@ -198,6 +200,18 @@ const InboxPage = () => {
     supabase.from("templates").select("id, name, content, category").order("name").then(({ data }) => {
       setTemplates((data as any[]) || []);
     });
+  }, []);
+
+  // Load agent profiles (users with roles)
+  useEffect(() => {
+    const load = async () => {
+      const { data: roles } = await supabase.from("user_roles").select("user_id");
+      if (!roles?.length) return;
+      const ids = roles.map((r: any) => r.user_id);
+      const { data: profiles } = await supabase.from("profiles").select("user_id, name").in("user_id", ids);
+      setAgentProfiles((profiles as any[]) || []);
+    };
+    load();
   }, []);
 
   useEffect(() => {
@@ -665,6 +679,11 @@ const InboxPage = () => {
 
   const filteredConversations = conversations.filter((c) => {
     if (filterStatus !== "all" && c.status !== filterStatus) return false;
+    if (filterAgent !== "all") {
+      if (filterAgent === "unassigned") {
+        if (c.assigned_to) return false;
+      } else if (c.assigned_to !== filterAgent) return false;
+    }
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
     return (
@@ -755,11 +774,24 @@ const InboxPage = () => {
               })}
             </div>
           </div>
-          <div className="border-b border-border p-2">
+          <div className="border-b border-border p-2 space-y-1.5">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input placeholder="Buscar..." className="pl-8 h-8 text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             </div>
+            {agentProfiles.length > 0 && (
+              <select
+                value={filterAgent}
+                onChange={(e) => setFilterAgent(e.target.value)}
+                className="w-full h-7 rounded-md border border-input bg-background px-2 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="all">Todos os atendentes</option>
+                <option value="unassigned">Sem atendente</option>
+                {agentProfiles.map((a) => (
+                  <option key={a.user_id} value={a.user_id}>{a.name}</option>
+                ))}
+              </select>
+            )}
           </div>
           <ScrollArea className="flex-1">
             {loading ? (
