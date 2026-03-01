@@ -541,6 +541,44 @@ export type Database = {
           },
         ]
       }
+      occurrence_history: {
+        Row: {
+          action: string
+          changes: Json
+          created_at: string
+          id: string
+          occurrence_id: string
+          user_id: string | null
+          user_name: string | null
+        }
+        Insert: {
+          action: string
+          changes?: Json
+          created_at?: string
+          id?: string
+          occurrence_id: string
+          user_id?: string | null
+          user_name?: string | null
+        }
+        Update: {
+          action?: string
+          changes?: Json
+          created_at?: string
+          id?: string
+          occurrence_id?: string
+          user_id?: string | null
+          user_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "occurrence_history_occurrence_id_fkey"
+            columns: ["occurrence_id"]
+            isOneToOne: false
+            referencedRelation: "occurrences"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       occurrences: {
         Row: {
           contact_name: string | null

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,7 @@ import {
   Pencil,
   Save,
   X,
+  History,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -64,6 +65,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -114,6 +117,36 @@ const emptyForm: OccurrenceForm = {
   priority: "normal",
 };
 
+const ACTION_LABELS: Record<string, string> = {
+  created: "Criou a ocorrência",
+  status_change: "Alterou o status",
+  edited: "Editou campos",
+  reopened: "Reabriu a ocorrência",
+  deleted: "Excluiu a ocorrência",
+};
+
+const getUserProfile = async () => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { id: null, name: "Sistema" };
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("name")
+    .eq("user_id", user.id)
+    .single();
+  return { id: user.id, name: profile?.name || user.email || "Usuário" };
+};
+
+const recordHistory = async (occurrenceId: string, action: string, changes: Record<string, any>) => {
+  const user = await getUserProfile();
+  await supabase.from("occurrence_history" as any).insert({
+    occurrence_id: occurrenceId,
+    user_id: user.id,
+    user_name: user.name,
+    action,
+    changes,
+  } as any);
+};
+
 const OccurrencesPage = () => {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -126,6 +159,7 @@ const OccurrencesPage = () => {
   const [resolution, setResolution] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({ contact_name: "", contact_phone: "", priority: "", type: "" });
+  const [showHistory, setShowHistory] = useState(false);
 
   const { data: occurrences = [], isLoading } = useQuery({
     queryKey: ["occurrences"],
@@ -139,12 +173,29 @@ const OccurrencesPage = () => {
     },
   });
 
+  const { data: history = [], refetch: refetchHistory } = useQuery({
+    queryKey: ["occurrence_history", selectedOccurrence?.id],
+    queryFn: async () => {
+      if (!selectedOccurrence?.id) return [];
+      const { data, error } = await supabase
+        .from("occurrence_history" as any)
+        .select("*")
+        .eq("occurrence_id", selectedOccurrence.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data || []) as any[];
+    },
+    enabled: !!selectedOccurrence?.id && detailOpen,
+  });
+
   const createMutation = useMutation({
     mutationFn: async (values: OccurrenceForm) => {
-      const { error } = await supabase.from("occurrences").insert(values);
+      const { data, error } = await supabase.from("occurrences").insert(values).select().single();
       if (error) throw error;
+      return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      recordHistory(data.id, "created", { store_name: data.store_name, type: data.type, priority: data.priority });
       queryClient.invalidateQueries({ queryKey: ["occurrences"] });
       toast.success("Ocorrência registrada com sucesso!");
       setForm(emptyForm);
@@ -166,9 +217,18 @@ const OccurrencesPage = () => {
       }
       const { error } = await supabase.from("occurrences").update(updates).eq("id", id);
       if (error) throw error;
+      return { id, status, resolution };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      const action = result.status === "aberto" ? "reopened" : "status_change";
+      const oldStatus = selectedOccurrence?.status;
+      recordHistory(result.id, action, {
+        from_status: STATUS_OPTIONS.find(s => s.value === oldStatus)?.label || oldStatus,
+        to_status: STATUS_OPTIONS.find(s => s.value === result.status)?.label || result.status,
+        ...(result.resolution ? { resolution: result.resolution } : {}),
+      });
       queryClient.invalidateQueries({ queryKey: ["occurrences"] });
+      queryClient.invalidateQueries({ queryKey: ["occurrence_history"] });
       toast.success("Status atualizado!");
       setDetailOpen(false);
     },
@@ -179,9 +239,20 @@ const OccurrencesPage = () => {
     mutationFn: async ({ id, ...fields }: { id: string; contact_name: string; contact_phone: string; priority: string; type: string }) => {
       const { error } = await supabase.from("occurrences").update(fields).eq("id", id);
       if (error) throw error;
+      return { id, fields };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      const changes: Record<string, any> = {};
+      const old = selectedOccurrence;
+      if (old.contact_name !== result.fields.contact_name) changes.contact_name = { de: old.contact_name || "—", para: result.fields.contact_name };
+      if (old.contact_phone !== result.fields.contact_phone) changes.contact_phone = { de: old.contact_phone || "—", para: result.fields.contact_phone };
+      if (old.priority !== result.fields.priority) changes.priority = { de: PRIORITY_OPTIONS.find(p => p.value === old.priority)?.label, para: PRIORITY_OPTIONS.find(p => p.value === result.fields.priority)?.label };
+      if (old.type !== result.fields.type) changes.type = { de: OCCURRENCE_TYPES.find(t => t.value === old.type)?.label, para: OCCURRENCE_TYPES.find(t => t.value === result.fields.type)?.label };
+      if (Object.keys(changes).length > 0) {
+        recordHistory(result.id, "edited", changes);
+      }
       queryClient.invalidateQueries({ queryKey: ["occurrences"] });
+      queryClient.invalidateQueries({ queryKey: ["occurrence_history"] });
       toast.success("Ocorrência atualizada!");
       setIsEditing(false);
       setDetailOpen(false);
@@ -228,8 +299,26 @@ const OccurrencesPage = () => {
     return "bg-muted text-muted-foreground";
   };
 
+  const formatChanges = (entry: any) => {
+    const changes = entry.changes || {};
+    if (entry.action === "created") {
+      return `Loja: ${changes.store_name || "—"} | Tipo: ${OCCURRENCE_TYPES.find(t => t.value === changes.type)?.label || changes.type} | Prioridade: ${PRIORITY_OPTIONS.find(p => p.value === changes.priority)?.label || changes.priority}`;
+    }
+    if (entry.action === "status_change" || entry.action === "reopened") {
+      return `${changes.from_status} → ${changes.to_status}${changes.resolution ? ` | Resolução: ${changes.resolution}` : ""}`;
+    }
+    if (entry.action === "edited") {
+      return Object.entries(changes).map(([key, val]: [string, any]) => {
+        const label = key === "contact_name" ? "Cliente" : key === "contact_phone" ? "Telefone" : key === "priority" ? "Prioridade" : key === "type" ? "Tipo" : key;
+        return `${label}: ${val.de} → ${val.para}`;
+      }).join(" | ");
+    }
+    return JSON.stringify(changes);
+  };
+
   return (
     <div className="space-y-6">
+      {/* Header + create dialog */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Ocorrências</h1>
@@ -380,6 +469,7 @@ const OccurrencesPage = () => {
                       onClick={() => {
                         setSelectedOccurrence(occ);
                         setResolution(occ.resolution || "");
+                        setShowHistory(false);
                         setDetailOpen(true);
                       }}
                     >
@@ -411,8 +501,8 @@ const OccurrencesPage = () => {
       </Card>
 
       {/* Detail Dialog */}
-      <Dialog open={detailOpen} onOpenChange={(v) => { setDetailOpen(v); if (!v) setIsEditing(false); }}>
-        <DialogContent className="sm:max-w-lg">
+      <Dialog open={detailOpen} onOpenChange={(v) => { setDetailOpen(v); if (!v) { setIsEditing(false); setShowHistory(false); } }}>
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
           {selectedOccurrence && (
             <>
               <DialogHeader>
@@ -424,6 +514,9 @@ const OccurrencesPage = () => {
               <div className="space-y-4 pt-2">
                 {/* Action buttons */}
                 <div className="flex gap-2 justify-end">
+                  <Button variant="outline" size="sm" onClick={() => setShowHistory(!showHistory)}>
+                    <History className="mr-1 h-3.5 w-3.5" /> Histórico
+                  </Button>
                   {!isEditing ? (
                     <Button variant="outline" size="sm" onClick={() => {
                       setEditForm({
@@ -462,6 +555,36 @@ const OccurrencesPage = () => {
                     </AlertDialogContent>
                   </AlertDialog>
                 </div>
+
+                {/* History Panel */}
+                {showHistory && (
+                  <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Histórico de Alterações</Label>
+                    {history.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-2">Nenhuma alteração registrada.</p>
+                    ) : (
+                      <ScrollArea className="max-h-48">
+                        <div className="space-y-2">
+                          {history.map((entry: any, idx: number) => (
+                            <div key={entry.id || idx}>
+                              <div className="flex items-start gap-2 text-xs">
+                                <span className="text-muted-foreground whitespace-nowrap">
+                                  {format(new Date(entry.created_at), "dd/MM/yy HH:mm", { locale: ptBR })}
+                                </span>
+                                <div className="flex-1">
+                                  <span className="font-medium">{entry.user_name || "Sistema"}</span>
+                                  <span className="text-muted-foreground"> — {ACTION_LABELS[entry.action] || entry.action}</span>
+                                  <p className="text-muted-foreground mt-0.5">{formatChanges(entry)}</p>
+                                </div>
+                              </div>
+                              {idx < history.length - 1 && <Separator className="mt-2" />}
+                            </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
+                    )}
+                  </div>
+                )}
 
                 {isEditing ? (
                   <div className="space-y-3">
