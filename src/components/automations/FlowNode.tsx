@@ -1,7 +1,8 @@
 import { memo, useState } from "react";
 import { Handle, Position, type NodeProps, useReactFlow } from "@xyflow/react";
 import { getNodeTypeConfig } from "./nodeTypes";
-import { GripVertical, Trash2, Copy, Plus, Pencil, Unlink } from "lucide-react";
+import { GripVertical, Trash2, Copy, Plus, Pencil, Unlink, MessageSquare, Image, Mic, AudioLines, Eye } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -151,6 +152,26 @@ const FlowNode = memo(({ id, data, selected }: NodeProps) => {
 
           {/* Body - show configured values */}
           <div className="px-3 py-2 space-y-1">
+            {/* LLM model category badge */}
+            {data.nodeType === "action_llm_reply" && data.model && (() => {
+              const model = data.model as string;
+              const info = model.startsWith("whisper")
+                ? { label: "Transcrição", icon: Mic, cls: "bg-amber-500/15 text-amber-600 border-amber-500/30" }
+                : model.startsWith("dall-e") || model === "imagen-3"
+                ? { label: "Geração de Imagem", icon: Image, cls: "bg-pink-500/15 text-pink-600 border-pink-500/30" }
+                : model.startsWith("tts-")
+                ? { label: "Texto → Áudio", icon: AudioLines, cls: "bg-teal-500/15 text-teal-600 border-teal-500/30" }
+                : model === "gemini-pro-vision"
+                ? { label: "Análise Visual", icon: Eye, cls: "bg-indigo-500/15 text-indigo-600 border-indigo-500/30" }
+                : { label: "Chat / Texto", icon: MessageSquare, cls: "bg-primary/10 text-primary border-primary/30" };
+              const BadgeIcon = info.icon;
+              return (
+                <Badge variant="outline" className={`text-[9px] gap-1 px-1.5 py-0.5 font-medium border ${info.cls}`}>
+                  <BadgeIcon className="h-2.5 w-2.5" />
+                  {info.label}
+                </Badge>
+              );
+            })()}
             {config.fields.slice(0, 2).map((field) => {
               const val = (data as Record<string, any>)[field.key];
               if (!val) return null;
