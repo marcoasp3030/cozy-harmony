@@ -243,7 +243,7 @@ async function executeFromNode(
   // Skip trigger nodes (already evaluated)
   if (!nodeType.startsWith("trigger_")) {
     const nodeStart = Date.now();
-    let result = false;
+    let result: any = false;
     let nodeError: string | undefined;
     try {
       result = await executeNode(supabase, node, ctx);
@@ -264,12 +264,20 @@ async function executeFromNode(
       action_elevenlabs_tts: "Áudio ElevenLabs", action_ab_split: "Split A/B",
     };
 
+    // Build result object for logging
+    let logResult: any = undefined;
+    if (nodeType.startsWith("condition_")) {
+      logResult = { condition: typeof result === "object" ? result?.condition ?? !!result : !!result };
+    } else if (result && typeof result === "object") {
+      logResult = result;
+    }
+
     ctx.nodeLog.push({
       nodeId: node.id,
       nodeType,
       nodeLabel: labelMap[nodeType] || nodeType,
       status: nodeError ? "error" : "success",
-      result: nodeType.startsWith("condition_") ? { condition: result } : undefined,
+      result: logResult,
       error: nodeError,
       startedAt: new Date(nodeStart).toISOString(),
       durationMs: nodeDuration,
@@ -305,7 +313,7 @@ async function executeNode(
   supabase: any,
   node: FlowNode,
   ctx: ExecutionContext
-): Promise<boolean> {
+): Promise<any> {
   const type = node.data.nodeType as string;
   const d = node.data;
 
@@ -372,9 +380,9 @@ async function executeNode(
     // ── ACTIONS ──
     if (type === "action_send_message") {
       const message = interpolate(String(d.message || ""), ctx);
-      if (!message) return true;
-      await sendWhatsAppMessage(supabase, ctx, message);
-      return true;
+      if (!message) return { sent: false, reason: "empty_message" };
+      const sendResult = await sendWhatsAppMessage(supabase, ctx, message);
+      return { sent: true, ...sendResult };
     }
 
     if (type === "action_send_template") {
@@ -386,9 +394,10 @@ async function executeNode(
         .single();
       if (template) {
         const message = interpolate(template.content, ctx);
-        await sendWhatsAppMessage(supabase, ctx, message);
+        const sendResult = await sendWhatsAppMessage(supabase, ctx, message);
+        return { sent: true, template: templateName, ...sendResult };
       }
-      return true;
+      return { sent: false, reason: "template_not_found", template: templateName };
     }
 
     if (type === "action_add_tag") {
@@ -639,7 +648,7 @@ function interpolate(text: string, ctx: ExecutionContext): string {
     .replace(/\{\{([^}]+)\}\}/g, (_, key) => ctx.variables[key.trim()] || `{{${key}}}`);
 }
 
-async function sendWhatsAppMessage(supabase: any, ctx: ExecutionContext, message: string) {
+async function sendWhatsAppMessage(supabase: any, ctx: ExecutionContext, message: string): Promise<{ messageId: string | null; httpStatus: number; apiResponse: string }> {
   const cleanNumber = String(ctx.contactPhone || "").replace(/\D/g, "");
   if (!cleanNumber) {
     throw new Error("Número de telefone inválido para envio");
@@ -683,10 +692,6 @@ async function sendWhatsAppMessage(supabase: any, ctx: ExecutionContext, message
     result = { raw: rawResponse };
   }
 
-  if (!resp.ok || result?.error || result?.success === false) {
-    throw new Error(result?.error || `Falha no envio (HTTP ${resp.status})`);
-  }
-
   const normalizeMsgId = (value: unknown): string | null => {
     if (!value) return null;
     const raw = String(value).trim();
@@ -705,6 +710,11 @@ async function sendWhatsAppMessage(supabase: any, ctx: ExecutionContext, message
     null;
 
   const externalId = normalizeMsgId(externalIdRaw);
+  const apiResponseSummary = JSON.stringify(result).slice(0, 300);
+
+  if (!resp.ok || result?.error || result?.success === false) {
+    throw new Error(result?.error || `Falha no envio (HTTP ${resp.status}): ${apiResponseSummary}`);
+  }
 
   await supabase.from("messages").insert({
     contact_id: ctx.contactId,
@@ -716,6 +726,8 @@ async function sendWhatsAppMessage(supabase: any, ctx: ExecutionContext, message
   });
 
   console.log(`Sent message to ${cleanNumber}: "${message.slice(0, 50)}" (id: ${externalId || "n/a"})`);
+
+  return { messageId: externalId, httpStatus: resp.status, apiResponse: apiResponseSummary };
 }
 
 async function sendWhatsAppAudio(supabase: any, ctx: ExecutionContext, audioBase64: string) {
