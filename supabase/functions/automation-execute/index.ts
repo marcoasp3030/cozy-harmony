@@ -573,7 +573,230 @@ async function executeNode(
     }
 
     if (type === "action_llm_reply") {
-      // Get recent messages for context
+      const systemPrompt = interpolate(String(d.system_prompt || "Você é um assistente de atendimento."), ctx);
+      const provider = d.provider || "openai";
+      const model = d.model || (provider === "openai" ? "gpt-4o-mini" : "gemini-2.5-flash");
+      const maxTokens = parseInt(d.max_tokens) || 500;
+
+      // Get user API keys
+      const { data: ownerAutomation } = await supabase
+        .from("automations")
+        .select("created_by")
+        .limit(1)
+        .single();
+
+      if (!ownerAutomation?.created_by) return { sent: false, reason: "no_owner" };
+
+      const { data: settings } = await supabase
+        .from("settings")
+        .select("key, value")
+        .eq("user_id", ownerAutomation.created_by)
+        .in("key", ["llm_openai", "llm_gemini"]);
+
+      const keys: Record<string, string> = {};
+      for (const s of (settings || [])) {
+        const val = s.value as { apiKey?: string };
+        if (s.key === "llm_openai" && val?.apiKey) keys.openai = val.apiKey;
+        if (s.key === "llm_gemini" && val?.apiKey) keys.gemini = val.apiKey;
+      }
+
+      // ── Whisper: transcribe last inbound audio ──
+      if (model === "whisper-1") {
+        if (!keys.openai) return { sent: false, reason: "openai_key_missing" };
+        // Find last audio message from contact
+        const { data: audioMsgs } = await supabase
+          .from("messages")
+          .select("media_url, type")
+          .eq("contact_id", ctx.contactId)
+          .eq("direction", "inbound")
+          .in("type", ["audio", "ptt"])
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        const audioUrl = audioMsgs?.[0]?.media_url;
+        if (!audioUrl) {
+          await sendWhatsAppMessage(supabase, ctx, interpolate(systemPrompt || "Não encontrei nenhum áudio para transcrever.", ctx));
+          return { sent: true, model, action: "whisper_no_audio" };
+        }
+
+        // Download audio
+        const audioResp = await fetch(audioUrl);
+        if (!audioResp.ok) return { sent: false, reason: "audio_download_failed" };
+        const audioBlob = await audioResp.blob();
+
+        const formData = new FormData();
+        formData.append("file", audioBlob, "audio.ogg");
+        formData.append("model", "whisper-1");
+        formData.append("language", "pt");
+
+        const whisperResp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${keys.openai}` },
+          body: formData,
+        });
+
+        if (whisperResp.ok) {
+          const result = await whisperResp.json();
+          const transcription = result.text || "";
+          if (transcription) {
+            const replyText = systemPrompt
+              ? interpolate(systemPrompt.replace(/\{\{transcricao\}\}/gi, transcription), ctx)
+              : `Transcrição: ${transcription}`;
+            await sendWhatsAppMessage(supabase, ctx, replyText);
+          }
+          return { sent: true, model, transcription: transcription.slice(0, 100) };
+        }
+        const errText = await whisperResp.text();
+        throw new Error(`Whisper error (${whisperResp.status}): ${errText.slice(0, 200)}`);
+      }
+
+      // ── DALL-E: generate image ──
+      if (model === "dall-e-3" || model === "dall-e-2") {
+        if (!keys.openai) return { sent: false, reason: "openai_key_missing" };
+        const prompt = interpolate(systemPrompt, ctx);
+        const imageResp = await fetch("https://api.openai.com/v1/images/generations", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model,
+            prompt,
+            n: 1,
+            size: model === "dall-e-3" ? "1024x1024" : "512x512",
+            response_format: "url",
+          }),
+        });
+
+        if (imageResp.ok) {
+          const result = await imageResp.json();
+          const imageUrl = result.data?.[0]?.url;
+          if (imageUrl) {
+            await sendWhatsAppImage(supabase, ctx, imageUrl, prompt.slice(0, 100));
+            return { sent: true, model, imageUrl: imageUrl.slice(0, 80) };
+          }
+        }
+        const errText = await imageResp.text();
+        throw new Error(`DALL-E error (${imageResp.status}): ${errText.slice(0, 200)}`);
+      }
+
+      // ── TTS: text to speech ──
+      if (model === "tts-1" || model === "tts-1-hd") {
+        if (!keys.openai) return { sent: false, reason: "openai_key_missing" };
+        const text = interpolate(systemPrompt, ctx);
+        const ttsResp = await fetch("https://api.openai.com/v1/audio/speech", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model,
+            input: text,
+            voice: "nova",
+            response_format: "mp3",
+          }),
+        });
+
+        if (ttsResp.ok) {
+          const audioBuffer = await ttsResp.arrayBuffer();
+          const { encode: base64Encode } = await import("https://deno.land/std@0.168.0/encoding/base64.ts");
+          const audioBase64 = base64Encode(audioBuffer);
+          await sendWhatsAppAudio(supabase, ctx, audioBase64);
+          return { sent: true, model, action: "tts_sent" };
+        }
+        const errText = await ttsResp.text();
+        throw new Error(`TTS error (${ttsResp.status}): ${errText.slice(0, 200)}`);
+      }
+
+      // ── Imagen 3 (Google): generate image via Gemini ──
+      if (model === "imagen-3") {
+        if (!keys.gemini) return { sent: false, reason: "gemini_key_missing" };
+        const prompt = interpolate(systemPrompt, ctx);
+        // Use Gemini's image generation endpoint
+        const resp = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${keys.gemini}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              instances: [{ prompt }],
+              parameters: { sampleCount: 1, aspectRatio: "1:1" },
+            }),
+          }
+        );
+        if (resp.ok) {
+          const result = await resp.json();
+          const b64Image = result.predictions?.[0]?.bytesBase64Encoded;
+          if (b64Image) {
+            // Upload to storage and send
+            const fileName = `imagen_${Date.now()}.png`;
+            const imageBytes = Uint8Array.from(atob(b64Image), c => c.charCodeAt(0));
+            const { data: upload } = await supabase.storage
+              .from("chat-media")
+              .upload(`generated/${fileName}`, imageBytes, { contentType: "image/png" });
+            if (upload?.path) {
+              const { data: urlData } = supabase.storage.from("chat-media").getPublicUrl(upload.path);
+              await sendWhatsAppImage(supabase, ctx, urlData.publicUrl, prompt.slice(0, 100));
+              return { sent: true, model, action: "imagen_sent" };
+            }
+          }
+        }
+        const errText = await resp.text();
+        console.error(`Imagen error: ${errText.slice(0, 300)}`);
+        return { sent: false, model, reason: "imagen_failed" };
+      }
+
+      // ── Gemini Pro Vision: analyze last image ──
+      if (model === "gemini-pro-vision") {
+        if (!keys.gemini) return { sent: false, reason: "gemini_key_missing" };
+        // Find last image message
+        const { data: imgMsgs } = await supabase
+          .from("messages")
+          .select("media_url, type")
+          .eq("contact_id", ctx.contactId)
+          .eq("direction", "inbound")
+          .eq("type", "image")
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        const imageUrl = imgMsgs?.[0]?.media_url;
+        if (!imageUrl) {
+          await sendWhatsAppMessage(supabase, ctx, "Não encontrei nenhuma imagem para analisar.");
+          return { sent: true, model, action: "vision_no_image" };
+        }
+
+        // Download image and convert to base64
+        const imgResp = await fetch(imageUrl);
+        if (!imgResp.ok) return { sent: false, reason: "image_download_failed" };
+        const imgBuffer = await imgResp.arrayBuffer();
+        const { encode: base64Encode } = await import("https://deno.land/std@0.168.0/encoding/base64.ts");
+        const imgBase64 = base64Encode(imgBuffer);
+
+        const resp = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${keys.gemini}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              system_instruction: { parts: [{ text: interpolate(systemPrompt, ctx) }] },
+              contents: [{
+                role: "user",
+                parts: [
+                  { text: ctx.messageContent || "Analise esta imagem." },
+                  { inline_data: { mime_type: "image/jpeg", data: imgBase64 } },
+                ],
+              }],
+              generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 },
+            }),
+          }
+        );
+        if (resp.ok) {
+          const result = await resp.json();
+          const reply = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+          if (reply) await sendWhatsAppMessage(supabase, ctx, reply);
+          return { sent: !!reply, model, action: "vision_analyzed" };
+        }
+        const errText = await resp.text();
+        throw new Error(`Vision error: ${errText.slice(0, 200)}`);
+      }
+
+      // ── Standard chat models (GPT, Gemini chat) ──
       const { data: recentMsgs } = await supabase
         .from("messages")
         .select("direction, content, type")
@@ -586,85 +809,61 @@ async function executeNode(
         content: m.content || "[mídia]",
       }));
 
-      const systemPrompt = interpolate(String(d.system_prompt || "Você é um assistente de atendimento."), ctx);
-      const provider = d.provider || "openai";
-      const model = d.model || (provider === "openai" ? "gpt-4o-mini" : "gemini-2.5-flash");
+      const selectedProvider = model.startsWith("gemini") ? "gemini" : "openai";
+      if (!keys[selectedProvider]) return { sent: false, reason: `${selectedProvider}_key_missing` };
 
-      // Call llm-reply edge function internally
-      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const chatMessages = [
+        { role: "system", content: systemPrompt },
+        ...messages.map((m: any) => ({
+          role: m.direction === "inbound" ? "user" : "assistant",
+          content: m.content,
+        })),
+      ];
 
-      // First get user settings to find API keys
-      const { data: ownerAutomation } = await supabase
-        .from("automations")
-        .select("created_by")
-        .limit(1)
-        .single();
-
-      if (ownerAutomation?.created_by) {
-        const { data: settings } = await supabase
-          .from("settings")
-          .select("key, value")
-          .eq("user_id", ownerAutomation.created_by)
-          .in("key", ["llm_openai", "llm_gemini"]);
-
-        const keys: Record<string, string> = {};
-        for (const s of (settings || [])) {
-          const val = s.value as { apiKey?: string };
-          if (s.key === "llm_openai" && val?.apiKey) keys.openai = val.apiKey;
-          if (s.key === "llm_gemini" && val?.apiKey) keys.gemini = val.apiKey;
+      let reply = "";
+      if (selectedProvider === "openai") {
+        const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ model, messages: chatMessages, max_tokens: maxTokens, temperature: 0.7 }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          reply = data.choices?.[0]?.message?.content?.trim() || "";
+        } else {
+          const errText = await resp.text();
+          throw new Error(`OpenAI error (${resp.status}): ${errText.slice(0, 200)}`);
         }
-
-        const selectedProvider = provider || (keys.openai ? "openai" : keys.gemini ? "gemini" : null);
-        if (selectedProvider && keys[selectedProvider]) {
-          const chatMessages = [
-            { role: "system", content: systemPrompt },
-            ...messages.map((m: any) => ({
-              role: m.direction === "inbound" ? "user" : "assistant",
-              content: m.content,
-            })),
-          ];
-
-          let reply = "";
-          if (selectedProvider === "openai") {
-            const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-              method: "POST",
-              headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ model, messages: chatMessages, max_tokens: parseInt(d.max_tokens) || 500, temperature: 0.7 }),
-            });
-            if (resp.ok) {
-              const data = await resp.json();
-              reply = data.choices?.[0]?.message?.content?.trim() || "";
-            }
-          } else {
-            const geminiContents = chatMessages.filter((m: any) => m.role !== "system").map((m: any) => ({
-              role: m.role === "assistant" ? "model" : "user",
-              parts: [{ text: m.content }],
-            }));
-            const resp = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${keys.gemini}`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  system_instruction: { parts: [{ text: systemPrompt }] },
-                  contents: geminiContents,
-                  generationConfig: { maxOutputTokens: parseInt(d.max_tokens) || 500, temperature: 0.7 },
-                }),
-              }
-            );
-            if (resp.ok) {
-              const data = await resp.json();
-              reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
-            }
+      } else {
+        const geminiContents = chatMessages.filter((m: any) => m.role !== "system").map((m: any) => ({
+          role: m.role === "assistant" ? "model" : "user",
+          parts: [{ text: m.content }],
+        }));
+        const resp = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${keys.gemini}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              system_instruction: { parts: [{ text: systemPrompt }] },
+              contents: geminiContents,
+              generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 },
+            }),
           }
-
-          if (reply) {
-            await sendWhatsAppMessage(supabase, ctx, reply);
-          }
+        );
+        if (resp.ok) {
+          const data = await resp.json();
+          reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+        } else {
+          const errText = await resp.text();
+          throw new Error(`Gemini error (${resp.status}): ${errText.slice(0, 200)}`);
         }
       }
-      return true;
+
+      if (reply) {
+        await sendWhatsAppMessage(supabase, ctx, reply);
+      }
+      return { sent: !!reply, model, reply: (reply || "").slice(0, 80) };
     }
 
     if (type === "action_elevenlabs_tts") {
@@ -832,5 +1031,47 @@ async function sendWhatsAppAudio(supabase: any, ctx: ExecutionContext, audioBase
     console.log(`Sent audio to ${ctx.contactPhone}`);
   } catch (err) {
     console.error("Failed to send audio:", err);
+  }
+}
+
+async function sendWhatsAppImage(supabase: any, ctx: ExecutionContext, imageUrl: string, caption?: string) {
+  try {
+    const cleanNumber = String(ctx.contactPhone || "").replace(/\D/g, "");
+    let query = supabase
+      .from("whatsapp_instances")
+      .select("id, base_url, instance_token")
+      .order("is_default", { ascending: false })
+      .limit(1);
+    if (ctx.userId) query = query.eq("user_id", ctx.userId);
+    const { data: instance } = await query.maybeSingle();
+    if (!instance) return;
+
+    const baseUrl = String(instance.base_url).replace(/\/+$/, "");
+
+    await fetch(`${baseUrl}/send/image`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        token: instance.instance_token || "",
+      },
+      body: JSON.stringify({
+        number: cleanNumber,
+        image: imageUrl,
+        caption: caption || "",
+      }),
+    });
+
+    await supabase.from("messages").insert({
+      contact_id: ctx.contactId,
+      direction: "outbound",
+      type: "image",
+      content: caption || "[Imagem gerada por IA]",
+      media_url: imageUrl,
+      status: "sent",
+    });
+
+    console.log(`Sent image to ${cleanNumber}`);
+  } catch (err) {
+    console.error("Failed to send image:", err);
   }
 }
