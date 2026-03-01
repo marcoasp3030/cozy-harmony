@@ -22,8 +22,81 @@ import NodePalette from "./NodePalette";
 import NodeConfigPanel from "./NodeConfigPanel";
 import { getNodeTypeConfig } from "./nodeTypes";
 import { Button } from "@/components/ui/button";
-import { Save, Undo2, Redo2, Trash2 } from "lucide-react";
+import { Save, Undo2, Redo2, Trash2, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
+
+// ---------- Auto-layout (tree / cascade) ----------
+const NODE_WIDTH = 230;
+const NODE_HEIGHT = 100;
+const GAP_X = 60;
+const GAP_Y = 50;
+
+function autoLayoutNodes(nodes: Node[], edges: Edge[]): Node[] {
+  if (nodes.length === 0) return nodes;
+
+  // Build adjacency: source -> targets
+  const children = new Map<string, string[]>();
+  const hasParent = new Set<string>();
+  for (const e of edges) {
+    if (!children.has(e.source)) children.set(e.source, []);
+    children.get(e.source)!.push(e.target);
+    hasParent.add(e.target);
+  }
+
+  // Roots = nodes with no incoming edge
+  const roots = nodes.filter((n) => !hasParent.has(n.id));
+  if (roots.length === 0) roots.push(nodes[0]); // fallback
+
+  // BFS to assign depth (y) and index within depth (x)
+  const visited = new Set<string>();
+  const levels: string[][] = [];
+
+  const queue: { id: string; depth: number }[] = roots.map((r) => ({ id: r.id, depth: 0 }));
+  for (const r of roots) visited.add(r.id);
+
+  while (queue.length > 0) {
+    const { id, depth } = queue.shift()!;
+    if (!levels[depth]) levels[depth] = [];
+    levels[depth].push(id);
+
+    const kids = children.get(id) || [];
+    for (const kid of kids) {
+      if (!visited.has(kid)) {
+        visited.add(kid);
+        queue.push({ id: kid, depth: depth + 1 });
+      }
+    }
+  }
+
+  // Place orphans (not visited) at the end
+  const orphans = nodes.filter((n) => !visited.has(n.id));
+  if (orphans.length > 0) {
+    levels.push(orphans.map((n) => n.id));
+  }
+
+  // Compute positions centered per level
+  const posMap = new Map<string, { x: number; y: number }>();
+  const maxWidth = Math.max(...levels.map((l) => l.length));
+
+  for (let depth = 0; depth < levels.length; depth++) {
+    const row = levels[depth];
+    const totalWidth = row.length * NODE_WIDTH + (row.length - 1) * GAP_X;
+    const maxTotalWidth = maxWidth * NODE_WIDTH + (maxWidth - 1) * GAP_X;
+    const offsetX = (maxTotalWidth - totalWidth) / 2;
+
+    for (let i = 0; i < row.length; i++) {
+      posMap.set(row[i], {
+        x: offsetX + i * (NODE_WIDTH + GAP_X),
+        y: depth * (NODE_HEIGHT + GAP_Y),
+      });
+    }
+  }
+
+  return nodes.map((n) => ({
+    ...n,
+    position: posMap.get(n.id) || n.position,
+  }));
+}
 
 const customNodeTypes = { flowNode: FlowNode };
 
@@ -228,6 +301,13 @@ const FlowBuilderInner = ({ initialNodes = [], initialEdges = [], onSave }: Flow
     onSave(nodes, edges);
   }, [nodes, edges, onSave]);
 
+  const handleAutoLayout = useCallback(() => {
+    const laid = autoLayoutNodes(nodes, edges);
+    setNodes(laid);
+    setTimeout(() => reactFlowInstance?.fitView({ padding: 0.2 }), 50);
+    toast.success("Layout organizado!");
+  }, [nodes, edges, setNodes, reactFlowInstance]);
+
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
   const selectedCount = nodes.filter((n) => n.selected).length;
@@ -292,6 +372,15 @@ const FlowBuilderInner = ({ initialNodes = [], initialEdges = [], onSave }: Flow
             title="Refazer (Ctrl+Y)"
           >
             <Redo2 className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 w-8 p-0"
+            onClick={handleAutoLayout}
+            title="Auto-layout (organizar nós)"
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
           </Button>
           {selectedCount > 1 && (
             <Button
