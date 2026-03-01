@@ -423,7 +423,7 @@ export function createMultimodalTemplate(): FlowTemplate {
         case_sensitive: false,
       },
     },
-    // Áudio SEM pagamento → IA gera texto → TTS envia como áudio
+    // Áudio SEM pagamento → IA gera texto (sem enviar) → TTS envia como áudio
     {
       id: "multi_audio_ia",
       type: "flowNode",
@@ -431,10 +431,11 @@ export function createMultimodalTemplate(): FlowTemplate {
       data: {
         nodeType: "action_llm_reply",
         system_prompt:
-          "Você é a assistente virtual da Nutricar Brasil, empresa de mini mercados autônomos 24 horas. Seja humanizada, simpática e objetiva.\n\nRegras:\n1. Respostas CURTAS (máx 2 frases).\n2. Tom amigável e informal, como uma conversa entre amigos.\n3. O cliente enviou um áudio — trate como se ele falou diretamente com você.\n4. NÃO mencione PIX ou pagamentos a menos que o cliente tenha perguntado.\n5. Sempre pergunte se pode ajudar em mais alguma coisa.\n6. Use emojis com moderação (1-2 por resposta).",
+          "Você é a assistente virtual da Nutricar Brasil, empresa de mini mercados autônomos 24 horas. Seja humanizada, simpática e objetiva.\n\nRegras:\n1. Respostas CURTAS (máx 2 frases).\n2. Tom amigável e informal, como uma conversa entre amigos.\n3. O cliente enviou um áudio — trate como se ele falou diretamente com você.\n4. NÃO mencione PIX ou pagamentos a menos que o cliente tenha perguntado.\n5. Sempre pergunte se pode ajudar em mais alguma coisa.\n6. NÃO use emojis (a resposta será convertida em áudio).\n7. NÃO use formatação markdown ou asteriscos.",
         provider: "openai",
         model: "gpt-4o-mini",
         max_tokens: 200,
+        suppress_send: true,
       },
     },
     // Enviar a resposta como áudio via TTS
