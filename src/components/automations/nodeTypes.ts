@@ -1,7 +1,7 @@
 import {
   MessageSquare, Search, Clock, UserPlus, Tag, ArrowRight,
   Send, Bot, Globe, Zap, Volume2, BarChart3, GitBranch,
-  Variable, Timer, Mail, Phone, Filter, Users
+  Variable, Timer, Mail, Phone, Filter, Users, Building2
 } from "lucide-react";
 
 export type NodeCategory = "trigger" | "condition" | "action";
@@ -106,6 +106,18 @@ export const NODE_TYPES: NodeTypeConfig[] = [
       { key: "start_time", label: "Hora início", type: "text", placeholder: "08:00" },
       { key: "end_time", label: "Hora fim", type: "text", placeholder: "18:00" },
       { key: "days", label: "Dias (1=Seg, 7=Dom)", type: "text", placeholder: "1,2,3,4,5" },
+    ],
+  },
+  {
+    type: "condition_business_hours",
+    label: "Verificar Expediente",
+    category: "condition",
+    icon: Building2,
+    color: "#f59e0b",
+    description: "Verifica se está dentro do horário de expediente configurado nas Configurações",
+    fields: [
+      { key: "use_saved_config", label: "Usar horários salvos nas configurações", type: "switch", defaultValue: true },
+      { key: "out_of_hours_message", label: "Mensagem fora do expediente (opcional, sobrescreve a padrão)", type: "textarea", placeholder: "Deixe vazio para usar a mensagem padrão das configurações" },
     ],
   },
   {

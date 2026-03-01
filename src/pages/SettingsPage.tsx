@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Wifi, WifiOff, CheckCircle2, Loader2, QrCode, Unplug, Save, Plus, Link2, ExternalLink, Copy, Check, Volume2, VolumeX, Brain, Eye, EyeOff, Sparkles, FileText, Image, Mic, Video, MessageSquare, Wrench } from "lucide-react";
 import InstanceManager from "@/components/settings/InstanceManager";
+import BusinessHoursSettings from "@/components/settings/BusinessHoursSettings";
 import ElevenLabsSettings from "@/components/settings/ElevenLabsSettings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -655,6 +656,7 @@ const SettingsPage = () => {
         <TabsList className="w-full flex overflow-x-auto">
           <TabsTrigger value="apiwhatsapp" className="text-xs md:text-sm">API WhatsApp</TabsTrigger>
           <TabsTrigger value="connection" className="text-xs md:text-sm">Instâncias</TabsTrigger>
+          <TabsTrigger value="expediente" className="text-xs md:text-sm">Expediente</TabsTrigger>
           <TabsTrigger value="apillm" className="text-xs md:text-sm">API LLM</TabsTrigger>
           <TabsTrigger value="elevenlabs" className="text-xs md:text-sm">ElevenLabs</TabsTrigger>
           <TabsTrigger value="company" className="text-xs md:text-sm">Empresa</TabsTrigger>
@@ -668,6 +670,10 @@ const SettingsPage = () => {
 
         <TabsContent value="connection" className="space-y-4">
           <InstanceManager />
+        </TabsContent>
+
+        <TabsContent value="expediente">
+          <BusinessHoursSettings />
         </TabsContent>
 
         <TabsContent value="company">
