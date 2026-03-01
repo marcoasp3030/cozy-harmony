@@ -57,6 +57,7 @@ const OUTPUT_FORMATS = [
 interface ElevenLabsConfig {
   apiKey: string;
   defaultVoiceId: string;
+  customVoiceId: string;
   defaultModel: string;
   outputFormat: string;
   stability: number;
@@ -71,6 +72,7 @@ interface ElevenLabsConfig {
 const DEFAULT_CONFIG: ElevenLabsConfig = {
   apiKey: "",
   defaultVoiceId: "EXAVITQu4vr4xnSDxMaL",
+  customVoiceId: "",
   defaultModel: "eleven_multilingual_v2",
   outputFormat: "mp3_44100_128",
   stability: 0.5,
@@ -186,7 +188,7 @@ const ElevenLabsSettings = () => {
       const { data, error } = await supabase.functions.invoke("elevenlabs-tts", {
         body: {
           text: testText,
-          voiceId: config.defaultVoiceId,
+          voiceId: activeVoiceId,
           model: config.defaultModel,
           outputFormat: config.outputFormat,
           voiceSettings: {
@@ -235,7 +237,8 @@ const ElevenLabsSettings = () => {
   const maskKey = (k: string) =>
     k.length > 8 ? k.slice(0, 4) + "••••••••" + k.slice(-4) : "••••••••";
 
-  const selectedVoice = VOICES.find((v) => v.id === config.defaultVoiceId);
+  const activeVoiceId = config.customVoiceId.trim() || config.defaultVoiceId;
+  const selectedVoice = VOICES.find((v) => v.id === activeVoiceId);
 
   if (loading) return <Loader2 className="h-5 w-5 animate-spin mx-auto my-8" />;
 
@@ -395,6 +398,44 @@ const ElevenLabsSettings = () => {
                       </div>
                     </button>
                   ))}
+                </div>
+
+                {/* Custom Voice ID */}
+                <div className="space-y-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 p-4">
+                  <Label className="text-xs font-medium flex items-center gap-2">
+                    <Wand2 className="h-3.5 w-3.5 text-primary" />
+                    Voice ID Personalizado
+                  </Label>
+                  <Input
+                    placeholder="Cole aqui o Voice ID da sua voz clonada ou personalizada..."
+                    value={config.customVoiceId}
+                    onChange={(e) => update({ customVoiceId: e.target.value.trim() })}
+                    className="font-mono text-xs h-9"
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    Se preenchido, este Voice ID será usado no lugar da voz selecionada acima.
+                    Encontre o ID na{" "}
+                    <a href="https://elevenlabs.io/app/voice-lab" target="_blank" rel="noopener" className="underline text-primary">
+                      Voice Lab
+                    </a>{" "}
+                    ou na{" "}
+                    <a href="https://elevenlabs.io/voice-library" target="_blank" rel="noopener" className="underline text-primary">
+                      Voice Library
+                    </a>.
+                  </p>
+                  {config.customVoiceId && (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="text-[10px] font-mono">
+                        {config.customVoiceId}
+                      </Badge>
+                      <button
+                        onClick={() => update({ customVoiceId: "" })}
+                        className="text-[10px] text-destructive hover:underline"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <p className="text-xs text-muted-foreground">

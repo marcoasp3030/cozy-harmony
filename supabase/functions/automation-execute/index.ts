@@ -1674,6 +1674,10 @@ async function sendElevenLabsAudioFromText(
 
   // Try user setting first, fallback to project secret (ELEVENLABS_API_KEY)
   let elevenlabsKey = "";
+  let userVoiceId = voiceId;
+  let userModel = "eleven_multilingual_v2";
+  let voiceSettings: Record<string, any> | null = null;
+
   if (ctx.userId) {
     const { data: elSettings } = await supabase
       .from("settings")
@@ -1681,7 +1685,27 @@ async function sendElevenLabsAudioFromText(
       .eq("user_id", ctx.userId)
       .eq("key", "elevenlabs")
       .single();
-    elevenlabsKey = (elSettings?.value as any)?.apiKey || "";
+    
+    const elConfig = elSettings?.value as any;
+    if (elConfig) {
+      elevenlabsKey = elConfig.apiKey || "";
+      // Use user's custom voice ID or default voice ID if no override from node
+      if (voiceId === "EXAVITQu4vr4xnSDxMaL") {
+        // Node is using the default — prefer user's configured voice
+        userVoiceId = elConfig.customVoiceId || elConfig.defaultVoiceId || voiceId;
+      }
+      userModel = elConfig.defaultModel || userModel;
+      // Apply user's voice settings
+      if (elConfig.stability !== undefined) {
+        voiceSettings = {
+          stability: elConfig.stability ?? 0.5,
+          similarity_boost: elConfig.similarityBoost ?? 0.75,
+          style: elConfig.style ?? 0,
+          use_speaker_boost: elConfig.useSpeakerBoost ?? true,
+          speed: elConfig.speed ?? 1.0,
+        };
+      }
+    }
   }
   if (!elevenlabsKey) {
     elevenlabsKey = Deno.env.get("ELEVENLABS_API_KEY") || "";
@@ -1692,19 +1716,26 @@ async function sendElevenLabsAudioFromText(
     return { sent: false, reason: "no_elevenlabs_key" };
   }
 
-  // Call ElevenLabs TTS API directly (bypass edge function auth issues)
+  console.log(`[TTS] Using voice=${userVoiceId}, model=${userModel}, hasSettings=${!!voiceSettings}`);
+
+  // Call ElevenLabs TTS API directly
+  const ttsBody: any = {
+    text,
+    model_id: userModel,
+  };
+  if (voiceSettings) {
+    ttsBody.voice_settings = voiceSettings;
+  }
+
   const ttsResp = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
+    `https://api.elevenlabs.io/v1/text-to-speech/${userVoiceId}?output_format=mp3_44100_128`,
     {
       method: "POST",
       headers: {
         "xi-api-key": elevenlabsKey,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        text,
-        model_id: "eleven_multilingual_v2",
-      }),
+      body: JSON.stringify(ttsBody),
     }
   );
 
