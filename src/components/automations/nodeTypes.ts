@@ -223,8 +223,36 @@ export const NODE_TYPES: NodeTypeConfig[] = [
     description: "Gera uma resposta automática usando IA",
     fields: [
       { key: "system_prompt", label: "Prompt do Sistema", type: "textarea", placeholder: "Você é um assistente de vendas...", required: true },
-      { key: "provider", label: "Provedor", type: "select", options: [{ value: "openai", label: "OpenAI" }, { value: "gemini", label: "Gemini" }], defaultValue: "openai" },
-      { key: "model", label: "Modelo", type: "text", placeholder: "gpt-4o-mini" },
+      { key: "provider", label: "Provedor", type: "select", options: [
+        { value: "openai", label: "OpenAI" },
+        { value: "gemini", label: "Google Gemini" },
+      ], defaultValue: "openai" },
+      { key: "model", label: "Modelo", type: "select", options: [
+        // OpenAI
+        { value: "gpt-4o", label: "GPT-4o — Multimodal (texto, imagem, áudio)" },
+        { value: "gpt-4o-mini", label: "GPT-4o Mini — Rápido e econômico" },
+        { value: "gpt-4-turbo", label: "GPT-4 Turbo — Contexto 128k" },
+        { value: "gpt-4", label: "GPT-4 — Raciocínio avançado" },
+        { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo — Rápido e acessível" },
+        { value: "o1", label: "o1 — Raciocínio complexo multi-etapa" },
+        { value: "o1-mini", label: "o1 Mini — Raciocínio rápido" },
+        { value: "o3-mini", label: "o3 Mini — Raciocínio otimizado" },
+        // Gemini
+        { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro — Top multimodal + raciocínio" },
+        { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash — Balanceado custo/qualidade" },
+        { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite — Mais rápido/econômico" },
+        { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash — Multimodal rápido" },
+        { value: "gemini-1.5-pro", label: "Gemini 1.5 Pro — Contexto 2M tokens" },
+        { value: "gemini-1.5-flash", label: "Gemini 1.5 Flash — Contexto 1M rápido" },
+        // Especializados
+        { value: "whisper-1", label: "Whisper — Transcrição de áudio → texto (OpenAI)" },
+        { value: "dall-e-3", label: "DALL·E 3 — Geração de imagens (OpenAI)" },
+        { value: "dall-e-2", label: "DALL·E 2 — Geração/edição de imagens (OpenAI)" },
+        { value: "tts-1", label: "TTS-1 — Texto → áudio (OpenAI)" },
+        { value: "tts-1-hd", label: "TTS-1 HD — Texto → áudio alta definição (OpenAI)" },
+        { value: "imagen-3", label: "Imagen 3 — Geração de imagens (Google)" },
+        { value: "gemini-pro-vision", label: "Gemini Pro Vision — Análise imagens/vídeos" },
+      ], defaultValue: "gpt-4o-mini" },
       { key: "max_tokens", label: "Max Tokens", type: "number", placeholder: "500", defaultValue: 500 },
     ],
   },
