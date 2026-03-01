@@ -83,16 +83,40 @@ const ContactPanel = ({
   const [savingNotes, setSavingNotes] = useState(false);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [msgCount, setMsgCount] = useState<number>(0);
+  const [attendantWorkload, setAttendantWorkload] = useState<Map<string, { active: number; role: string }>>(new Map());
 
   useEffect(() => {
     setNotes(conversationNotes || "");
   }, [conversationNotes]);
 
-  // Load team profiles
+  // Load team profiles + workload
   useEffect(() => {
-    supabase.from("profiles").select("id, user_id, name, email, avatar_url").then(({ data }) => {
-      setProfiles((data as Profile[]) || []);
-    });
+    const loadTeam = async () => {
+      // Get profiles
+      const { data: allProfiles } = await supabase.from("profiles").select("id, user_id, name, email, avatar_url");
+      setProfiles((allProfiles as Profile[]) || []);
+
+      // Get user_roles for attendants
+      const { data: roles } = await supabase.from("user_roles").select("user_id, role");
+      
+      // Get active conversation counts per assigned_to
+      const { data: convs } = await supabase
+        .from("conversations")
+        .select("assigned_to")
+        .in("status", ["open", "in_progress", "waiting"]);
+
+      const countMap = new Map<string, number>();
+      (convs || []).forEach((c: any) => {
+        if (c.assigned_to) countMap.set(c.assigned_to, (countMap.get(c.assigned_to) || 0) + 1);
+      });
+
+      const workload = new Map<string, { active: number; role: string }>();
+      (roles || []).forEach((r: any) => {
+        workload.set(r.user_id, { active: countMap.get(r.user_id) || 0, role: r.role });
+      });
+      setAttendantWorkload(workload);
+    };
+    loadTeam();
   }, []);
 
   // Load message count
@@ -236,7 +260,7 @@ const ContactPanel = ({
           </Select>
         </div>
 
-        {/* Agent Assignment */}
+        {/* Agent Assignment with Workload */}
         <div className="space-y-2">
           <p className="text-xs font-medium text-muted-foreground uppercase flex items-center gap-1"><UserCheck className="h-3 w-3" /> Atendente</p>
           <Select value={assignedTo || "none"} onValueChange={assignAgent}>
@@ -245,11 +269,42 @@ const ContactPanel = ({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="none">Nenhum</SelectItem>
-              {profiles.map((p) => (
-                <SelectItem key={p.user_id} value={p.user_id}>
-                  {p.name}
-                </SelectItem>
-              ))}
+              {profiles
+                .filter((p) => attendantWorkload.has(p.user_id))
+                .sort((a, b) => {
+                  const wA = attendantWorkload.get(a.user_id)?.active || 0;
+                  const wB = attendantWorkload.get(b.user_id)?.active || 0;
+                  return wA - wB;
+                })
+                .map((p) => {
+                  const wl = attendantWorkload.get(p.user_id);
+                  const active = wl?.active || 0;
+                  const roleLabel = wl?.role === "admin" ? "Admin" : wl?.role === "supervisor" ? "Sup." : "Atend.";
+                  const loadColor = active >= 12 ? "text-destructive" : active >= 7 ? "text-amber-500" : "text-emerald-500";
+                  return (
+                    <SelectItem key={p.user_id} value={p.user_id}>
+                      <span className="flex items-center gap-2">
+                        <span>{p.name}</span>
+                        <span className="text-[10px] text-muted-foreground">({roleLabel})</span>
+                        <span className={cn("text-[10px] font-bold", loadColor)}>
+                          {active} ativas
+                        </span>
+                      </span>
+                    </SelectItem>
+                  );
+                })}
+              {profiles.filter((p) => !attendantWorkload.has(p.user_id)).length > 0 && attendantWorkload.size > 0 && (
+                <div className="px-2 py-1.5 text-[10px] text-muted-foreground border-t mt-1 pt-1">
+                  Sem papel definido
+                </div>
+              )}
+              {profiles
+                .filter((p) => !attendantWorkload.has(p.user_id))
+                .map((p) => (
+                  <SelectItem key={p.user_id} value={p.user_id}>
+                    <span className="text-muted-foreground">{p.name}</span>
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
         </div>
