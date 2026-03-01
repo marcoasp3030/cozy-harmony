@@ -507,12 +507,13 @@ async function executeNode(
       const groupedMessages = ctx.variables["mensagens_agrupadas"] || "";
       const classifyContent = groupedMessages || ctx.messageContent || "";
 
-      const classifyPrompt = `Você é um classificador de intenções de mensagens de clientes via WhatsApp.
+      const classifyPrompt = `Você é um classificador de intenções de mensagens de clientes da Nutricar Brasil (mini mercados autônomos 24h).
 Classifique a mensagem do cliente em UMA das seguintes intenções: ${intents.join(", ")}.
+Considere: reconhecimento facial, acesso bloqueado, totem de pagamento, cobrança indevida, produto vencido, divergência em compra, sugestão, elogio, pagamento, PIX.
 ${customPrompt ? `Contexto adicional: ${customPrompt}` : ""}
 
 Responda APENAS com um JSON válido no formato:
-{"intent": "<intenção>", "confidence": <0-100|}
+{"intent": "<intenção>", "confidence": <0-100>}
 
 Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
 
