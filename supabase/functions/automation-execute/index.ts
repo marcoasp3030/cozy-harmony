@@ -834,25 +834,112 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
     }
 
     if (type === "action_register_occurrence") {
-      const occType = d.occurrence_type || "reclamacao";
-      const storeName = interpolate(String(d.store_name || "Não informada"), ctx);
+      const defaultType = d.occurrence_type || "reclamacao";
+      const defaultStore = interpolate(String(d.store_name || "Não informada"), ctx);
       const priority = d.priority || "normal";
 
       // Build description from grouped messages or current message
       const grouped = ctx.variables["mensagens_agrupadas"] || "";
       const transcription = ctx.variables["transcricao"] || "";
+      const iaReply = ctx.variables["ia_reply"] || "";
       const descriptionParts: string[] = [];
       if (grouped) descriptionParts.push(grouped);
       else if (transcription) descriptionParts.push(`[Áudio transcrito] ${transcription}`);
       else if (ctx.messageContent) descriptionParts.push(ctx.messageContent);
-      const description = descriptionParts.join("\n").slice(0, 2000) || "Ocorrência registrada automaticamente via automação";
+      const rawDescription = descriptionParts.join("\n").slice(0, 2000) || "Ocorrência registrada automaticamente via automação";
+
+      // ── Use AI to extract structured occurrence data ──
+      let storeName = defaultStore;
+      let occType = defaultType;
+      let contactName = ctx.contactName || "";
+      let description = rawDescription;
+
+      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+      if (LOVABLE_API_KEY && rawDescription.length > 5) {
+        try {
+          const extractPrompt = `Você é um classificador de ocorrências da Nutricar Brasil (rede de mini mercados autônomos 24h).
+Analise a mensagem do cliente e extraia as informações estruturadas.
+
+LOJAS CONHECIDAS DA NUTRICAR BRASIL (use o nome exato):
+- Nutricar Barra Park
+- Nutricar Asa Norte
+- Nutricar Águas Claras
+- Nutricar Sudoeste
+- Nutricar Lago Sul
+- Nutricar Noroeste
+- Nutricar Park Sul
+- Nutricar Guará
+- Nutricar Taguatinga
+- Nutricar Ceilândia
+
+TIPOS DE OCORRÊNCIA (use exatamente um destes):
+- reclamacao (problemas, insatisfação, produto vencido, cobrança indevida)
+- duvida (perguntas sobre funcionamento, horário, pagamento, PIX)
+- sugestao (sugestões de produtos, melhorias)
+- elogio (feedback positivo, elogios)
+- outro (não se encaixa nas categorias acima)
+
+PRIORIDADES:
+- alta (cobrança indevida, produto vencido, acesso bloqueado, problema urgente)
+- normal (dúvidas gerais, sugestões)
+- baixa (elogios, feedback positivo)
+
+Contexto do cliente:
+- Nome no contato: "${ctx.contactName || "Não informado"}"
+- Telefone: ${ctx.contactPhone}
+- Mensagem(ns): "${rawDescription.slice(0, 1000)}"
+${iaReply ? `- Resposta da IA ao cliente: "${iaReply.slice(0, 500)}"` : ""}
+
+Responda APENAS com JSON válido:
+{"store_name": "<nome da loja ou 'Não informada'>", "type": "<tipo>", "priority": "<prioridade>", "contact_name": "<nome do cliente>", "summary": "<resumo objetivo do problema em 1-2 frases>"}
+
+REGRAS:
+- Se o cliente mencionar o nome da loja, use o nome exato da lista. Se não mencionar, use "Não informada".
+- Se o cliente se identificar pelo nome na mensagem, use esse nome. Senão use o nome do contato.
+- O "summary" deve ser um resumo claro e objetivo do que o cliente relatou, não a mensagem bruta.`;
+
+          const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "google/gemini-2.5-flash-lite",
+              messages: [{ role: "user", content: extractPrompt }],
+              max_tokens: 200,
+              temperature: 0.1,
+            }),
+          });
+
+          if (resp.ok) {
+            const data = await resp.json();
+            const reply = data.choices?.[0]?.message?.content?.trim() || "";
+            const jsonMatch = reply.match(/\{[^}]+\}/);
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0]);
+              if (parsed.store_name && parsed.store_name !== "Não informada") storeName = parsed.store_name;
+              if (parsed.type && ["reclamacao", "duvida", "sugestao", "elogio", "outro"].includes(parsed.type)) occType = parsed.type;
+              if (parsed.priority && ["alta", "normal", "baixa"].includes(parsed.priority)) {
+                // Only override if AI detected a different priority
+                if (parsed.priority !== priority) {
+                  console.log(`[OCCURRENCE] AI adjusted priority: ${priority} -> ${parsed.priority}`);
+                }
+              }
+              if (parsed.contact_name && parsed.contact_name !== "Não informado") contactName = parsed.contact_name;
+              if (parsed.summary) description = parsed.summary;
+
+              console.log(`[OCCURRENCE] AI extracted: store="${storeName}", type="${occType}", name="${contactName}"`);
+            }
+          }
+        } catch (e) {
+          console.error("[OCCURRENCE] AI extraction failed, using defaults:", e);
+        }
+      }
 
       const { error: occErr } = await supabase.from("occurrences").insert({
         store_name: storeName,
         type: occType,
         description,
         contact_phone: ctx.contactPhone || null,
-        contact_name: ctx.contactName || null,
+        contact_name: contactName || null,
         priority,
         status: "aberto",
         created_by: ctx.userId || null,
@@ -863,8 +950,8 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
         throw new Error(`Erro ao registrar ocorrência: ${occErr.message}`);
       }
 
-      console.log(`Occurrence registered: type=${occType}, store=${storeName}, phone=${ctx.contactPhone}`);
-      return { registered: true, type: occType, store: storeName };
+      console.log(`Occurrence registered: type=${occType}, store=${storeName}, name=${contactName}, phone=${ctx.contactPhone}`);
+      return { registered: true, type: occType, store: storeName, contactName };
     }
 
     if (type === "action_http_webhook") {
