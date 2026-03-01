@@ -13,37 +13,32 @@ const NODE_GAP_Y = 120;
 
 const NodePalette = () => {
   const [search, setSearch] = useState("");
-  const { addNodes, getNodes, fitView } = useReactFlow();
+  const { addNodes, addEdges, getNodes, getEdges, fitView } = useReactFlow();
 
   const onDragStart = (event: React.DragEvent, nodeType: string) => {
     event.dataTransfer.setData("application/reactflow", nodeType);
     event.dataTransfer.effectAllowed = "move";
   };
 
-  const findBestPosition = () => {
+  const findBottomNode = () => {
     const existingNodes = getNodes();
-    if (existingNodes.length === 0) return { x: 250, y: 50 };
-
-    // Find the bottommost node
+    if (existingNodes.length === 0) return null;
     let bottomNode = existingNodes[0];
     for (const n of existingNodes) {
-      if (n.position.y > bottomNode.position.y) {
-        bottomNode = n;
-      }
+      if (n.position.y > bottomNode.position.y) bottomNode = n;
     }
-
-    // Place below and centered with the bottommost node
-    return {
-      x: bottomNode.position.x,
-      y: bottomNode.position.y + NODE_GAP_Y,
-    };
+    return bottomNode;
   };
 
   const handleDoubleClick = (nodeType: string) => {
     const config = getNodeTypeConfig(nodeType);
     if (!config) return;
 
-    const position = findBestPosition();
+    const bottomNode = findBottomNode();
+    const position = bottomNode
+      ? { x: bottomNode.position.x, y: bottomNode.position.y + NODE_GAP_Y }
+      : { x: 250, y: 50 };
+
     const newId = `${nodeType}_${Date.now()}`;
 
     addNodes({
@@ -57,7 +52,18 @@ const NodePalette = () => {
       },
     });
 
-    // Scroll to new node after it renders
+    // Auto-connect to the bottom node if it exists
+    if (bottomNode) {
+      addEdges({
+        id: `e_${bottomNode.id}_${newId}`,
+        source: bottomNode.id,
+        target: newId,
+        animated: true,
+        style: { strokeWidth: 2, stroke: "hsl(var(--primary))" },
+        markerEnd: { type: "arrowclosed" as any, color: "hsl(var(--primary))" },
+      });
+    }
+
     setTimeout(() => {
       fitView({ nodes: [{ id: newId }], padding: 0.5, duration: 300 });
     }, 50);
