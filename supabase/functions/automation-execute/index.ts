@@ -1143,7 +1143,7 @@ Mensagem do cliente: "${ctx.messageContent}"`;
 
       const voiceId = d.voice_id || "EXAVITQu4vr4xnSDxMaL";
 
-      // Load ElevenLabs API key from user settings directly
+      // Try user setting first, fallback to project secret (ELEVENLABS_API_KEY)
       let elevenlabsKey = "";
       if (ctx.userId) {
         const { data: elSettings } = await supabase
@@ -1154,9 +1154,12 @@ Mensagem do cliente: "${ctx.messageContent}"`;
           .single();
         elevenlabsKey = (elSettings?.value as any)?.apiKey || "";
       }
+      if (!elevenlabsKey) {
+        elevenlabsKey = Deno.env.get("ELEVENLABS_API_KEY") || "";
+      }
 
       if (!elevenlabsKey) {
-        console.error("ElevenLabs API key not configured for TTS");
+        console.error("ElevenLabs API key not configured for TTS (settings/secrets)");
         // Fallback: send as text message instead
         await sendWhatsAppMessage(supabase, ctx, text);
         return { sent: true, fallback: "text", reason: "no_elevenlabs_key" };

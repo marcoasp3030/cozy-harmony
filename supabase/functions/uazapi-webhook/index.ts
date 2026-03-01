@@ -123,16 +123,22 @@ serve(async (req) => {
         return json({ success: true, note: 'Group or invalid' });
       }
 
-      // content can be an object for audio/media messages — always coerce to string
-      const rawContent = msg.text || msg.caption || msg.Text || msg.Body || '';
-      const messageContent = typeof rawContent === 'string' ? rawContent : (rawContent?.text || rawContent?.caption || '');
-      const msgType = msg.type || msg.mediaType || msg.messageType || 'text';
+      // content can be object for media/interactive payloads — always coerce to string
+      const rawContent = msg.text || msg.caption || msg.Text || msg.Body || msg.content || '';
+      const messageContent = typeof rawContent === 'string'
+        ? rawContent
+        : (rawContent?.text || rawContent?.caption || '');
+
+      // Prefer mediaType/messageType over generic `type` (which often comes as "chat")
+      const rawMsgType = String(msg.mediaType || msg.messageType || msg.type || 'text').toLowerCase();
       const typeMap: Record<string, string> = {
         'text': 'text', 'chat': 'text', 'conversation': 'text',
-        'image': 'image', 'video': 'video', 'audio': 'audio',
-        'ptt': 'audio', 'document': 'document', 'sticker': 'sticker',
+        'image': 'image', 'imagemessage': 'image', 'sticker': 'sticker',
+        'video': 'video', 'videomessage': 'video',
+        'audio': 'audio', 'audiomessage': 'audio', 'ptt': 'audio', 'voice': 'audio', 'voicenote': 'audio',
+        'document': 'document', 'documentmessage': 'document', 'pdf': 'document',
       };
-      const messageType = typeMap[msgType] || 'text';
+      const messageType = typeMap[rawMsgType] || 'text';
 
       const mediaUrl = msg.mediaUrl || msg.MediaUrl || msg.media_url || msg.url || (typeof msg.content === 'object' && msg.content?.url) || null;
       const externalId = msg.messageid || msg.id || msg.Id || null;

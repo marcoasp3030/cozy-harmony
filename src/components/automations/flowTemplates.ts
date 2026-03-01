@@ -565,9 +565,8 @@ export function createMultimodalTemplate(): FlowTemplate {
     makeEdge("trigger_msg_multi", "multi_welcome_media"),
     makeEdge("multi_welcome_media", "multi_collect"),
 
-    // Collect → Check audio & Check text payment
+    // Collect → Check áudio (texto só segue pelo caminho "no" da condição)
     makeEdge("multi_collect", "multi_check_audio"),
-    makeEdge("multi_collect", "multi_text_pix_check"),
 
     // ── Rota Áudio ──
     makeEdge("multi_check_audio", "multi_transcribe", "yes"),
