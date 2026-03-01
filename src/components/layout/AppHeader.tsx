@@ -1,4 +1,4 @@
-import { Bell, Moon, Sun, Search, LogOut, User, Menu, Smartphone, WifiOff, Wifi, Loader2 } from "lucide-react";
+import { Bell, Moon, Sun, Search, LogOut, User, Smartphone, WifiOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -9,14 +9,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useTheme } from "@/hooks/useTheme";
 import { useWhatsAppStatus } from "@/hooks/useWhatsAppStatus";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
-
-interface AppHeaderProps {
-  onToggleSidebar?: () => void;
-}
 
 const WhatsAppIndicator = () => {
   const { instances, status, info, loading } = useWhatsAppStatus();
@@ -104,7 +101,7 @@ const WhatsAppIndicator = () => {
   );
 };
 
-const AppHeader = ({ onToggleSidebar }: AppHeaderProps) => {
+const AppHeader = () => {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
 
@@ -116,15 +113,7 @@ const AppHeader = ({ onToggleSidebar }: AppHeaderProps) => {
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-card px-6">
       <div className="flex items-center gap-4">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="lg:hidden"
-          onClick={onToggleSidebar}
-          aria-label="Menu"
-        >
-          <Menu className="h-5 w-5" />
-        </Button>
+        <SidebarTrigger className="-ml-2" />
 
         <div className="relative hidden md:block">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
