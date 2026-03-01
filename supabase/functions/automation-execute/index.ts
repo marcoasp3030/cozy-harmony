@@ -870,17 +870,24 @@ IMPORTANTE SOBRE LOJAS:
 - Registre o nome exatamente como o cliente informou (ex: "Alphaville 10", "Alpha 10", "Barra Park", etc).
 - Se o cliente não informou a loja, use "Não informada".
 
-TIPOS DE OCORRÊNCIA:
-- reclamacao (problemas, insatisfação, produto vencido, cobrança indevida, totem com defeito, acesso bloqueado, loja suja)
-- duvida (perguntas sobre funcionamento, horário, pagamento, PIX, como funciona)
-- sugestao (sugestões de produtos, melhorias, pedidos)
-- elogio (feedback positivo, elogios, agradecimentos)
-- outro (saudação simples, assunto não identificado)
+TIPOS DE OCORRÊNCIA (use exatamente estes valores):
+- elogio (feedback positivo, elogios, agradecimentos, satisfação com atendimento ou produto)
+- reclamacao (insatisfação geral, mau atendimento, problemas não cobertos por categorias específicas)
+- furto (relato de furto, roubo, subtração de produtos, flagrante, suspeita de furto na loja)
+- falta_produto (produto em falta, prateleira vazia, produto não encontrado, sem estoque)
+- produto_vencido (produto vencido, data de validade expirada, produto estragado, impróprio para consumo)
+- loja_suja (sujeira, falta de limpeza, higiene precária, chão sujo, banheiro sujo, mau cheiro)
+- problema_pagamento (totem com defeito, cobrança indevida, cartão não passa, PIX não funcionou, valor cobrado errado, estorno, reembolso)
+- loja_sem_energia (loja sem luz, sem energia, queda de energia, equipamentos desligados, geladeira desligada)
+- acesso_bloqueado (reconhecimento facial falhou, porta não abre, acesso negado, cadastro com problema)
+- sugestao (sugestões de produtos, melhorias, pedidos de novos itens, ideias)
+- duvida (perguntas sobre funcionamento, horário, pagamento, PIX, como funciona a loja)
+- outro (assunto não identificado ou que não se encaixa nas categorias acima)
 
 PRIORIDADE:
-- alta (cobrança indevida, produto vencido, acesso bloqueado, loja suja/problemas de higiene, problema urgente)
-- normal (dúvidas gerais, sugestões, relatos de problemas menores)
-- baixa (elogios, feedback positivo, saudações)
+- alta (furto, produto vencido, loja sem energia, cobrança indevida, acesso bloqueado, loja suja, problema urgente)
+- normal (reclamações gerais, problemas de pagamento, falta de produto, dúvidas)
+- baixa (elogios, sugestões, feedback positivo)
 
 DADOS DO CONTATO:
 - Nome no sistema: "${ctx.contactName || "Não informado"}"
