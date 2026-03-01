@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import {
   ReactFlow,
   Background,
@@ -12,6 +12,8 @@ import {
   type Node,
   BackgroundVariant,
   MarkerType,
+  ReactFlowProvider,
+  useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -19,6 +21,9 @@ import FlowNode from "./FlowNode";
 import NodePalette from "./NodePalette";
 import NodeConfigPanel from "./NodeConfigPanel";
 import { getNodeTypeConfig } from "./nodeTypes";
+import { Button } from "@/components/ui/button";
+import { Save, Undo2, Redo2, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 const customNodeTypes = { flowNode: FlowNode };
 
@@ -34,12 +39,98 @@ interface FlowBuilderProps {
   onSave: (nodes: Node[], edges: Edge[]) => void;
 }
 
-const FlowBuilder = ({ initialNodes = [], initialEdges = [], onSave }: FlowBuilderProps) => {
+// Max undo/redo history
+const MAX_HISTORY = 30;
+
+const FlowBuilderInner = ({ initialNodes = [], initialEdges = [], onSave }: FlowBuilderProps) => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
+  const { deleteElements } = useReactFlow();
+
+  // Undo/redo
+  const [history, setHistory] = useState<{ nodes: Node[]; edges: Edge[] }[]>([
+    { nodes: initialNodes, edges: initialEdges },
+  ]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const isUndoRedoing = useRef(false);
+
+  // Save state to history on changes (debounced)
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    if (isUndoRedoing.current) {
+      isUndoRedoing.current = false;
+      return;
+    }
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      setHistory((prev) => {
+        const trimmed = prev.slice(0, historyIndex + 1);
+        const newHistory = [...trimmed, { nodes: [...nodes], edges: [...edges] }];
+        if (newHistory.length > MAX_HISTORY) newHistory.shift();
+        return newHistory;
+      });
+      setHistoryIndex((prev) => Math.min(prev + 1, MAX_HISTORY - 1));
+    }, 500);
+    return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, edges]);
+
+  const undo = useCallback(() => {
+    if (historyIndex <= 0) return;
+    const newIndex = historyIndex - 1;
+    const state = history[newIndex];
+    if (!state) return;
+    isUndoRedoing.current = true;
+    setNodes(state.nodes);
+    setEdges(state.edges);
+    setHistoryIndex(newIndex);
+    setSelectedNode(null);
+  }, [historyIndex, history, setNodes, setEdges]);
+
+  const redo = useCallback(() => {
+    if (historyIndex >= history.length - 1) return;
+    const newIndex = historyIndex + 1;
+    const state = history[newIndex];
+    if (!state) return;
+    isUndoRedoing.current = true;
+    setNodes(state.nodes);
+    setEdges(state.edges);
+    setHistoryIndex(newIndex);
+    setSelectedNode(null);
+  }, [historyIndex, history, setNodes, setEdges]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      }
+      if ((e.metaKey || e.ctrlKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+        e.preventDefault();
+        redo();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        onSave(nodes, edges);
+        toast.success("Fluxo salvo!");
+      }
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedNode && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
+          const cfg = getNodeTypeConfig(selectedNode.data?.nodeType as string);
+          if (cfg?.category !== "trigger") {
+            deleteElements({ nodes: [{ id: selectedNode.id }] });
+            setSelectedNode(null);
+          }
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [undo, redo, onSave, nodes, edges, selectedNode, deleteElements]);
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge({ ...params, ...defaultEdgeOptions }, eds)),
@@ -108,10 +199,25 @@ const FlowBuilder = ({ initialNodes = [], initialEdges = [], onSave }: FlowBuild
     [setNodes, setEdges]
   );
 
-  // Auto-save effect: expose current state for parent
+  const deleteSelectedNodes = useCallback(() => {
+    const selected = nodes.filter((n) => n.selected);
+    const triggerIds = selected
+      .filter((n) => getNodeTypeConfig(n.data?.nodeType as string)?.category === "trigger")
+      .map((n) => n.id);
+    const toDelete = selected.filter((n) => !triggerIds.includes(n.id));
+    if (toDelete.length === 0) return;
+    deleteElements({ nodes: toDelete.map((n) => ({ id: n.id })) });
+    setSelectedNode(null);
+    toast.info(`${toDelete.length} nó(s) removido(s)`);
+  }, [nodes, deleteElements]);
+
   const handleSave = useCallback(() => {
     onSave(nodes, edges);
   }, [nodes, edges, onSave]);
+
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex < history.length - 1;
+  const selectedCount = nodes.filter((n) => n.selected).length;
 
   return (
     <div className="flex h-full border rounded-lg overflow-hidden bg-background">
@@ -134,6 +240,10 @@ const FlowBuilder = ({ initialNodes = [], initialEdges = [], onSave }: FlowBuild
           fitView
           snapToGrid
           snapGrid={[16, 16]}
+          deleteKeyCode={null}
+          multiSelectionKeyCode="Shift"
+          selectionOnDrag
+          panOnDrag={[1, 2]}
           className="bg-muted/20"
         >
           <Background variant={BackgroundVariant.Dots} gap={16} size={1} className="opacity-30" />
@@ -148,13 +258,66 @@ const FlowBuilder = ({ initialNodes = [], initialEdges = [], onSave }: FlowBuild
           />
         </ReactFlow>
 
-        {/* Save button floating */}
-        <button
-          onClick={handleSave}
-          className="absolute top-3 right-3 z-10 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors"
-        >
-          Salvar Fluxo
-        </button>
+        {/* Toolbar floating top-right */}
+        <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 w-8 p-0"
+            onClick={undo}
+            disabled={!canUndo}
+            title="Desfazer (Ctrl+Z)"
+          >
+            <Undo2 className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 w-8 p-0"
+            onClick={redo}
+            disabled={!canRedo}
+            title="Refazer (Ctrl+Y)"
+          >
+            <Redo2 className="h-3.5 w-3.5" />
+          </Button>
+          {selectedCount > 1 && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1 text-xs text-destructive hover:text-destructive"
+              onClick={deleteSelectedNodes}
+              title="Excluir selecionados"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {selectedCount}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            onClick={handleSave}
+            className="h-8 gap-1.5 text-xs font-semibold shadow-lg"
+            title="Salvar (Ctrl+S)"
+          >
+            <Save className="h-3.5 w-3.5" />
+            Salvar
+          </Button>
+        </div>
+
+        {/* Hints bar */}
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3 bg-card/90 backdrop-blur-sm border rounded-full px-4 py-1.5 shadow-md">
+          <span className="text-[10px] text-muted-foreground">
+            <kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">Ctrl+Z</kbd> Desfazer
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            <kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">Del</kbd> Excluir
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            <kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">Ctrl+S</kbd> Salvar
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            <kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">Shift</kbd> Multi-selecionar
+          </span>
+        </div>
       </div>
 
       {selectedNode && (
@@ -168,5 +331,11 @@ const FlowBuilder = ({ initialNodes = [], initialEdges = [], onSave }: FlowBuild
     </div>
   );
 };
+
+const FlowBuilder = (props: FlowBuilderProps) => (
+  <ReactFlowProvider>
+    <FlowBuilderInner {...props} />
+  </ReactFlowProvider>
+);
 
 export default FlowBuilder;

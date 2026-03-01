@@ -1,22 +1,67 @@
-import { memo } from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { memo, useState } from "react";
+import { Handle, Position, type NodeProps, useReactFlow } from "@xyflow/react";
 import { getNodeTypeConfig } from "./nodeTypes";
-import { GripVertical } from "lucide-react";
+import { GripVertical, Trash2, Copy, Plus } from "lucide-react";
 
-const FlowNode = memo(({ data, selected }: NodeProps) => {
+const FlowNode = memo(({ id, data, selected }: NodeProps) => {
   const config = getNodeTypeConfig(data.nodeType as string);
+  const [showActions, setShowActions] = useState(false);
+  const { deleteElements, addNodes, addEdges, getNode } = useReactFlow();
+
   if (!config) return null;
 
   const Icon = config.icon;
   const isTrigger = config.category === "trigger";
   const isCondition = config.category === "condition";
 
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    deleteElements({ nodes: [{ id }] });
+  };
+
+  const handleDuplicate = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const currentNode = getNode(id);
+    if (!currentNode) return;
+    const newNode = {
+      id: `${data.nodeType}_${Date.now()}`,
+      type: "flowNode",
+      position: { x: currentNode.position.x + 30, y: currentNode.position.y + 80 },
+      data: { ...currentNode.data },
+    };
+    addNodes(newNode);
+  };
+
+  const handleAddBelow = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const currentNode = getNode(id);
+    if (!currentNode) return;
+    const newId = `action_send_message_${Date.now()}`;
+    const newNode = {
+      id: newId,
+      type: "flowNode",
+      position: { x: currentNode.position.x, y: currentNode.position.y + 140 },
+      data: { nodeType: "action_send_message", message: "" },
+    };
+    addNodes(newNode);
+    addEdges({
+      id: `e_${id}_${newId}`,
+      source: id,
+      target: newId,
+      animated: true,
+      style: { strokeWidth: 2, stroke: "hsl(var(--primary))" },
+      markerEnd: { type: "arrowclosed" as any, color: "hsl(var(--primary))" },
+    });
+  };
+
   return (
     <div
-      className={`relative rounded-xl border-2 bg-card shadow-lg transition-all min-w-[200px] max-w-[260px] ${
+      className={`relative rounded-xl border-2 bg-card shadow-lg transition-all min-w-[200px] max-w-[260px] group ${
         selected ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""
       }`}
       style={{ borderColor: config.color + "80" }}
+      onMouseEnter={() => setShowActions(true)}
+      onMouseLeave={() => setShowActions(false)}
     >
       {/* Target handle (top) */}
       {!isTrigger && (
@@ -26,6 +71,35 @@ const FlowNode = memo(({ data, selected }: NodeProps) => {
           className="!w-3 !h-3 !border-2 !border-background !-top-1.5"
           style={{ backgroundColor: config.color }}
         />
+      )}
+
+      {/* Quick action buttons */}
+      {showActions && (
+        <div className="absolute -top-9 right-0 flex items-center gap-1 z-20 animate-in fade-in slide-in-from-bottom-1 duration-150">
+          <button
+            onClick={handleDuplicate}
+            className="flex h-7 w-7 items-center justify-center rounded-md bg-card border shadow-md hover:bg-muted transition-colors"
+            title="Duplicar nó"
+          >
+            <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+          </button>
+          <button
+            onClick={handleAddBelow}
+            className="flex h-7 w-7 items-center justify-center rounded-md bg-card border shadow-md hover:bg-muted transition-colors"
+            title="Adicionar nó abaixo"
+          >
+            <Plus className="h-3.5 w-3.5 text-primary" />
+          </button>
+          {!isTrigger && (
+            <button
+              onClick={handleDelete}
+              className="flex h-7 w-7 items-center justify-center rounded-md bg-card border shadow-md hover:bg-destructive/10 transition-colors"
+              title="Excluir nó"
+            >
+              <Trash2 className="h-3.5 w-3.5 text-destructive" />
+            </button>
+          )}
+        </div>
       )}
 
       {/* Header */}
@@ -40,7 +114,7 @@ const FlowNode = memo(({ data, selected }: NodeProps) => {
         >
           <Icon className="h-3.5 w-3.5" style={{ color: config.color }} />
         </div>
-        <span className="text-xs font-semibold truncate" style={{ color: config.color }}>
+        <span className="text-xs font-semibold truncate flex-1" style={{ color: config.color }}>
           {config.label}
         </span>
       </div>

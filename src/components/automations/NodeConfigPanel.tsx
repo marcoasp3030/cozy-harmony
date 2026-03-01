@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { X, Copy, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,7 +7,8 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getNodeTypeConfig } from "./nodeTypes";
-import type { Node } from "@xyflow/react";
+import { useReactFlow, type Node } from "@xyflow/react";
+import { toast } from "sonner";
 
 interface NodeConfigPanelProps {
   node: Node;
@@ -18,28 +19,43 @@ interface NodeConfigPanelProps {
 
 const NodeConfigPanel = ({ node, onUpdate, onClose, onDelete }: NodeConfigPanelProps) => {
   const config = getNodeTypeConfig(node.data.nodeType as string);
+  const { addNodes, getNode } = useReactFlow();
+
   if (!config) return null;
 
   const Icon = config.icon;
+  const isTrigger = config.category === "trigger";
 
   const updateField = (key: string, value: any) => {
     onUpdate(node.id, { ...node.data, [key]: value });
+  };
+
+  const handleDuplicate = () => {
+    const currentNode = getNode(node.id);
+    if (!currentNode) return;
+    addNodes({
+      id: `${node.data.nodeType}_${Date.now()}`,
+      type: "flowNode",
+      position: { x: currentNode.position.x + 30, y: currentNode.position.y + 80 },
+      data: { ...currentNode.data },
+    });
+    toast.info("Nó duplicado");
   };
 
   return (
     <div className="w-72 border-l bg-card flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between p-3 border-b" style={{ backgroundColor: config.color + "10" }}>
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md" style={{ backgroundColor: config.color + "25" }}>
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: config.color + "25" }}>
             <Icon className="h-4 w-4" style={{ color: config.color }} />
           </div>
-          <div>
-            <p className="text-sm font-semibold">{config.label}</p>
-            <p className="text-[10px] text-muted-foreground">{config.description}</p>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold truncate">{config.label}</p>
+            <p className="text-[10px] text-muted-foreground truncate">{config.description}</p>
           </div>
         </div>
-        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onClose}>
+        <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={onClose}>
           <X className="h-4 w-4" />
         </Button>
       </div>
@@ -105,19 +121,53 @@ const NodeConfigPanel = ({ node, onUpdate, onClose, onDelete }: NodeConfigPanelP
               </div>
             );
           })}
+
+          {/* Variables hint for text/textarea fields */}
+          {config.fields.some((f) => f.type === "textarea" || f.type === "text") && (
+            <div className="rounded-md bg-muted/50 p-2">
+              <p className="text-[10px] font-medium text-muted-foreground mb-1">Variáveis disponíveis:</p>
+              <div className="flex flex-wrap gap-1">
+                {["{{nome}}", "{{phone}}", "{{mensagem}}"].map((v) => (
+                  <button
+                    key={v}
+                    className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-mono hover:bg-primary/20 transition-colors"
+                    onClick={() => {
+                      // Copy to clipboard
+                      navigator.clipboard.writeText(v);
+                      toast.info(`${v} copiado!`);
+                    }}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </ScrollArea>
 
       {/* Actions */}
-      <div className="p-3 border-t">
+      <div className="p-3 border-t flex gap-2">
         <Button
-          variant="destructive"
+          variant="outline"
           size="sm"
-          className="w-full text-xs"
-          onClick={() => onDelete(node.id)}
+          className="flex-1 text-xs gap-1"
+          onClick={handleDuplicate}
         >
-          Remover Nó
+          <Copy className="h-3.5 w-3.5" />
+          Duplicar
         </Button>
+        {!isTrigger && (
+          <Button
+            variant="destructive"
+            size="sm"
+            className="flex-1 text-xs gap-1"
+            onClick={() => onDelete(node.id)}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Excluir
+          </Button>
+        )}
       </div>
     </div>
   );
