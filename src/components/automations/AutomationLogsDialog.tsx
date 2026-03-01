@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { History, Clock, CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronRight, Phone } from "lucide-react";
+import { History, Clock, CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronRight, Phone, Send, ExternalLink } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -157,31 +157,83 @@ export default function AutomationLogsDialog({ automationId, automationName, ope
                           <p className="text-xs text-muted-foreground italic">Nenhum nó executado</p>
                         ) : (
                           <div className="space-y-1">
-                            {nodesExecuted.map((node, idx) => (
-                              <div
-                                key={`${node.nodeId}-${idx}`}
-                                className="flex items-center gap-2 px-2 py-1.5 rounded bg-background/50 text-xs"
-                              >
-                                <span className="text-muted-foreground w-5 text-right shrink-0">{idx + 1}</span>
-                                {node.status === "success" ? (
-                                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                                ) : (
-                                  <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />
-                                )}
-                                <span className="font-medium">{node.nodeLabel}</span>
-                                {node.result?.condition !== undefined && (
-                                  <Badge variant={node.result.condition ? "default" : "secondary"} className="text-[9px] h-4">
-                                    {node.result.condition ? "Sim" : "Não"}
-                                  </Badge>
-                                )}
-                                <span className="text-muted-foreground ml-auto">{node.durationMs}ms</span>
-                                {node.error && (
-                                  <span className="text-red-400 truncate max-w-[200px]" title={node.error}>
-                                    {node.error}
-                                  </span>
-                                )}
-                              </div>
-                            ))}
+                            {nodesExecuted.map((node, idx) => {
+                              const hasSendResult = node.result?.messageId !== undefined || node.result?.httpStatus !== undefined || node.result?.sent !== undefined;
+                              return (
+                                <div
+                                  key={`${node.nodeId}-${idx}`}
+                                  className="rounded bg-background/50 text-xs"
+                                >
+                                  <div className="flex items-center gap-2 px-2 py-1.5">
+                                    <span className="text-muted-foreground w-5 text-right shrink-0">{idx + 1}</span>
+                                    {node.status === "success" ? (
+                                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                                    ) : (
+                                      <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                                    )}
+                                    <span className="font-medium">{node.nodeLabel}</span>
+                                    {node.result?.condition !== undefined && (
+                                      <Badge variant={node.result.condition ? "default" : "secondary"} className="text-[9px] h-4">
+                                        {node.result.condition ? "Sim" : "Não"}
+                                      </Badge>
+                                    )}
+                                    <span className="text-muted-foreground ml-auto">{node.durationMs}ms</span>
+                                    {node.error && (
+                                      <span className="text-red-400 truncate max-w-[200px]" title={node.error}>
+                                        {node.error}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {/* Send result details */}
+                                  {hasSendResult && (
+                                    <div className="flex items-center gap-2 px-2 pb-1.5 pl-9 flex-wrap">
+                                      {node.result?.sent !== undefined && (
+                                        <Badge variant={node.result.sent ? "default" : "secondary"} className="text-[9px] h-4 gap-1">
+                                          <Send className="h-2.5 w-2.5" />
+                                          {node.result.sent ? "Enviado" : "Não enviado"}
+                                        </Badge>
+                                      )}
+                                      {node.result?.httpStatus && (
+                                        <Badge variant="outline" className="text-[9px] h-4">
+                                          HTTP {node.result.httpStatus}
+                                        </Badge>
+                                      )}
+                                      {node.result?.messageId && (
+                                        <span className="text-[10px] text-muted-foreground flex items-center gap-0.5" title={node.result.messageId}>
+                                          <ExternalLink className="h-2.5 w-2.5" />
+                                          ID: {String(node.result.messageId).slice(0, 16)}…
+                                        </span>
+                                      )}
+                                      {node.result?.reason && (
+                                        <span className="text-[10px] text-amber-500">
+                                          {node.result.reason === "empty_message" ? "Mensagem vazia" : 
+                                           node.result.reason === "template_not_found" ? "Template não encontrado" : 
+                                           node.result.reason}
+                                        </span>
+                                      )}
+                                      {node.result?.template && (
+                                        <span className="text-[10px] text-muted-foreground">
+                                          Template: {node.result.template}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                  {/* API response for debugging */}
+                                  {node.result?.apiResponse && (
+                                    <div className="px-2 pb-1.5 pl-9">
+                                      <details className="text-[10px]">
+                                        <summary className="text-muted-foreground cursor-pointer hover:text-foreground">
+                                          Ver resposta da API
+                                        </summary>
+                                        <pre className="mt-1 p-1.5 rounded bg-muted/50 text-muted-foreground overflow-x-auto whitespace-pre-wrap break-all max-h-20">
+                                          {node.result.apiResponse}
+                                        </pre>
+                                      </details>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
