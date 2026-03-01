@@ -49,7 +49,21 @@ import {
   CreditCard,
   Zap,
   DoorClosed,
+  Pencil,
+  Save,
+  X,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -110,6 +124,8 @@ const OccurrencesPage = () => {
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [resolution, setResolution] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState({ contact_name: "", contact_phone: "", priority: "", type: "" });
 
   const { data: occurrences = [], isLoading } = useQuery({
     queryKey: ["occurrences"],
@@ -153,6 +169,33 @@ const OccurrencesPage = () => {
       setDetailOpen(false);
     },
     onError: () => toast.error("Erro ao atualizar status"),
+  });
+
+  const editMutation = useMutation({
+    mutationFn: async ({ id, ...fields }: { id: string; contact_name: string; contact_phone: string; priority: string; type: string }) => {
+      const { error } = await supabase.from("occurrences").update(fields).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["occurrences"] });
+      toast.success("Ocorrência atualizada!");
+      setIsEditing(false);
+      setDetailOpen(false);
+    },
+    onError: () => toast.error("Erro ao atualizar ocorrência"),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("occurrences").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["occurrences"] });
+      toast.success("Ocorrência excluída!");
+      setDetailOpen(false);
+    },
+    onError: () => toast.error("Erro ao excluir ocorrência"),
   });
 
   const filtered = occurrences.filter((o: any) => {
@@ -364,7 +407,7 @@ const OccurrencesPage = () => {
       </Card>
 
       {/* Detail Dialog */}
-      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+      <Dialog open={detailOpen} onOpenChange={(v) => { setDetailOpen(v); if (!v) setIsEditing(false); }}>
         <DialogContent className="sm:max-w-lg">
           {selectedOccurrence && (
             <>
@@ -375,35 +418,114 @@ const OccurrencesPage = () => {
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-4 pt-2">
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div><span className="text-muted-foreground">Data:</span> {format(new Date(selectedOccurrence.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}</div>
-                  <div><span className="text-muted-foreground">Prioridade:</span> {PRIORITY_OPTIONS.find((p) => p.value === selectedOccurrence.priority)?.label}</div>
-                  {selectedOccurrence.contact_name && <div><span className="text-muted-foreground">Cliente:</span> {selectedOccurrence.contact_name}</div>}
-                  {selectedOccurrence.contact_phone && <div><span className="text-muted-foreground">Telefone:</span> {selectedOccurrence.contact_phone}</div>}
+                {/* Action buttons */}
+                <div className="flex gap-2 justify-end">
+                  {!isEditing ? (
+                    <Button variant="outline" size="sm" onClick={() => {
+                      setEditForm({
+                        contact_name: selectedOccurrence.contact_name || "",
+                        contact_phone: selectedOccurrence.contact_phone || "",
+                        priority: selectedOccurrence.priority || "normal",
+                        type: selectedOccurrence.type || "reclamacao",
+                      });
+                      setIsEditing(true);
+                    }}>
+                      <Pencil className="mr-1 h-3.5 w-3.5" /> Editar
+                    </Button>
+                  ) : (
+                    <>
+                      <Button variant="outline" size="sm" onClick={() => setIsEditing(false)}>
+                        <X className="mr-1 h-3.5 w-3.5" /> Cancelar
+                      </Button>
+                      <Button size="sm" disabled={editMutation.isPending} onClick={() => editMutation.mutate({ id: selectedOccurrence.id, ...editForm })}>
+                        <Save className="mr-1 h-3.5 w-3.5" /> Salvar
+                      </Button>
+                    </>
+                  )}
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="destructive" size="sm"><Trash2 className="mr-1 h-3.5 w-3.5" /> Excluir</Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Excluir ocorrência?</AlertDialogTitle>
+                        <AlertDialogDescription>Esta ação não pode ser desfeita. A ocorrência será removida permanentemente.</AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => deleteMutation.mutate(selectedOccurrence.id)}>Excluir</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
+
+                {isEditing ? (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label>Nome do Cliente</Label>
+                        <Input value={editForm.contact_name} onChange={(e) => setEditForm({ ...editForm, contact_name: e.target.value })} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Telefone</Label>
+                        <Input value={editForm.contact_phone} onChange={(e) => setEditForm({ ...editForm, contact_phone: e.target.value })} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label>Tipo</Label>
+                        <Select value={editForm.type} onValueChange={(v) => setEditForm({ ...editForm, type: v })}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {OCCURRENCE_TYPES.map((t) => (
+                              <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Prioridade</Label>
+                        <Select value={editForm.priority} onValueChange={(v) => setEditForm({ ...editForm, priority: v })}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {PRIORITY_OPTIONS.map((p) => (
+                              <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div><span className="text-muted-foreground">Data:</span> {format(new Date(selectedOccurrence.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}</div>
+                    <div><span className="text-muted-foreground">Prioridade:</span> {PRIORITY_OPTIONS.find((p) => p.value === selectedOccurrence.priority)?.label}</div>
+                    {selectedOccurrence.contact_name && <div><span className="text-muted-foreground">Cliente:</span> {selectedOccurrence.contact_name}</div>}
+                    {selectedOccurrence.contact_phone && <div><span className="text-muted-foreground">Telefone:</span> {selectedOccurrence.contact_phone}</div>}
+                  </div>
+                )}
+
                 <div>
                   <Label className="text-muted-foreground">Descrição</Label>
                   <p className="mt-1 rounded-md border bg-muted/50 p-3 text-sm">{selectedOccurrence.description}</p>
                 </div>
-                {selectedOccurrence.status !== "resolvido" && selectedOccurrence.status !== "cancelado" && (
+
+                {/* Status actions */}
+                {selectedOccurrence.status !== "resolvido" && selectedOccurrence.status !== "cancelado" && !isEditing && (
                   <div className="space-y-3 border-t pt-3">
                     <div className="space-y-2">
                       <Label>Resolução / Observação</Label>
                       <Textarea placeholder="Descreva a resolução..." rows={3} value={resolution} onChange={(e) => setResolution(e.target.value)} />
                     </div>
                     <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        className="flex-1"
-                        onClick={() => updateStatusMutation.mutate({ id: selectedOccurrence.id, status: "em_andamento" })}
-                      >
+                      <Button variant="outline" className="flex-1" onClick={() => updateStatusMutation.mutate({ id: selectedOccurrence.id, status: "em_andamento" })}>
                         Em Andamento
                       </Button>
-                      <Button
-                        className="flex-1"
-                        onClick={() => updateStatusMutation.mutate({ id: selectedOccurrence.id, status: "resolvido", resolution })}
-                      >
+                      <Button className="flex-1" onClick={() => updateStatusMutation.mutate({ id: selectedOccurrence.id, status: "resolvido", resolution })}>
                         Resolver
+                      </Button>
+                      <Button variant="outline" className="flex-1 text-destructive" onClick={() => updateStatusMutation.mutate({ id: selectedOccurrence.id, status: "cancelado" })}>
+                        Cancelar
                       </Button>
                     </div>
                   </div>
