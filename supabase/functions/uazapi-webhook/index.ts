@@ -108,11 +108,18 @@ serve(async (req) => {
         return json({ success: true, note: 'Outgoing message skipped' });
       }
 
-      const rawJid = msg.chatid || msg.sender_pn || msg.Chat || msg.chat || '';
+      // Try multiple paths to extract phone/jid from UazAPI payload
+      const rawJid = msg.chatid || msg.sender_pn || msg.Chat || msg.chat
+        || msg.remoteJid || msg.from || msg.From
+        || body.chat?.lead_phone || body.chat?.phone
+        || '';
+      
+      console.log(`Phone extraction: rawJid="${String(rawJid).slice(0,60)}", msg keys=${Object.keys(msg).join(',')}, chat keys=${Object.keys(body.chat || {}).join(',')}`);
+      
       const phone = String(rawJid).replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '');
 
       if (!phone || msg.isGroup === true || String(rawJid).includes('@g.us')) {
-        console.log('Skipping: no phone or group message');
+        console.log(`Skipping: phone="${phone}", isGroup=${msg.isGroup}, rawJid="${String(rawJid).slice(0,40)}"`);
         return json({ success: true, note: 'Group or invalid' });
       }
 
