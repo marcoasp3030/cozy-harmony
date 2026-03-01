@@ -193,7 +193,24 @@ const Automations = () => {
     }
   };
 
-  // ── Flow Builder Mode ──
+  const updateInstanceId = async (autoId: string, instanceId: string | null) => {
+    const { error } = await supabase
+      .from("automations")
+      .update({ instance_id: instanceId })
+      .eq("id", autoId);
+    if (error) {
+      toast.error("Erro ao atualizar instância");
+      return;
+    }
+    setAutomations((prev) =>
+      prev.map((a) => (a.id === autoId ? { ...a, instance_id: instanceId } : a))
+    );
+    if (editingAutomation?.id === autoId) {
+      setEditingAutomation((prev) => prev ? { ...prev, instance_id: instanceId } : prev);
+    }
+    toast.success("Instância atualizada!");
+  };
+
   if (showBuilder && editingAutomation) {
     const flow = editingAutomation.flow as { nodes?: Node[]; edges?: Edge[] } | null;
     return (
@@ -210,9 +227,26 @@ const Automations = () => {
               )}
             </div>
           </div>
-          <Badge variant={editingAutomation.is_active ? "default" : "secondary"}>
-            {editingAutomation.is_active ? "Ativo" : "Inativo"}
-          </Badge>
+          <div className="flex items-center gap-3">
+            <Select
+              value={editingAutomation.instance_id || "all"}
+              onValueChange={(v) => updateInstanceId(editingAutomation.id, v === "all" ? null : v)}
+            >
+              <SelectTrigger className="h-8 w-[180px] text-xs">
+                <Smartphone className="h-3 w-3 mr-1" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas instâncias</SelectItem>
+                {instances.map((inst) => (
+                  <SelectItem key={inst.id} value={inst.id}>{inst.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Badge variant={editingAutomation.is_active ? "default" : "secondary"}>
+              {editingAutomation.is_active ? "Ativo" : "Inativo"}
+            </Badge>
+          </div>
         </div>
         <div className="flex-1">
           <FlowBuilder
@@ -292,16 +326,21 @@ const Automations = () => {
                     <Badge variant="outline" className="text-[10px]">
                       {nodeCount} nós
                     </Badge>
-                    {auto.instance_id ? (
-                      <Badge variant="outline" className="text-[10px] gap-1">
+                    <Select
+                      value={auto.instance_id || "all"}
+                      onValueChange={(v) => updateInstanceId(auto.id, v === "all" ? null : v)}
+                    >
+                      <SelectTrigger className="h-6 text-[10px] w-auto min-w-[120px] gap-1 border-dashed">
                         <Smartphone className="h-2.5 w-2.5" />
-                        {instances.find(i => i.id === auto.instance_id)?.name || "Instância"}
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                        Todas instâncias
-                      </Badge>
-                    )}
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all" className="text-xs">Todas instâncias</SelectItem>
+                        {instances.map((inst) => (
+                          <SelectItem key={inst.id} value={inst.id} className="text-xs">{inst.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <span className="text-xs text-muted-foreground ml-auto">
                       {(stats?.executions || 0).toLocaleString()} exec.
                     </span>
