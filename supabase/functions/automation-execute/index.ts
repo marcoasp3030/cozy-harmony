@@ -1085,23 +1085,34 @@ Mensagem do cliente: "${ctx.messageContent}"`;
       }
 
       // ── Standard chat models (GPT, Gemini chat) ──
-      // Use only the last 5 inbound + 3 outbound messages to avoid context bloat
-      const { data: recentMsgs } = await supabase
+      // Fetch last 5 inbound + last 2 outbound for a focused context window
+      const { data: recentInbound } = await supabase
         .from("messages")
-        .select("direction, content, type, media_url")
+        .select("direction, content, type, media_url, created_at")
         .eq("contact_id", ctx.contactId)
+        .eq("direction", "inbound")
         .order("created_at", { ascending: false })
-        .limit(10);
+        .limit(5);
+
+      const { data: recentOutbound } = await supabase
+        .from("messages")
+        .select("direction, content, type, created_at")
+        .eq("contact_id", ctx.contactId)
+        .eq("direction", "outbound")
+        .order("created_at", { ascending: false })
+        .limit(2);
 
       const transcription = ctx.variables["transcricao"] || "";
       const pdfContent = ctx.variables["pdf_conteudo"] || "";
       const groupedMessages = ctx.variables["mensagens_agrupadas"] || "";
 
-      // Build deduplicated message list — prefer grouped messages over raw DB messages
-      // to avoid sending the same content twice to the LLM
-      const rawMessages = (recentMsgs || []).reverse();
-      
-      // Track content we've already seen from grouped messages to deduplicate
+      // Merge and sort by created_at
+      const allRecent = [
+        ...(recentInbound || []),
+        ...(recentOutbound || []),
+      ].sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+      // Track grouped content to avoid duplicating
       const groupedContentSet = new Set<string>();
       if (groupedMessages) {
         for (const line of groupedMessages.split("\n")) {
@@ -1110,15 +1121,15 @@ Mensagem do cliente: "${ctx.messageContent}"`;
         }
       }
 
-      const messages = rawMessages.map((m: any, idx: number, arr: any[]) => {
+      const messages = allRecent.map((m: any, idx: number, arr: any[]) => {
         let content = m.content || "";
         const isLastInbound = m.direction === "inbound" && idx === arr.length - 1;
-        
-        // Skip inbound messages whose content is already in grouped messages
+
+        // Skip inbound messages already present in grouped messages
         if (m.direction === "inbound" && content && groupedContentSet.has(content.trim())) {
-          return null; // will be filtered out
+          return null;
         }
-        
+
         if (!content && (m.type === "audio" || m.type === "ptt")) {
           if (isLastInbound && transcription) {
             content = `[Áudio do cliente - transcrição]: ${transcription}`;
@@ -1132,7 +1143,7 @@ Mensagem do cliente: "${ctx.messageContent}"`;
           } else {
             content = "[Imagem enviada pelo cliente]";
           }
-          if (isLastInbound) {
+          if (m.direction === "inbound") {
             (ctx as any)._lastImageUrl = m.media_url;
           }
         } else if (!content && m.type === "document") {
@@ -1144,11 +1155,11 @@ Mensagem do cliente: "${ctx.messageContent}"`;
         } else if (!content) {
           content = `[${m.type || "mídia"}]`;
         }
-        
+
         return { direction: m.direction, content };
       }).filter(Boolean);
 
-      // Add grouped messages as a single consolidated inbound entry
+      // Add grouped messages as a single consolidated entry (if not already covered)
       if (groupedMessages) {
         messages.push({
           direction: "inbound",
@@ -1707,6 +1718,35 @@ async function sendWhatsAppMessage(supabase: any, ctx: ExecutionContext, message
   const cleanNumber = String(ctx.contactPhone || "").replace(/\D/g, "");
   if (!cleanNumber) {
     throw new Error("Número de telefone inválido para envio");
+  }
+
+  // ── Anti-duplication guard: block identical message to same contact within 30s ──
+  const dedupeWindow = new Date(Date.now() - 30_000).toISOString();
+  const msgPreview = message.slice(0, 200).trim();
+  const { data: recentSent } = await supabase
+    .from("messages")
+    .select("id, content")
+    .eq("contact_id", ctx.contactId)
+    .eq("direction", "outbound")
+    .gte("created_at", dedupeWindow)
+    .order("created_at", { ascending: false })
+    .limit(5);
+
+  if (recentSent && recentSent.length > 0) {
+    const isDuplicate = recentSent.some((m: any) => {
+      const existing = (m.content || "").slice(0, 200).trim();
+      // Exact match or >80% overlap (first 200 chars)
+      if (existing === msgPreview) return true;
+      // Check if one contains the other (catches near-duplicates)
+      if (existing.length > 20 && msgPreview.length > 20) {
+        if (existing.includes(msgPreview.slice(0, 80)) || msgPreview.includes(existing.slice(0, 80))) return true;
+      }
+      return false;
+    });
+    if (isDuplicate) {
+      console.log(`Anti-dup: skipping duplicate message to ${cleanNumber}: "${msgPreview.slice(0, 50)}"`);
+      return { messageId: null, httpStatus: 0, apiResponse: "skipped_duplicate" };
+    }
   }
 
   let query = supabase
