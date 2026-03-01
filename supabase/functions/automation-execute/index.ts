@@ -33,6 +33,7 @@ interface ExecutionContext {
   messageContent: string;
   messageType: string;
   conversationId: string;
+  userId: string | null;
   variables: Record<string, string>;
   isFirstContact: boolean;
   nodeLog: NodeLogEntry[];
@@ -142,6 +143,7 @@ serve(async (req) => {
         messageContent: messageContent || "",
         messageType: messageType || "text",
         conversationId,
+        userId: automation.created_by || null,
         variables: {},
         isFirstContact: !!isFirstContact,
         nodeLog: [],
@@ -618,8 +620,9 @@ async function executeNode(
     console.log(`Unknown node type: ${type}`);
     return true;
   } catch (err) {
+    const message = err instanceof Error ? err.message : "Erro desconhecido";
     console.error(`Error executing node ${type} (${node.id}):`, err);
-    return false;
+    throw new Error(message);
   }
 }
 
@@ -637,59 +640,82 @@ function interpolate(text: string, ctx: ExecutionContext): string {
 }
 
 async function sendWhatsAppMessage(supabase: any, ctx: ExecutionContext, message: string) {
-  try {
-    // Get default instance
-    const { data: instance } = await supabase
-      .from("whatsapp_instances")
-      .select("id, base_url, instance_token")
-      .eq("is_default", true)
-      .limit(1)
-      .single();
-
-    if (!instance) {
-      // Fallback: get any instance
-      const { data: anyInstance } = await supabase
-        .from("whatsapp_instances")
-        .select("id, base_url, instance_token")
-        .limit(1)
-        .single();
-      if (!anyInstance) {
-        console.error("No WhatsApp instance found");
-        return;
-      }
-      Object.assign(instance || {}, anyInstance);
-    }
-
-    const inst = instance!;
-    const resp = await fetch(`${inst.base_url}/message/send-text`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        token: inst.instance_token || "",
-      },
-      body: JSON.stringify({
-        phone: ctx.contactPhone,
-        message,
-      }),
-    });
-
-    const result = await resp.json();
-    const externalId = result?.key?.id || result?.id || null;
-
-    // Save outbound message
-    await supabase.from("messages").insert({
-      contact_id: ctx.contactId,
-      direction: "outbound",
-      type: "text",
-      content: message,
-      status: "sent",
-      external_id: externalId,
-    });
-
-    console.log(`Sent message to ${ctx.contactPhone}: "${message.slice(0, 50)}"`);
-  } catch (err) {
-    console.error("Failed to send WhatsApp message:", err);
+  const cleanNumber = String(ctx.contactPhone || "").replace(/\D/g, "");
+  if (!cleanNumber) {
+    throw new Error("Número de telefone inválido para envio");
   }
+
+  let query = supabase
+    .from("whatsapp_instances")
+    .select("id, base_url, instance_token")
+    .order("is_default", { ascending: false })
+    .limit(1);
+
+  if (ctx.userId) {
+    query = query.eq("user_id", ctx.userId);
+  }
+
+  const { data: instance, error: instanceErr } = await query.maybeSingle();
+
+  if (instanceErr || !instance?.base_url || !instance?.instance_token) {
+    throw new Error("Instância WhatsApp não configurada para esta automação");
+  }
+
+  const baseUrl = String(instance.base_url).replace(/\/+$/, "");
+
+  const resp = await fetch(`${baseUrl}/send/text`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      token: instance.instance_token,
+    },
+    body: JSON.stringify({
+      number: cleanNumber,
+      text: message,
+    }),
+  });
+
+  const rawResponse = await resp.text();
+  let result: any = {};
+  try {
+    result = rawResponse ? JSON.parse(rawResponse) : {};
+  } catch {
+    result = { raw: rawResponse };
+  }
+
+  if (!resp.ok || result?.error || result?.success === false) {
+    throw new Error(result?.error || `Falha no envio (HTTP ${resp.status})`);
+  }
+
+  const normalizeMsgId = (value: unknown): string | null => {
+    if (!value) return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    const parts = raw.split(":").filter(Boolean);
+    return parts.length > 1 ? parts[parts.length - 1] : raw;
+  };
+
+  const externalIdRaw =
+    result?.messageid ||
+    result?.messageId ||
+    result?.key?.id ||
+    result?.message?.key?.id ||
+    result?.data?.key?.id ||
+    result?.id ||
+    null;
+
+  const externalId = normalizeMsgId(externalIdRaw);
+
+  await supabase.from("messages").insert({
+    contact_id: ctx.contactId,
+    direction: "outbound",
+    type: "text",
+    content: message,
+    status: "sent",
+    external_id: externalId,
+  });
+
+  console.log(`Sent message to ${cleanNumber}: "${message.slice(0, 50)}" (id: ${externalId || "n/a"})`);
 }
 
 async function sendWhatsAppAudio(supabase: any, ctx: ExecutionContext, audioBase64: string) {
