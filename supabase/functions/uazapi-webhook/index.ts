@@ -288,6 +288,31 @@ serve(async (req) => {
         }
       }
 
+      // ── TRIGGER AUTOMATIONS ──────────────────────────────
+      try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        
+        // Check if contact was just created (first contact)
+        const isFirstContact = !contact || (contact as any).__isNew;
+        
+        fetch(`${supabaseUrl}/functions/v1/automation-execute`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({
+            contactId: contact.id,
+            contactPhone: phone,
+            contactName: pushName || '',
+            messageContent,
+            messageType,
+            conversationId: conversation.id,
+            isFirstContact: !!isFirstContact,
+          }),
+        }).catch((err: any) => console.error('Automation trigger failed:', err));
+      } catch (autoErr) {
+        console.error('Automation trigger error (non-fatal):', autoErr);
+      }
+
       console.log('Message saved successfully');
       return json({ success: true });
     }
