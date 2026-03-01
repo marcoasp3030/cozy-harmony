@@ -2,7 +2,8 @@ import {
   MessageSquare, Search, Clock, UserPlus, Tag, ArrowRight,
   Send, Bot, Globe, Zap, Volume2, BarChart3, GitBranch,
   Variable, Timer, Mail, Phone, Filter, Users, Building2,
-  FileType, Layers, AudioLines, FileText, BrainCircuit, ListOrdered
+  FileType, Layers, AudioLines, FileText, BrainCircuit, ListOrdered,
+  ImagePlus
 } from "lucide-react";
 
 export type NodeCategory = "trigger" | "condition" | "action";
@@ -406,6 +407,25 @@ export const NODE_TYPES: NodeTypeConfig[] = [
     fields: [
       { key: "max_pages", label: "Máx. páginas", type: "number", placeholder: "10", defaultValue: 10 },
       { key: "summarize", label: "Resumir conteúdo com IA", type: "switch", defaultValue: false },
+    ],
+  },
+  {
+    type: "action_send_media",
+    label: "Enviar Mídia",
+    category: "action",
+    icon: ImagePlus,
+    color: "#3b82f6",
+    description: "Envia imagem, vídeo, áudio ou documento por URL",
+    fields: [
+      { key: "media_type", label: "Tipo de mídia", type: "select", options: [
+        { value: "image", label: "Imagem" },
+        { value: "video", label: "Vídeo" },
+        { value: "audio", label: "Áudio" },
+        { value: "document", label: "Documento (PDF, DOC...)" },
+      ], defaultValue: "image", required: true },
+      { key: "media_url", label: "URL da mídia", type: "text", placeholder: "https://exemplo.com/imagem.jpg", required: true },
+      { key: "caption", label: "Legenda (opcional)", type: "textarea", placeholder: "Olá {{nome}}, segue o arquivo solicitado!" },
+      { key: "file_name", label: "Nome do arquivo (só documentos)", type: "text", placeholder: "relatorio.pdf" },
     ],
   },
 ];
