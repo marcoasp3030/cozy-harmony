@@ -185,37 +185,43 @@ serve(async (req) => {
                 const apiBase = String(baseUrlFromPayload).replace(/\/+$/, '');
                 const token = matchedInstance.instance_token;
                 
-                // Try multiple UazAPI endpoint paths for downloading media
-                const downloadEndpoints = [
-                  '/message/downloadMediaMessage',
-                  '/chat/downloadMediaMessage',
-                  '/message/download',
+                // Try multiple UazAPI endpoint paths and body formats for downloading media
+                const downloadAttempts = [
+                  { ep: '/message/downloadMediaMessage', body: { id: externalId } },
+                  { ep: '/message/downloadMediaMessage', body: { messageId: externalId } },
+                  { ep: '/chat/downloadMediaMessage', body: { id: externalId } },
+                  { ep: '/message/download', body: { id: externalId } },
+                  { ep: '/message/downloadFile', body: { id: externalId } },
                 ];
                 
                 let dlResp: Response | null = null;
-                for (const ep of downloadEndpoints) {
-                  console.log(`[MEDIA] Trying download endpoint: ${ep}`);
-                  const resp = await fetch(`${apiBase}${ep}`, {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'token': token,
-                    },
-                    body: JSON.stringify({ id: externalId }),
-                  });
-                  
-                  if (resp.status !== 404 && resp.status !== 405) {
-                    dlResp = resp;
-                    console.log(`[MEDIA] Endpoint ${ep} responded with status ${resp.status}`);
-                    break;
-                  } else {
-                    console.log(`[MEDIA] Endpoint ${ep} returned ${resp.status}, trying next...`);
-                    await resp.text().catch(() => ''); // consume body
+                for (const attempt of downloadAttempts) {
+                  console.log(`[MEDIA] Trying: POST ${attempt.ep} body=${JSON.stringify(attempt.body)}`);
+                  try {
+                    const resp = await fetch(`${apiBase}${attempt.ep}`, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'token': token,
+                      },
+                      body: JSON.stringify(attempt.body),
+                    });
+                    
+                    if (resp.status !== 404 && resp.status !== 405 && resp.status !== 400) {
+                      dlResp = resp;
+                      console.log(`[MEDIA] Endpoint ${attempt.ep} responded with status ${resp.status}`);
+                      break;
+                    } else {
+                      const errBody = await resp.text().catch(() => '');
+                      console.log(`[MEDIA] ${attempt.ep} returned ${resp.status}: ${errBody.slice(0, 100)}`);
+                    }
+                  } catch (fetchErr) {
+                    console.log(`[MEDIA] ${attempt.ep} fetch error: ${fetchErr}`);
                   }
                 }
                 
                 if (!dlResp) {
-                  console.log('[MEDIA] All download endpoints failed (404/405)');
+                  console.log('[MEDIA] All download endpoints failed, keeping original mediaUrl');
                 }
 
                 if (dlResp && dlResp.ok) {
