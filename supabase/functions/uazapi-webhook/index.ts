@@ -183,31 +183,55 @@ serve(async (req) => {
 
               if (matchedInstance?.instance_token) {
                 const apiBase = String(baseUrlFromPayload).replace(/\/+$/, '');
-                // UazAPI download endpoint: POST /chat/downloadMediaMessage
-                const dlResp = await fetch(`${apiBase}/chat/downloadMediaMessage`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'token': matchedInstance.instance_token,
-                  },
-                  body: JSON.stringify({ id: externalId }),
-                });
+                const token = matchedInstance.instance_token;
+                
+                // Try multiple UazAPI endpoint paths for downloading media
+                const downloadEndpoints = [
+                  '/message/downloadMediaMessage',
+                  '/chat/downloadMediaMessage',
+                  '/message/download',
+                ];
+                
+                let dlResp: Response | null = null;
+                for (const ep of downloadEndpoints) {
+                  console.log(`[MEDIA] Trying download endpoint: ${ep}`);
+                  const resp = await fetch(`${apiBase}${ep}`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'token': token,
+                    },
+                    body: JSON.stringify({ id: externalId }),
+                  });
+                  
+                  if (resp.status !== 404 && resp.status !== 405) {
+                    dlResp = resp;
+                    console.log(`[MEDIA] Endpoint ${ep} responded with status ${resp.status}`);
+                    break;
+                  } else {
+                    console.log(`[MEDIA] Endpoint ${ep} returned ${resp.status}, trying next...`);
+                    await resp.text().catch(() => ''); // consume body
+                  }
+                }
+                
+                if (!dlResp) {
+                  console.log('[MEDIA] All download endpoints failed (404/405)');
+                }
 
-                if (dlResp.ok) {
+                if (dlResp && dlResp.ok) {
                   const contentType = dlResp.headers.get('content-type') || 'application/octet-stream';
                   
                   // Check if it's JSON (UazAPI may return a JSON with URL or base64)
                   if (contentType.includes('application/json')) {
                     const dlData = await dlResp.json();
-                    const downloadedUrl = dlData.url || dlData.mediaUrl || dlData.file || dlData.data?.url || '';
+                    console.log(`[MEDIA] UazAPI download JSON response: ${JSON.stringify(dlData).slice(0, 300)}`);
+                    const downloadedUrl = dlData.url || dlData.mediaUrl || dlData.file || dlData.data?.url || dlData.base64Url || '';
                     const base64Data = dlData.base64 || dlData.data || '';
                     
                     if (downloadedUrl && typeof downloadedUrl === 'string' && downloadedUrl.startsWith('http')) {
-                      // Got a direct URL from UazAPI
                       mediaUrl = downloadedUrl;
                       console.log(`[MEDIA] Got download URL from UazAPI: ${mediaUrl.slice(0, 80)}`);
                     } else if (base64Data && typeof base64Data === 'string' && base64Data.length > 100) {
-                      // Got base64 data, upload to storage
                       const ext = messageType === 'audio' ? 'ogg' : messageType === 'video' ? 'mp4' : messageType === 'image' ? 'jpg' : 'bin';
                       const fileName = `media/${phone}/${Date.now()}_${externalId.slice(-8)}.${ext}`;
                       const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
@@ -223,11 +247,12 @@ serve(async (req) => {
                         console.log(`[MEDIA] Uploaded base64 media to storage: ${mediaUrl.slice(0, 80)}`);
                       }
                     } else {
-                      console.log(`[MEDIA] UazAPI download returned JSON but no usable data: ${JSON.stringify(dlData).slice(0, 200)}`);
+                      console.log(`[MEDIA] UazAPI download returned JSON but no usable data`);
                     }
                   } else {
                     // Binary response - upload directly to storage
                     const buffer = await dlResp.arrayBuffer();
+                    console.log(`[MEDIA] Got binary response: ${buffer.byteLength} bytes, type=${contentType}`);
                     if (buffer.byteLength > 0) {
                       const ext = messageType === 'audio' ? 'ogg' : messageType === 'video' ? 'mp4' : messageType === 'image' ? 'jpg' : 'bin';
                       const fileName = `media/${phone}/${Date.now()}_${externalId.slice(-8)}.${ext}`;
@@ -238,10 +263,12 @@ serve(async (req) => {
                         const { data: urlData } = supabase.storage.from('chat-media').getPublicUrl(upload.path);
                         mediaUrl = urlData.publicUrl;
                         console.log(`[MEDIA] Uploaded binary media to storage: ${mediaUrl.slice(0, 80)}`);
+                      } else {
+                        console.log(`[MEDIA] Storage upload failed`);
                       }
                     }
                   }
-                } else {
+                } else if (dlResp) {
                   console.log(`[MEDIA] UazAPI download failed: HTTP ${dlResp.status}`);
                   const errBody = await dlResp.text().catch(() => '');
                   console.log(`[MEDIA] Download error body: ${errBody.slice(0, 200)}`);
