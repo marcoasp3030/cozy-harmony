@@ -1127,30 +1127,71 @@ Mensagem do cliente: "${ctx.messageContent}"`;
       }
 
       if (reply) {
-        await sendWhatsAppMessage(supabase, ctx, reply);
+        // Store IA reply as variable for downstream nodes (e.g. TTS with {{ia_reply}})
+        ctx.variables["ia_reply"] = reply;
+        // Only send as text message if suppress_send is not set
+        if (!d.suppress_send) {
+          await sendWhatsAppMessage(supabase, ctx, reply);
+        }
       }
-      return { sent: !!reply, model, reply: (reply || "").slice(0, 80) };
+      return { sent: !!reply, model, reply: (reply || "").slice(0, 80), suppressed: !!d.suppress_send };
     }
 
     if (type === "action_elevenlabs_tts") {
       const text = interpolate(String(d.text || ""), ctx);
-      const voiceId = d.voice_id || "21m00Tcm4TlvDq8ikWAM";
-      // Call elevenlabs-tts function
-      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      const resp = await fetch(`${supabaseUrl}/functions/v1/elevenlabs-tts`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice_id: voiceId }),
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.audio_base64) {
-          // Send as audio message via WhatsApp
-          await sendWhatsAppAudio(supabase, ctx, data.audio_base64);
-        }
+      if (!text) return { sent: false, reason: "empty_text" };
+
+      const voiceId = d.voice_id || "EXAVITQu4vr4xnSDxMaL";
+
+      // Load ElevenLabs API key from user settings directly
+      let elevenlabsKey = "";
+      if (ctx.userId) {
+        const { data: elSettings } = await supabase
+          .from("settings")
+          .select("value")
+          .eq("user_id", ctx.userId)
+          .eq("key", "elevenlabs")
+          .single();
+        elevenlabsKey = (elSettings?.value as any)?.apiKey || "";
       }
-      return true;
+
+      if (!elevenlabsKey) {
+        console.error("ElevenLabs API key not configured for TTS");
+        // Fallback: send as text message instead
+        await sendWhatsAppMessage(supabase, ctx, text);
+        return { sent: true, fallback: "text", reason: "no_elevenlabs_key" };
+      }
+
+      // Call ElevenLabs TTS API directly (bypass edge function auth issues)
+      const ttsResp = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
+        {
+          method: "POST",
+          headers: {
+            "xi-api-key": elevenlabsKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text,
+            model_id: "eleven_multilingual_v2",
+          }),
+        }
+      );
+
+      if (!ttsResp.ok) {
+        const errText = await ttsResp.text();
+        console.error(`ElevenLabs TTS error (${ttsResp.status}):`, errText.slice(0, 200));
+        // Fallback: send as text
+        await sendWhatsAppMessage(supabase, ctx, text);
+        return { sent: true, fallback: "text", reason: "tts_api_error" };
+      }
+
+      const audioBuffer = await ttsResp.arrayBuffer();
+      const { encode: base64Encode } = await import("https://deno.land/std@0.168.0/encoding/base64.ts");
+      const audioBase64 = base64Encode(audioBuffer);
+
+      await sendWhatsAppAudio(supabase, ctx, audioBase64);
+      return { sent: true, tts: true, voiceId };
     }
 
     if (type === "action_ab_split") {
@@ -1482,37 +1523,59 @@ async function sendWhatsAppMessage(supabase: any, ctx: ExecutionContext, message
 
 async function sendWhatsAppAudio(supabase: any, ctx: ExecutionContext, audioBase64: string) {
   try {
-    const { data: instance } = await supabase
+    const cleanNumber = String(ctx.contactPhone || "").replace(/\D/g, "");
+    if (!cleanNumber) return;
+
+    let query = supabase
       .from("whatsapp_instances")
       .select("id, base_url, instance_token")
-      .eq("is_default", true)
-      .limit(1)
-      .single();
+      .order("is_default", { ascending: false })
+      .limit(1);
+    if (ctx.userId) query = query.eq("user_id", ctx.userId);
+    const { data: instance } = await query.maybeSingle();
 
-    if (!instance) return;
+    if (!instance?.base_url || !instance?.instance_token) {
+      console.error("No WhatsApp instance for audio send");
+      return;
+    }
 
-    await fetch(`${instance.base_url}/message/send-audio`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        token: instance.instance_token || "",
-      },
-      body: JSON.stringify({
-        phone: ctx.contactPhone,
-        audio: audioBase64,
-        ptt: true,
-      }),
-    });
+    const baseUrl = String(instance.base_url).replace(/\/+$/, "");
+
+    // Upload audio to storage, then send via public URL
+    const audioBytes = Uint8Array.from(atob(audioBase64), c => c.charCodeAt(0));
+    const fileName = `tts_${Date.now()}.mp3`;
+    const { data: upload } = await supabase.storage
+      .from("chat-media")
+      .upload(`audio/${fileName}`, audioBytes, { contentType: "audio/mpeg" });
+
+    if (upload?.path) {
+      const { data: urlData } = supabase.storage.from("chat-media").getPublicUrl(upload.path);
+      const audioUrl = urlData?.publicUrl;
+
+      if (audioUrl) {
+        await fetch(`${baseUrl}/send/audio`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            token: instance.instance_token,
+          },
+          body: JSON.stringify({
+            number: cleanNumber,
+            url: audioUrl,
+            ptt: true,
+          }),
+        });
+        console.log(`Sent audio to ${cleanNumber} via storage URL`);
+      }
+    }
 
     await supabase.from("messages").insert({
       contact_id: ctx.contactId,
       direction: "outbound",
       type: "audio",
-      content: "[Áudio automático]",
+      content: "[Áudio automático - TTS]",
       status: "sent",
     });
-
-    console.log(`Sent audio to ${ctx.contactPhone}`);
   } catch (err) {
     console.error("Failed to send audio:", err);
   }
