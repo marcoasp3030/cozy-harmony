@@ -113,13 +113,8 @@ const AppSidebar = () => {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="border-b border-sidebar-border">
-        <div className="flex h-12 items-center gap-3 px-3">
-          <img src={logo} alt="Nutricar" className="h-8 w-auto shrink-0" />
-          {!collapsed && (
-            <span className="font-heading text-lg font-bold text-sidebar-foreground truncate">
-              NUTRICAR
-            </span>
-          )}
+        <div className="flex h-12 items-center justify-center px-3">
+          <img src={logo} alt="Logo" className="h-8 w-auto shrink-0" />
         </div>
       </SidebarHeader>
 
