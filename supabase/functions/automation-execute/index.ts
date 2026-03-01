@@ -267,6 +267,7 @@ async function executeFromNode(
       action_elevenlabs_tts: "Áudio ElevenLabs", action_ab_split: "Split A/B",
       action_collect_messages: "Aguardar & Agrupar", action_transcribe_audio: "Transcrever Áudio",
       action_extract_pdf: "Extrair Texto PDF", action_send_interactive: "Mensagem Interativa",
+      action_send_media: "Enviar Mídia",
     };
 
     // Build result object for logging
@@ -605,6 +606,76 @@ Mensagem do cliente: "${ctx.messageContent}"`;
 
       console.log(`Sent interactive (${interactiveType}) to ${cleanNumber}: ${optionStrings.length} options`);
       return { sent: true, type: interactiveType, options: optionStrings.length };
+    }
+
+    if (type === "action_send_media") {
+      const mediaType = d.media_type || "image";
+      const mediaUrl = interpolate(String(d.media_url || ""), ctx);
+      const caption = interpolate(String(d.caption || ""), ctx);
+      const fileName = interpolate(String(d.file_name || ""), ctx);
+
+      if (!mediaUrl) return { sent: false, reason: "empty_media_url" };
+
+      // Get WhatsApp instance
+      let query = supabase
+        .from("whatsapp_instances")
+        .select("id, base_url, instance_token")
+        .order("is_default", { ascending: false })
+        .limit(1);
+      if (ctx.userId) query = query.eq("user_id", ctx.userId);
+      const { data: instance } = await query.maybeSingle();
+      if (!instance?.base_url || !instance?.instance_token) {
+        throw new Error("Instância WhatsApp não configurada");
+      }
+
+      const cleanNumber = String(ctx.contactPhone || "").replace(/\D/g, "");
+      const baseUrl = String(instance.base_url).replace(/\/+$/, "");
+
+      // Map media type to UazAPI endpoint
+      const endpointMap: Record<string, string> = {
+        image: "/send/image",
+        video: "/send/video",
+        audio: "/send/audio",
+        document: "/send/document",
+      };
+      const endpoint = endpointMap[mediaType] || "/send/image";
+
+      const payload: Record<string, any> = {
+        number: cleanNumber,
+        url: mediaUrl,
+      };
+      if (caption) payload.caption = caption;
+      if (mediaType === "document" && fileName) payload.fileName = fileName;
+
+      const resp = await fetch(`${baseUrl}${endpoint}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          token: instance.instance_token,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const rawResponse = await resp.text();
+      let result: any = {};
+      try { result = rawResponse ? JSON.parse(rawResponse) : {}; } catch { result = { raw: rawResponse }; }
+
+      if (!resp.ok || result?.error) {
+        throw new Error(result?.error || `Falha no envio de mídia (HTTP ${resp.status})`);
+      }
+
+      // Save to messages table
+      await supabase.from("messages").insert({
+        contact_id: ctx.contactId,
+        direction: "outbound",
+        type: mediaType,
+        content: caption || null,
+        media_url: mediaUrl,
+        status: "sent",
+      });
+
+      console.log(`Sent ${mediaType} to ${cleanNumber}: ${mediaUrl.slice(0, 80)}`);
+      return { sent: true, mediaType, mediaUrl };
     }
 
     if (type === "action_send_template") {
