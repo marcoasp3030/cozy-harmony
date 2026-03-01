@@ -25,6 +25,30 @@ import { Button } from "@/components/ui/button";
 import { Save, Undo2, Redo2, Trash2, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
 
+// ---------- Helpers ----------
+function pointToSegmentDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax, dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(px - ax, py - ay);
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+function getNodesBelow(startId: string, nodes: Node[], edges: Edge[]): Set<string> {
+  const result = new Set<string>();
+  const queue = [startId];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const e of edges) {
+      if (e.source === current && !result.has(e.target)) {
+        result.add(e.target);
+        queue.push(e.target);
+      }
+    }
+  }
+  return result;
+}
+
 // ---------- Auto-layout (tree / cascade) ----------
 const NODE_WIDTH = 230;
 const NODE_HEIGHT = 100;
@@ -243,19 +267,83 @@ const FlowBuilderInner = ({ initialNodes = [], initialEdges = [], onSave }: Flow
         y: event.clientY - bounds.top,
       });
 
+      const newId = `${nodeType}_${Date.now()}`;
       const newNode: Node = {
-        id: `${nodeType}_${Date.now()}`,
+        id: newId,
         type: "flowNode",
         position,
         data: {
           nodeType,
           ...Object.fromEntries(config.fields.map((f) => [f.key, f.defaultValue ?? ""])),
         },
+        selected: true,
       };
 
-      setNodes((nds) => [...nds, newNode]);
+      // Check if dropped near an existing edge to insert in the middle
+      const EDGE_HIT_DISTANCE = 50;
+      let insertedOnEdge = false;
+
+      for (const edge of edges) {
+        const sourceNode = nodes.find((n) => n.id === edge.source);
+        const targetNode = nodes.find((n) => n.id === edge.target);
+        if (!sourceNode || !targetNode) continue;
+
+        // Simple line segment proximity check (source bottom -> target top)
+        const sx = sourceNode.position.x + NODE_WIDTH / 2;
+        const sy = sourceNode.position.y + NODE_HEIGHT;
+        const tx = targetNode.position.x + NODE_WIDTH / 2;
+        const ty = targetNode.position.y;
+
+        const dist = pointToSegmentDist(position.x + NODE_WIDTH / 2, position.y + NODE_HEIGHT / 2, sx, sy, tx, ty);
+
+        if (dist < EDGE_HIT_DISTANCE) {
+          // Insert node between source and target
+          const midX = (sourceNode.position.x + targetNode.position.x) / 2;
+          const midY = (sy + ty) / 2 - NODE_HEIGHT / 2;
+          newNode.position = { x: midX, y: midY };
+
+          // Push the target node and everything below it down
+          const pushAmount = NODE_HEIGHT + GAP_Y;
+          const nodesBelow = getNodesBelow(targetNode.id, nodes, edges);
+          nodesBelow.add(targetNode.id);
+
+          setNodes((nds) => [
+            ...nds.map((n) =>
+              nodesBelow.has(n.id) ? { ...n, position: { ...n.position, y: n.position.y + pushAmount } } : n
+            ),
+            newNode,
+          ]);
+
+          // Remove old edge, add two new edges
+          setEdges((eds) => [
+            ...eds.filter((e) => e.id !== edge.id),
+            {
+              id: `e_${edge.source}_${newId}`,
+              source: edge.source,
+              sourceHandle: edge.sourceHandle ?? undefined,
+              target: newId,
+              ...defaultEdgeOptions,
+            },
+            {
+              id: `e_${newId}_${edge.target}`,
+              source: newId,
+              target: edge.target,
+              targetHandle: edge.targetHandle ?? undefined,
+              ...defaultEdgeOptions,
+            },
+          ]);
+
+          insertedOnEdge = true;
+          toast.info("Nó inserido na conexão!");
+          break;
+        }
+      }
+
+      if (!insertedOnEdge) {
+        setNodes((nds) => [...nds, newNode]);
+      }
     },
-    [reactFlowInstance, setNodes]
+    [reactFlowInstance, setNodes, setEdges, nodes, edges]
   );
 
   const onNodeClick = useCallback((_: any, node: Node) => {
