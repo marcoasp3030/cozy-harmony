@@ -102,6 +102,19 @@ const FlowBuilderInner = ({ initialNodes = [], initialEdges = [], onSave }: Flow
     setSelectedNode(null);
   }, [historyIndex, history, setNodes, setEdges]);
 
+  // Listen for context menu "edit" events from FlowNode
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const nodeId = (e as CustomEvent).detail?.nodeId;
+      if (nodeId) {
+        const node = nodes.find((n) => n.id === nodeId);
+        if (node) setSelectedNode(node);
+      }
+    };
+    window.addEventListener("flow-edit-node", handler);
+    return () => window.removeEventListener("flow-edit-node", handler);
+  }, [nodes]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
