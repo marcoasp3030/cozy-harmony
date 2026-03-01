@@ -948,7 +948,11 @@ Responda APENAS com JSON válido:
 
 REGRAS PARA "ready":
 - ready=false se: cliente apenas cumprimentou, mensagem genérica sem problema claro, ou tipo seria "outro" sem detalhes
-- ready=true se: há um problema/feedback/dúvida clara relatada, mesmo que falte nome da loja (registrar como "Não informada")`;
+- ready=false se: store_name é "Não informada" (o cliente PRECISA informar a loja/unidade)
+- ready=false se: contact_name é vazio ou igual a "Não informado" (o cliente PRECISA se identificar pelo nome)
+- ready=true SOMENTE se: (1) há um problema/feedback/dúvida clara, (2) o nome da loja foi mencionado na conversa, E (3) o nome do cliente foi informado
+- IMPORTANTE: Analise TODA a conversa (incluindo mensagens anteriores e respostas do atendente). O cliente pode ter informado o nome da loja em uma mensagem anterior (inclusive por áudio transcrito) e o nome em outra. NÃO peça informações que já foram fornecidas em qualquer ponto da conversa.
+- Se a informação foi dada em qualquer mensagem do histórico, considere-a como coletada.`;
 
         const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
@@ -982,11 +986,23 @@ REGRAS PARA "ready":
           return { registered: false, reason: parsed.reason || "not_ready", details: "AI determined insufficient information" };
         }
 
+        // ── Hard validation: store_name and contact_name are MANDATORY ──
         const storeName = parsed.store_name || "Não informada";
+        const contactName = parsed.contact_name || ctx.contactName || "";
+
+        if (!storeName || storeName === "Não informada" || storeName.trim().length < 2) {
+          console.log(`[OCCURRENCE] Not ready: store_name missing ("${storeName}")`);
+          return { registered: false, reason: "store_name_missing", details: "Cliente não informou a loja/unidade" };
+        }
+
+        if (!contactName || contactName === "Não informado" || contactName.trim().length < 2) {
+          console.log(`[OCCURRENCE] Not ready: contact_name missing ("${contactName}")`);
+          return { registered: false, reason: "contact_name_missing", details: "Cliente não informou o nome" };
+        }
+
         const validTypes = ["elogio", "reclamacao", "furto", "falta_produto", "produto_vencido", "loja_suja", "problema_pagamento", "loja_sem_energia", "acesso_bloqueado", "sugestao", "duvida", "outro"];
         const occType = validTypes.includes(parsed.type) ? parsed.type : defaultType;
         const occPriority = ["alta", "normal", "baixa"].includes(parsed.priority) ? parsed.priority : priority;
-        const contactName = parsed.contact_name || ctx.contactName || "";
         // Build enriched description with all extracted details
         const descParts: string[] = [];
         if (parsed.summary) descParts.push(parsed.summary);
