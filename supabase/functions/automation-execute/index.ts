@@ -1500,6 +1500,8 @@ REGRAS PARA "ready":
           const voiceId = d.voice_id || "EXAVITQu4vr4xnSDxMaL";
           const audioResult = await sendElevenLabsAudioFromText(supabase, ctx, reply, voiceId);
           if (audioResult.sent) {
+            // After audio reply, check if we need to send PIX key as text
+            await sendPixKeyIfPaymentRelated(supabase, ctx);
             return { sent: true, model, reply: (reply || "").slice(0, 80), suppressed: true, delivery: "audio" };
           }
           console.log(`Audio reply fallback to text: ${audioResult.reason || "unknown_reason"}`);
@@ -1509,6 +1511,9 @@ REGRAS PARA "ready":
         if (!d.suppress_send) {
           await sendWhatsAppMessage(supabase, ctx, reply);
         }
+
+        // After replying, automatically send PIX key if the conversation is about payment
+        await sendPixKeyIfPaymentRelated(supabase, ctx);
       }
       return { sent: !!reply, model, reply: (reply || "").slice(0, 80), suppressed: !!d.suppress_send };
     }
@@ -1847,6 +1852,33 @@ REGRAS PARA "ready":
     console.error(`Error executing node ${type} (${node.id}):`, err);
     throw new Error(message);
   }
+}
+
+// ── Auto-send PIX key when conversation is about payment ──
+const PIX_KEYWORDS = /\b(pix|pagamento|pagar|cobran[cç]a|cobrança indevida|valor cobrado|debito|débito|estorno|reembolso|devolu[cç][aã]o|totem.*pagamento|n[aã]o.*consegui.*pagar|cart[aã]o.*n[aã]o|problema.*pag)\b/i;
+const PIX_KEY_MESSAGE = `💳 *Chave PIX para pagamento:*\n\n📧 financeiro@nutricarbrasil.com.br\n\n_Após efetuar o pagamento, por favor envie o comprovante aqui para darmos seguimento._`;
+
+async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext): Promise<boolean> {
+  // Check if PIX was already sent in this execution
+  if (ctx.variables["_pix_key_sent"] === "true") return false;
+
+  // Check all available context for payment-related keywords
+  const allContext = [
+    ctx.messageContent,
+    ctx.variables["mensagens_agrupadas"] || "",
+    ctx.variables["transcricao"] || "",
+    ctx.variables["ia_reply"] || "",
+    ctx.variables["intencao"] || "",
+  ].join(" ");
+
+  if (!PIX_KEYWORDS.test(allContext)) return false;
+
+  // Mark as sent to avoid duplicates
+  ctx.variables["_pix_key_sent"] = "true";
+
+  console.log(`[PIX] Payment context detected, sending PIX key to ${ctx.contactPhone}`);
+  await sendWhatsAppMessage(supabase, ctx, PIX_KEY_MESSAGE);
+  return true;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
