@@ -37,15 +37,18 @@ export function createSACTemplate(): FlowTemplate {
       position: { x: X, y: 0 },
       data: { nodeType: "trigger_message" },
     },
-    // 2. Mensagem de boas-vindas + menu
+    // 2. Menu interativo com botões
     {
       id: "sac_welcome",
       type: "flowNode",
       position: { x: X, y: 120 },
       data: {
-        nodeType: "action_send_message",
-        message:
-          "Olá {{nome}}! 👋 Bem-vindo ao nosso SAC.\n\nComo podemos te ajudar hoje? Por favor, escolha uma opção:\n\n1️⃣ Dúvidas gerais\n2️⃣ Reclamações\n3️⃣ Problemas nas lojas\n4️⃣ Pagamentos / PIX\n5️⃣ Falar com atendente\n\nDigite o número da opção desejada.",
+        nodeType: "action_send_interactive",
+        interactive_type: "list",
+        body_text: "Olá {{nome}}! 👋 Bem-vindo ao nosso SAC.\n\nComo podemos te ajudar hoje?",
+        footer: "Selecione uma opção abaixo",
+        button_title: "Ver opções",
+        options: "Dúvidas gerais|duvidas|Tire suas dúvidas sobre produtos e serviços\nReclamações|reclamacao|Registre uma reclamação\nProblemas nas lojas|lojas|Reporte problemas em lojas físicas\nPagamentos / PIX|pagamento|Dados bancários e comprovantes\nFalar com atendente|atendente|Atendimento humano",
       },
     },
     // 3. Condição: contém "1" ou "dúvida"
@@ -55,7 +58,7 @@ export function createSACTemplate(): FlowTemplate {
       position: { x: X - 500, y: 280 },
       data: {
         nodeType: "condition_contains",
-        text: "1,dúvida,duvida,dúvidas,duvidas",
+        text: "duvidas,1,dúvida,duvida,dúvidas",
         case_sensitive: false,
       },
     },
@@ -66,7 +69,7 @@ export function createSACTemplate(): FlowTemplate {
       position: { x: X - 170, y: 280 },
       data: {
         nodeType: "condition_contains",
-        text: "2,reclamação,reclamacao,reclamar",
+        text: "reclamacao,2,reclamação,reclamar",
         case_sensitive: false,
       },
     },
@@ -77,7 +80,7 @@ export function createSACTemplate(): FlowTemplate {
       position: { x: X + 170, y: 280 },
       data: {
         nodeType: "condition_contains",
-        text: "3,loja,lojas,problema na loja",
+        text: "lojas,3,loja,problema na loja",
         case_sensitive: false,
       },
     },
@@ -88,7 +91,7 @@ export function createSACTemplate(): FlowTemplate {
       position: { x: X + 500, y: 280 },
       data: {
         nodeType: "condition_contains",
-        text: "4,pix,pagamento,pagar,pagamentos",
+        text: "pagamento,4,pix,pagar,pagamentos,atendente,5",
         case_sensitive: false,
       },
     },
