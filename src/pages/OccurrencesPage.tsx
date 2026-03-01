@@ -68,9 +68,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { format } from "date-fns";
+import { format, isAfter, isBefore, startOfDay, endOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import * as XLSX from "xlsx";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { CalendarIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const OCCURRENCE_TYPES = [
   { value: "elogio", label: "Elogio", icon: ThumbsUp, color: "bg-emerald-500/15 text-emerald-600" },
@@ -162,6 +166,8 @@ const OccurrencesPage = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({ contact_name: "", contact_phone: "", priority: "", type: "" });
   const [showHistory, setShowHistory] = useState(false);
+  const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
+  const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
 
   const { data: occurrences = [], isLoading } = useQuery({
     queryKey: ["occurrences"],
@@ -283,7 +289,10 @@ const OccurrencesPage = () => {
       o.contact_name?.toLowerCase().includes(search.toLowerCase());
     const matchType = filterType === "all" || o.type === filterType;
     const matchStatus = filterStatus === "all" || o.status === filterStatus;
-    return matchSearch && matchType && matchStatus;
+    const occDate = new Date(o.created_at);
+    const matchDateFrom = !dateFrom || !isBefore(occDate, startOfDay(dateFrom));
+    const matchDateTo = !dateTo || !isAfter(occDate, endOfDay(dateTo));
+    return matchSearch && matchType && matchStatus && matchDateFrom && matchDateTo;
   });
 
   const stats = {
@@ -458,6 +467,33 @@ const OccurrencesPage = () => {
             ))}
           </SelectContent>
         </Select>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className={cn("w-[140px] justify-start text-left font-normal", !dateFrom && "text-muted-foreground")}>
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {dateFrom ? format(dateFrom, "dd/MM/yyyy") : "Data início"}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar mode="single" selected={dateFrom} onSelect={setDateFrom} initialFocus className="p-3 pointer-events-auto" />
+          </PopoverContent>
+        </Popover>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className={cn("w-[140px] justify-start text-left font-normal", !dateTo && "text-muted-foreground")}>
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {dateTo ? format(dateTo, "dd/MM/yyyy") : "Data fim"}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar mode="single" selected={dateTo} onSelect={setDateTo} initialFocus className="p-3 pointer-events-auto" />
+          </PopoverContent>
+        </Popover>
+        {(dateFrom || dateTo) && (
+          <Button variant="ghost" size="icon" onClick={() => { setDateFrom(undefined); setDateTo(undefined); }}>
+            <X className="h-4 w-4" />
+          </Button>
+        )}
       </div>
 
       {/* Table */}
