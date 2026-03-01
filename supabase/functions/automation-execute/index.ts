@@ -864,17 +864,11 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
 
 Analise a conversa abaixo e extraia informações para registrar uma ocorrência de atendimento.
 
-LOJAS CONHECIDAS DA NUTRICAR BRASIL:
-- Nutricar Barra Park
-- Nutricar Asa Norte
-- Nutricar Águas Claras
-- Nutricar Sudoeste
-- Nutricar Lago Sul
-- Nutricar Noroeste
-- Nutricar Park Sul
-- Nutricar Guará
-- Nutricar Taguatinga
-- Nutricar Ceilândia
+IMPORTANTE SOBRE LOJAS:
+- A Nutricar Brasil possui MUITAS unidades e está sempre abrindo novas lojas.
+- NÃO valide o nome da loja contra nenhuma lista. Aceite QUALQUER nome de loja/unidade/bairro que o cliente informar.
+- Registre o nome exatamente como o cliente informou (ex: "Alphaville 10", "Alpha 10", "Barra Park", etc).
+- Se o cliente não informou a loja, use "Não informada".
 
 TIPOS DE OCORRÊNCIA:
 - reclamacao (problemas, insatisfação, produto vencido, cobrança indevida, totem com defeito, acesso bloqueado, loja suja)
