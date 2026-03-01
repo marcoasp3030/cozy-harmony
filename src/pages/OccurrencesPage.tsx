@@ -53,6 +53,7 @@ import {
   Save,
   X,
   History,
+  Download,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -69,6 +70,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import * as XLSX from "xlsx";
 
 const OCCURRENCE_TYPES = [
   { value: "elogio", label: "Elogio", icon: ThumbsUp, color: "bg-emerald-500/15 text-emerald-600" },
@@ -299,6 +301,26 @@ const OccurrencesPage = () => {
     return "bg-muted text-muted-foreground";
   };
 
+  const exportToExcel = () => {
+    const rows = filtered.map((o: any) => ({
+      "Data": format(new Date(o.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR }),
+      "Loja": o.store_name,
+      "Tipo": OCCURRENCE_TYPES.find(t => t.value === o.type)?.label || o.type,
+      "Cliente": o.contact_name || "—",
+      "Telefone": o.contact_phone || "—",
+      "Prioridade": PRIORITY_OPTIONS.find(p => p.value === o.priority)?.label || o.priority,
+      "Status": STATUS_OPTIONS.find(s => s.value === o.status)?.label || o.status,
+      "Descrição": o.description,
+      "Resolução": o.resolution || "",
+      "Resolvido em": o.resolved_at ? format(new Date(o.resolved_at), "dd/MM/yyyy HH:mm", { locale: ptBR }) : "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Ocorrências");
+    XLSX.writeFile(wb, `ocorrencias_${format(new Date(), "yyyy-MM-dd")}.xlsx`);
+    toast.success(`${rows.length} ocorrências exportadas!`);
+  };
+
   const formatChanges = (entry: any) => {
     const changes = entry.changes || {};
     if (entry.action === "created") {
@@ -324,9 +346,13 @@ const OccurrencesPage = () => {
           <h1 className="text-2xl font-bold tracking-tight">Ocorrências</h1>
           <p className="text-sm text-muted-foreground">Gerencie reclamações, sugestões, elogios e feedbacks dos clientes</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button><Plus className="mr-2 h-4 w-4" /> Nova Ocorrência</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={exportToExcel} disabled={filtered.length === 0}>
+            <Download className="mr-2 h-4 w-4" /> Exportar
+          </Button>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button><Plus className="mr-2 h-4 w-4" /> Nova Ocorrência</Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-lg">
             <DialogHeader>
@@ -385,6 +411,7 @@ const OccurrencesPage = () => {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Stats */}
