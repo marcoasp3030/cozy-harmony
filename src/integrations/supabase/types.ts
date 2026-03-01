@@ -81,6 +81,7 @@ export type Database = {
           description: string | null
           flow: Json
           id: string
+          instance_id: string | null
           is_active: boolean | null
           name: string
           stats: Json | null
@@ -94,6 +95,7 @@ export type Database = {
           description?: string | null
           flow?: Json
           id?: string
+          instance_id?: string | null
           is_active?: boolean | null
           name: string
           stats?: Json | null
@@ -107,6 +109,7 @@ export type Database = {
           description?: string | null
           flow?: Json
           id?: string
+          instance_id?: string | null
           is_active?: boolean | null
           name?: string
           stats?: Json | null
@@ -114,7 +117,15 @@ export type Database = {
           trigger_type?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "automations_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_instances"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       campaign_contacts: {
         Row: {
