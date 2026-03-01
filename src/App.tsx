@@ -17,6 +17,7 @@ import SettingsPage from "@/pages/SettingsPage";
 import FunnelsPage from "@/pages/FunnelsPage";
 import OccurrencesPage from "@/pages/OccurrencesPage";
 import AttendantsPage from "@/pages/AttendantsPage";
+import QueuePage from "@/pages/QueuePage";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -67,6 +68,7 @@ const App = () => (
             <Route path="/funnels" element={<FunnelsPage />} />
             <Route path="/occurrences" element={<OccurrencesPage />} />
             <Route path="/attendants" element={<AttendantsPage />} />
+            <Route path="/queue" element={<QueuePage />} />
             <Route path="/templates" element={<Templates />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/settings" element={<SettingsPage />} />
