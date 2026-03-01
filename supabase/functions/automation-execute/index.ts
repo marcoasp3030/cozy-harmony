@@ -1085,38 +1085,53 @@ Mensagem do cliente: "${ctx.messageContent}"`;
       }
 
       // ── Standard chat models (GPT, Gemini chat) ──
+      // Use only the last 5 inbound + 3 outbound messages to avoid context bloat
       const { data: recentMsgs } = await supabase
         .from("messages")
         .select("direction, content, type, media_url")
         .eq("contact_id", ctx.contactId)
         .order("created_at", { ascending: false })
-        .limit(15);
+        .limit(10);
 
       const transcription = ctx.variables["transcricao"] || "";
       const pdfContent = ctx.variables["pdf_conteudo"] || "";
       const groupedMessages = ctx.variables["mensagens_agrupadas"] || "";
 
-      const messages = (recentMsgs || []).reverse().map((m: any, idx: number, arr: any[]) => {
+      // Build deduplicated message list — prefer grouped messages over raw DB messages
+      // to avoid sending the same content twice to the LLM
+      const rawMessages = (recentMsgs || []).reverse();
+      
+      // Track content we've already seen from grouped messages to deduplicate
+      const groupedContentSet = new Set<string>();
+      if (groupedMessages) {
+        for (const line of groupedMessages.split("\n")) {
+          const trimmed = line.trim();
+          if (trimmed && !trimmed.startsWith("[")) groupedContentSet.add(trimmed);
+        }
+      }
+
+      const messages = rawMessages.map((m: any, idx: number, arr: any[]) => {
         let content = m.content || "";
-        // For the last inbound message, enrich with transcription/extracted content
         const isLastInbound = m.direction === "inbound" && idx === arr.length - 1;
         
+        // Skip inbound messages whose content is already in grouped messages
+        if (m.direction === "inbound" && content && groupedContentSet.has(content.trim())) {
+          return null; // will be filtered out
+        }
+        
         if (!content && (m.type === "audio" || m.type === "ptt")) {
-          // Use transcription if available for audio messages
           if (isLastInbound && transcription) {
             content = `[Áudio do cliente - transcrição]: ${transcription}`;
           } else {
             content = "[Áudio sem transcrição disponível]";
           }
         } else if (m.type === "image" && m.media_url) {
-          // Mark image messages for multimodal processing
           const imgDesc = ctx.variables["descricao_imagem"] || "";
           if (isLastInbound && imgDesc) {
             content = `[Imagem do cliente - descrição]: ${imgDesc}`;
           } else {
             content = "[Imagem enviada pelo cliente]";
           }
-          // Store last inbound image URL for vision analysis
           if (isLastInbound) {
             (ctx as any)._lastImageUrl = m.media_url;
           }
@@ -1131,13 +1146,13 @@ Mensagem do cliente: "${ctx.messageContent}"`;
         }
         
         return { direction: m.direction, content };
-      });
+      }).filter(Boolean);
 
-      // If we have grouped messages from collect_messages node, add as context
-      if (groupedMessages && !transcription) {
+      // Add grouped messages as a single consolidated inbound entry
+      if (groupedMessages) {
         messages.push({
           direction: "inbound",
-          content: `[Mensagens agrupadas do cliente]:\n${groupedMessages}`,
+          content: `[Mensagens recentes do cliente]:\n${groupedMessages}`,
         });
       }
 
