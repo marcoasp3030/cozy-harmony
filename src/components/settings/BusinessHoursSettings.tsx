@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Clock, Save, Loader2, CheckCircle2 } from "lucide-react";
+import { Clock, Save, Loader2, CheckCircle2, Plus, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,10 +10,14 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 
-interface DaySchedule {
-  enabled: boolean;
+interface Shift {
   start: string;
   end: string;
+}
+
+interface DaySchedule {
+  enabled: boolean;
+  shifts: Shift[];
 }
 
 export interface BusinessHoursConfig {
@@ -24,29 +28,53 @@ export interface BusinessHoursConfig {
 }
 
 const DAYS = [
-  { key: "1", label: "Segunda-feira" },
-  { key: "2", label: "Terça-feira" },
-  { key: "3", label: "Quarta-feira" },
-  { key: "4", label: "Quinta-feira" },
-  { key: "5", label: "Sexta-feira" },
-  { key: "6", label: "Sábado" },
-  { key: "7", label: "Domingo" },
+  { key: "1", label: "Segunda-feira", short: "Seg" },
+  { key: "2", label: "Terça-feira", short: "Ter" },
+  { key: "3", label: "Quarta-feira", short: "Qua" },
+  { key: "4", label: "Quinta-feira", short: "Qui" },
+  { key: "5", label: "Sexta-feira", short: "Sex" },
+  { key: "6", label: "Sábado", short: "Sáb" },
+  { key: "7", label: "Domingo", short: "Dom" },
 ];
+
+const DEFAULT_SHIFT: Shift = { start: "08:00", end: "18:00" };
 
 const DEFAULT_CONFIG: BusinessHoursConfig = {
   enabled: false,
   timezone: "America/Sao_Paulo",
   days: {
-    "1": { enabled: true, start: "08:00", end: "18:00" },
-    "2": { enabled: true, start: "08:00", end: "18:00" },
-    "3": { enabled: true, start: "08:00", end: "18:00" },
-    "4": { enabled: true, start: "08:00", end: "18:00" },
-    "5": { enabled: true, start: "08:00", end: "18:00" },
-    "6": { enabled: false, start: "08:00", end: "12:00" },
-    "7": { enabled: false, start: "", end: "" },
+    "1": { enabled: true, shifts: [{ start: "08:00", end: "18:00" }] },
+    "2": { enabled: true, shifts: [{ start: "08:00", end: "18:00" }] },
+    "3": { enabled: true, shifts: [{ start: "08:00", end: "18:00" }] },
+    "4": { enabled: true, shifts: [{ start: "08:00", end: "18:00" }] },
+    "5": { enabled: true, shifts: [{ start: "08:00", end: "18:00" }] },
+    "6": { enabled: false, shifts: [{ start: "08:00", end: "12:00" }] },
+    "7": { enabled: false, shifts: [] },
   },
   outOfHoursMessage:
     "Olá! 😊 No momento estamos fora do horário de atendimento. Retornaremos assim que possível. Obrigado!",
+};
+
+/** Migrate old single-shift format to multi-shift */
+const migrateConfig = (raw: any): BusinessHoursConfig => {
+  const base = { ...DEFAULT_CONFIG, ...raw };
+  if (base.days) {
+    const migrated: Record<string, DaySchedule> = {};
+    for (const [k, v] of Object.entries(base.days)) {
+      const day = v as any;
+      if (day.shifts && Array.isArray(day.shifts)) {
+        migrated[k] = day;
+      } else {
+        // Old format: { enabled, start, end }
+        migrated[k] = {
+          enabled: day.enabled ?? false,
+          shifts: day.start || day.end ? [{ start: day.start || "08:00", end: day.end || "18:00" }] : [{ ...DEFAULT_SHIFT }],
+        };
+      }
+    }
+    base.days = migrated;
+  }
+  return base;
 };
 
 const BusinessHoursSettings = () => {
@@ -65,21 +93,61 @@ const BusinessHoursSettings = () => {
         .eq("key", "business_hours")
         .single();
       if (data?.value) {
-        setConfig({ ...DEFAULT_CONFIG, ...(data.value as any) });
+        setConfig(migrateConfig(data.value));
       }
       setLoaded(true);
     };
     load();
   }, [user]);
 
-  const updateDay = (dayKey: string, field: keyof DaySchedule, value: any) => {
+  const updateDayEnabled = (dayKey: string, enabled: boolean) => {
     setConfig((prev) => ({
       ...prev,
       days: {
         ...prev.days,
-        [dayKey]: { ...prev.days[dayKey], [field]: value },
+        [dayKey]: { ...prev.days[dayKey], enabled },
       },
     }));
+  };
+
+  const updateShift = (dayKey: string, shiftIdx: number, field: keyof Shift, value: string) => {
+    setConfig((prev) => {
+      const day = prev.days[dayKey];
+      const newShifts = [...day.shifts];
+      newShifts[shiftIdx] = { ...newShifts[shiftIdx], [field]: value };
+      return {
+        ...prev,
+        days: { ...prev.days, [dayKey]: { ...day, shifts: newShifts } },
+      };
+    });
+  };
+
+  const addShift = (dayKey: string) => {
+    setConfig((prev) => {
+      const day = prev.days[dayKey];
+      const lastShift = day.shifts[day.shifts.length - 1];
+      const newStart = lastShift ? lastShift.end : "14:00";
+      return {
+        ...prev,
+        days: {
+          ...prev.days,
+          [dayKey]: { ...day, shifts: [...day.shifts, { start: newStart, end: "18:00" }] },
+        },
+      };
+    });
+  };
+
+  const removeShift = (dayKey: string, shiftIdx: number) => {
+    setConfig((prev) => {
+      const day = prev.days[dayKey];
+      return {
+        ...prev,
+        days: {
+          ...prev.days,
+          [dayKey]: { ...day, shifts: day.shifts.filter((_, i) => i !== shiftIdx) },
+        },
+      };
+    });
   };
 
   const handleSave = async () => {
@@ -108,11 +176,11 @@ const BusinessHoursSettings = () => {
       days: Object.fromEntries(
         Object.entries(prev.days).map(([k, v]) => [
           k,
-          { ...v, start: ref.start, end: ref.end },
+          { ...v, shifts: ref.shifts.map((s) => ({ ...s })) },
         ])
       ),
     }));
-    toast.info("Horário da segunda aplicado a todos os dias.");
+    toast.info("Turnos da segunda aplicados a todos os dias.");
   };
 
   return (
@@ -125,7 +193,7 @@ const BusinessHoursSettings = () => {
               <div>
                 <CardTitle className="font-heading">Horário de Expediente</CardTitle>
                 <CardDescription>
-                  Defina os horários de funcionamento para responder automaticamente fora do expediente
+                  Defina os horários de funcionamento com múltiplos turnos por dia
                 </CardDescription>
               </div>
             </div>
@@ -139,46 +207,76 @@ const BusinessHoursSettings = () => {
           {/* Schedule per day */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <Label className="text-sm font-medium">Dias e Horários</Label>
+              <Label className="text-sm font-medium">Dias e Turnos</Label>
               <Button variant="ghost" size="sm" className="text-xs h-7" onClick={applyToAll}>
                 Aplicar Seg. a todos
               </Button>
             </div>
             <div className="space-y-2">
               {DAYS.map((day) => {
-                const schedule = config.days[day.key] || { enabled: false, start: "08:00", end: "18:00" };
+                const schedule = config.days[day.key] || { enabled: false, shifts: [] };
                 return (
                   <div
                     key={day.key}
-                    className={`flex items-center gap-3 rounded-lg border p-3 transition-colors ${
+                    className={`rounded-lg border p-3 transition-colors ${
                       schedule.enabled ? "bg-card border-border" : "bg-muted/30 border-border/50"
                     }`}
                   >
-                    <Switch
-                      checked={schedule.enabled}
-                      onCheckedChange={(v) => updateDay(day.key, "enabled", v)}
-                    />
-                    <span className={`text-sm font-medium w-28 ${!schedule.enabled && "text-muted-foreground"}`}>
-                      {day.label}
-                    </span>
-                    {schedule.enabled ? (
-                      <div className="flex items-center gap-2 flex-1">
-                        <Input
-                          type="time"
-                          value={schedule.start}
-                          onChange={(e) => updateDay(day.key, "start", e.target.value)}
-                          className="h-8 text-xs w-28"
-                        />
-                        <span className="text-xs text-muted-foreground">até</span>
-                        <Input
-                          type="time"
-                          value={schedule.end}
-                          onChange={(e) => updateDay(day.key, "end", e.target.value)}
-                          className="h-8 text-xs w-28"
-                        />
+                    <div className="flex items-center gap-3">
+                      <Switch
+                        checked={schedule.enabled}
+                        onCheckedChange={(v) => updateDayEnabled(day.key, v)}
+                      />
+                      <span className={`text-sm font-medium w-28 shrink-0 ${!schedule.enabled ? "text-muted-foreground" : ""}`}>
+                        {day.label}
+                      </span>
+                      {!schedule.enabled && (
+                        <span className="text-xs text-muted-foreground italic">Fechado</span>
+                      )}
+                    </div>
+
+                    {schedule.enabled && (
+                      <div className="mt-2 ml-[52px] space-y-1.5">
+                        {schedule.shifts.map((shift, idx) => (
+                          <div key={idx} className="flex items-center gap-2">
+                            <span className="text-[10px] text-muted-foreground w-14 shrink-0">
+                              Turno {idx + 1}
+                            </span>
+                            <Input
+                              type="time"
+                              value={shift.start}
+                              onChange={(e) => updateShift(day.key, idx, "start", e.target.value)}
+                              className="h-7 text-xs w-24"
+                            />
+                            <span className="text-xs text-muted-foreground">até</span>
+                            <Input
+                              type="time"
+                              value={shift.end}
+                              onChange={(e) => updateShift(day.key, idx, "end", e.target.value)}
+                              className="h-7 text-xs w-24"
+                            />
+                            {schedule.shifts.length > 1 && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                                onClick={() => removeShift(day.key, idx)}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-[10px] gap-1 text-primary ml-14"
+                          onClick={() => addShift(day.key)}
+                        >
+                          <Plus className="h-3 w-3" />
+                          Adicionar turno
+                        </Button>
                       </div>
-                    ) : (
-                      <span className="text-xs text-muted-foreground italic">Fechado</span>
                     )}
                   </div>
                 );
@@ -229,8 +327,8 @@ const BusinessHoursSettings = () => {
             <p className="text-xs text-muted-foreground">
               Adicione o nó <strong>"Verificar Expediente"</strong> (categoria Condições) no seu fluxo de automação. 
               Ele usará os horários configurados aqui para decidir se a mensagem chegou dentro ou fora do expediente, 
-              direcionando o fluxo pelo caminho <span className="text-green-500 font-medium">Sim</span> (dentro) ou{" "}
-              <span className="text-red-500 font-medium">Não</span> (fora).
+              direcionando o fluxo pelo caminho <span className="text-success font-medium">Sim</span> (dentro) ou{" "}
+              <span className="text-destructive font-medium">Não</span> (fora).
             </p>
           </div>
         </CardContent>
