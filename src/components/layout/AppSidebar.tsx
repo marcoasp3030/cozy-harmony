@@ -12,6 +12,7 @@ import {
   ClipboardList,
   ChevronsLeft,
   Headphones,
+  ListOrdered,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import logo from "@/assets/logo.webp";
@@ -43,6 +44,7 @@ const mainItems = [
   { to: "/automations", label: "Automações", icon: Bot, badgeKey: "automations" as const },
   { to: "/funnels", label: "Funis", icon: GitBranchPlus, badgeKey: null },
   { to: "/occurrences", label: "Ocorrências", icon: ClipboardList, badgeKey: null },
+  { to: "/queue", label: "Fila", icon: ListOrdered, badgeKey: null },
   { to: "/attendants", label: "Atendentes", icon: Headphones, badgeKey: null },
 ];
 
