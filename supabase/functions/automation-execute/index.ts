@@ -34,6 +34,7 @@ interface ExecutionContext {
   messageType: string;
   conversationId: string;
   userId: string | null;
+  instanceId: string | null;
   variables: Record<string, string>;
   isFirstContact: boolean;
   nodeLog: NodeLogEntry[];
@@ -53,9 +54,24 @@ interface NodeLogEntry {
 // ── Cached WhatsApp instance lookup (avoids 5+ DB queries per execution) ──
 const instanceCache = new Map<string, { base_url: string; instance_token: string } | null>();
 
-async function getCachedInstance(supabase: any, userId: string | null): Promise<{ base_url: string; instance_token: string } | null> {
-  const cacheKey = userId || "__default__";
+async function getCachedInstance(supabase: any, userId: string | null, instanceId?: string | null): Promise<{ base_url: string; instance_token: string } | null> {
+  const cacheKey = instanceId || userId || "__default__";
   if (instanceCache.has(cacheKey)) return instanceCache.get(cacheKey)!;
+
+  // If automation is linked to a specific instance, use that one
+  if (instanceId) {
+    const { data: instance } = await supabase
+      .from("whatsapp_instances")
+      .select("id, base_url, instance_token")
+      .eq("id", instanceId)
+      .maybeSingle();
+    const result = instance?.base_url && instance?.instance_token ? instance : null;
+    if (result) {
+      instanceCache.set(cacheKey, result);
+      return result;
+    }
+    // Fall through to default lookup if instance_id not found
+  }
 
   let query = supabase
     .from("whatsapp_instances")
@@ -209,6 +225,7 @@ serve(async (req) => {
         messageType: messageType || "text",
         conversationId,
         userId: automation.created_by || null,
+        instanceId: automation.instance_id || null,
         variables: {},
         isFirstContact: !!isFirstContact,
         nodeLog: [],
@@ -594,7 +611,7 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
       const lines = optionsRaw.split("\n").map((l: string) => l.trim()).filter(Boolean);
 
       // Get WhatsApp instance (cached)
-      const instance = await getCachedInstance(supabase, ctx.userId);
+      const instance = await getCachedInstance(supabase, ctx.userId, ctx.instanceId);
       if (!instance) {
         throw new Error("Instância WhatsApp não configurada");
       }
@@ -665,7 +682,7 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
       if (!mediaUrl) return { sent: false, reason: "empty_media_url" };
 
       // Get WhatsApp instance (cached)
-      const instance = await getCachedInstance(supabase, ctx.userId);
+      const instance = await getCachedInstance(supabase, ctx.userId, ctx.instanceId);
       if (!instance) {
         throw new Error("Instância WhatsApp não configurada");
       }
@@ -2182,7 +2199,7 @@ async function sendWhatsAppMessage(supabase: any, ctx: ExecutionContext, message
   }
 
   // Get WhatsApp instance (cached)
-  const instance = await getCachedInstance(supabase, ctx.userId);
+  const instance = await getCachedInstance(supabase, ctx.userId, ctx.instanceId);
   if (!instance) {
     throw new Error("Instância WhatsApp não configurada para esta automação");
   }
@@ -2255,7 +2272,7 @@ async function sendWhatsAppAudio(supabase: any, ctx: ExecutionContext, audioBase
       return false;
     }
 
-    const instance = await getCachedInstance(supabase, ctx.userId);
+    const instance = await getCachedInstance(supabase, ctx.userId, ctx.instanceId);
     if (!instance) {
       console.error("[AUDIO SEND] No WhatsApp instance configured");
       return false;
@@ -2339,7 +2356,7 @@ async function sendWhatsAppAudio(supabase: any, ctx: ExecutionContext, audioBase
 async function sendWhatsAppImage(supabase: any, ctx: ExecutionContext, imageUrl: string, caption?: string) {
   try {
     const cleanNumber = String(ctx.contactPhone || "").replace(/\D/g, "");
-    const instance = await getCachedInstance(supabase, ctx.userId);
+    const instance = await getCachedInstance(supabase, ctx.userId, ctx.instanceId);
     if (!instance) return;
 
     const baseUrl = String(instance.base_url).replace(/\/+$/, "");
