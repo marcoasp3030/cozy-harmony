@@ -15,6 +15,7 @@ import {
   Mail,
   Eye,
   EyeOff,
+  Pencil,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -81,6 +82,9 @@ const UserManagement = () => {
   const [newRole, setNewRole] = useState<AppRole>("atendente");
   const [showPassword, setShowPassword] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<UserData | null>(null);
+  const [editTarget, setEditTarget] = useState<UserData | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ["all-users"],
@@ -187,6 +191,28 @@ const UserManagement = () => {
     },
     onError: (err: any) => toast.error(err.message),
   });
+
+  const editProfileMutation = useMutation({
+    mutationFn: async ({ userId, name, email }: { userId: string; name: string; email: string }) => {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ name: name.trim(), email: email.trim() })
+        .eq("user_id", userId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["all-users"] });
+      toast.success("Dados atualizados!");
+      setEditTarget(null);
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
+
+  const openEditDialog = (u: UserData) => {
+    setEditTarget(u);
+    setEditName(u.name);
+    setEditEmail(u.email);
+  };
 
   const getInitials = (name: string) =>
     name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
@@ -350,6 +376,9 @@ const UserManagement = () => {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openEditDialog(u)}>
+                            <Pencil className="mr-2 h-4 w-4" /> Editar dados
+                          </DropdownMenuItem>
                           {(["admin", "supervisor", "atendente"] as AppRole[]).map((role) => (
                             <DropdownMenuItem
                               key={role}
@@ -406,6 +435,54 @@ const UserManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Edit user dialog */}
+      <Dialog open={!!editTarget} onOpenChange={(open) => !open && setEditTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar Usuário</DialogTitle>
+            <DialogDescription>
+              Altere o nome e email de {editTarget?.name}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label>Nome *</Label>
+              <Input
+                placeholder="Nome completo"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                maxLength={100}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Email *</Label>
+              <Input
+                type="email"
+                placeholder="usuario@email.com"
+                value={editEmail}
+                onChange={(e) => setEditEmail(e.target.value)}
+                maxLength={255}
+              />
+            </div>
+            <Button
+              className="w-full"
+              disabled={!editName.trim() || !editEmail.trim() || editProfileMutation.isPending}
+              onClick={() =>
+                editTarget &&
+                editProfileMutation.mutate({
+                  userId: editTarget.user_id,
+                  name: editName,
+                  email: editEmail,
+                })
+              }
+            >
+              {editProfileMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Salvar Alterações
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
