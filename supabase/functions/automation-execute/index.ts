@@ -1353,15 +1353,18 @@ REGRAS PARA "ready":
         throw new Error(`Vision error: ${errText.slice(0, 200)}`);
       }
 
-      // ── Standard chat models (GPT, Gemini chat) ──
-      // Fetch last 5 inbound + last 2 outbound for a focused context window
+      // ══════════════════════════════════════════════════════════
+      // ── HUMANIZED CONTEXT ENGINE (6 strategies) ──
+      // ══════════════════════════════════════════════════════════
+
+      // ── 1. CONVERSATION MEMORY: load broader history (15 msgs) ──
       const { data: recentInbound } = await supabase
         .from("messages")
         .select("direction, content, type, media_url, created_at")
         .eq("contact_id", ctx.contactId)
         .eq("direction", "inbound")
         .order("created_at", { ascending: false })
-        .limit(5);
+        .limit(10);
 
       const { data: recentOutbound } = await supabase
         .from("messages")
@@ -1369,11 +1372,116 @@ REGRAS PARA "ready":
         .eq("contact_id", ctx.contactId)
         .eq("direction", "outbound")
         .order("created_at", { ascending: false })
-        .limit(2);
+        .limit(5);
 
       const transcription = ctx.variables["transcricao"] || "";
       const pdfContent = ctx.variables["pdf_conteudo"] || "";
       const groupedMessages = ctx.variables["mensagens_agrupadas"] || "";
+
+      // ── 2. CONTACT PROFILE: load known info to avoid re-asking ──
+      const { data: contactProfile } = await supabase
+        .from("contacts")
+        .select("name, phone, email, about, custom_fields")
+        .eq("id", ctx.contactId)
+        .single();
+
+      // Load contact tags for context
+      let contactTags: string[] = [];
+      try {
+        const { data: tagLinks } = await supabase
+          .from("contact_tags")
+          .select("tag_id")
+          .eq("contact_id", ctx.contactId);
+        if (tagLinks?.length) {
+          const { data: tagRows } = await supabase
+            .from("tags")
+            .select("name")
+            .in("id", tagLinks.map((t: any) => t.tag_id));
+          contactTags = (tagRows || []).map((t: any) => t.name);
+        }
+      } catch {}
+
+      // Load conversation metadata (score, priority, notes)
+      const { data: convMeta } = await supabase
+        .from("conversations")
+        .select("score, priority, notes, status")
+        .eq("id", ctx.conversationId)
+        .single();
+
+      // ── 3. PRODUCT CATALOG: search if message mentions products/prices ──
+      let productContext = "";
+      const msgForProductSearch = groupedMessages || transcription || ctx.messageContent || "";
+      const productKeywords = /produ|preço|preco|valor|quanto|custa|comprar|item|estoque|barcode|código|codigo/i;
+      if (productKeywords.test(msgForProductSearch) && ctx.userId) {
+        try {
+          // Extract potential product names (words >3 chars, excluding common words)
+          const stopWords = new Set(["para", "como", "quero", "saber", "qual", "esse", "essa", "favor", "pode", "aqui", "mais", "muito", "obrigado", "obrigada", "vocês", "voces", "sobre", "tenho", "estou", "esta", "isso"]);
+          const words = msgForProductSearch
+            .replace(/[^\p{L}\p{N}\s]/gu, " ")
+            .split(/\s+/)
+            .filter((w: string) => w.length > 3 && !stopWords.has(w.toLowerCase()));
+          
+          const searchTerms = words.slice(0, 5).join(" ");
+          if (searchTerms.length > 3) {
+            const { data: products } = await supabase.rpc("search_products", {
+              _user_id: ctx.userId,
+              _query: searchTerms,
+              _limit: 5,
+            });
+            if (products && products.length > 0) {
+              productContext = "\n\n📦 PRODUTOS ENCONTRADOS NO CATÁLOGO:\n" +
+                products.map((p: any) => 
+                  `- ${p.name}${p.barcode ? ` (cód: ${p.barcode})` : ""}: R$ ${Number(p.price).toFixed(2)}${p.category ? ` [${p.category}]` : ""}`
+                ).join("\n") +
+                "\nUse essas informações reais ao responder sobre produtos. Se o cliente perguntar sobre um produto que NÃO está na lista acima, diga que vai verificar e peça para ele enviar foto do código de barras.";
+            }
+          }
+        } catch (e) {
+          console.error("[PRODUCT SEARCH] Error:", e);
+        }
+      }
+
+      // ── 4. SENTIMENT ANALYSIS: detect emotional tone from message ──
+      let sentimentHint = "";
+      const msgLower = (msgForProductSearch).toLowerCase();
+      const frustrationWords = /absurdo|raiva|indignado|revoltado|péssimo|pessimo|horrível|horrivel|lixo|vergonha|nunca mais|inaceitável|inaceitavel|porcaria|merda|droga|irritad|cansad|farto|decepcion|desrespeito|descaso|abuso/;
+      const urgencyWords = /urgente|emergência|emergencia|socorro|ajuda|desesper|imediato|agora|já|rápido|rapido/;
+      const satisfactionWords = /obrigad|agradeço|agradeco|maravilh|excelente|parabéns|parabens|perfeito|ótimo|otimo|adorei|amei|feliz|satisfeit|top|nota 10/;
+      const confusionWords = /não entendi|nao entendi|como funciona|não sei|nao sei|confus|explica|ajuda|perdid/;
+
+      if (frustrationWords.test(msgLower)) {
+        sentimentHint = "\n⚠️ SENTIMENTO DETECTADO: FRUSTRAÇÃO/RAIVA. Adote tom ultra-empático: reconheça o sentimento, peça desculpas sinceras, demonstre urgência em resolver. NÃO minimize a situação. Use frases como 'Entendo completamente sua frustração', 'Você tem toda razão em estar chateado(a)'.";
+      } else if (urgencyWords.test(msgLower)) {
+        sentimentHint = "\n⚡ SENTIMENTO DETECTADO: URGÊNCIA. Responda com agilidade, seja direto e prático. Mostre que está priorizando o caso. Use frases como 'Vou resolver isso agora mesmo', 'Prioridade total para o seu caso'.";
+      } else if (satisfactionWords.test(msgLower)) {
+        sentimentHint = "\n😊 SENTIMENTO DETECTADO: SATISFAÇÃO/GRATIDÃO. Responda com calor humano, agradeça o feedback positivo. Use frases como 'Que bom saber disso!', 'Fico muito feliz!'. Aproveite para perguntar se pode ajudar em mais alguma coisa.";
+      } else if (confusionWords.test(msgLower)) {
+        sentimentHint = "\n🤔 SENTIMENTO DETECTADO: CONFUSÃO/DÚVIDA. Seja didático e paciente. Explique passo a passo. Evite jargões técnicos. Pergunte se ficou claro.";
+      }
+
+      // ── 5. BUILD ENRICHED PROFILE CONTEXT ──
+      const profileParts: string[] = [];
+      if (contactProfile?.name && contactProfile.name !== "Não informado") profileParts.push(`Nome: ${contactProfile.name}`);
+      if (contactProfile?.email) profileParts.push(`Email: ${contactProfile.email}`);
+      if (contactProfile?.about) profileParts.push(`Sobre: ${contactProfile.about}`);
+      if (contactTags.length > 0) profileParts.push(`Tags: ${contactTags.join(", ")}`);
+      if (convMeta?.priority && convMeta.priority !== "normal") profileParts.push(`Prioridade: ${convMeta.priority}`);
+      if (convMeta?.notes) profileParts.push(`Notas anteriores: ${convMeta.notes}`);
+      if ((convMeta?.score ?? 0) > 0) profileParts.push(`Score: ${convMeta.score}`);
+
+      const profileContext = profileParts.length > 0
+        ? `\n\n👤 PERFIL DO CONTATO (dados já conhecidos — NÃO pergunte novamente o que já sabe):\n${profileParts.join("\n")}`
+        : "";
+
+      // ── 6. RESPONSE VARIATION INSTRUCTION ──
+      const variationHint = `\n\n🎭 VARIAÇÃO DE RESPOSTAS:
+- NÃO repita a mesma saudação. Varie entre: "Oi", "Olá", "Ei", usar só o nome, ou ir direto ao ponto.
+- Se já cumprimentou antes nesta conversa, NÃO cumprimente de novo.
+- Varie despedidas: "Qualquer coisa, estou aqui!", "Conta comigo!", "Precisando, é só chamar!", etc.
+- Seja natural como uma pessoa real conversando, não como um bot.`;
+
+      // ── Compose final enriched system prompt ──
+      const enrichedSystemPrompt = systemPrompt + profileContext + productContext + sentimentHint + variationHint;
 
       // Merge and sort by created_at
       const allRecent = [
@@ -1461,10 +1569,28 @@ REGRAS PARA "ready":
         }
       }
 
-      // Build chat messages - use multimodal content when image is available
+      // Build chat messages with enriched system prompt
       const chatMessages: any[] = [
-        { role: "system", content: systemPrompt },
+        { role: "system", content: enrichedSystemPrompt },
       ];
+
+      // ── PROGRESSIVE PROFILE: save name/store if detected in conversation ──
+      // (runs async, doesn't block response)
+      try {
+        const allText = (groupedMessages || transcription || ctx.messageContent || "").toLowerCase();
+        // Auto-save name if not yet known
+        if ((!contactProfile?.name || contactProfile.name === ctx.contactPhone) && allText.length > 5) {
+          const nameMatch = allText.match(/(?:meu nome é|me chamo|sou o |sou a |aqui é o |aqui é a )\s*([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ][a-záàâãéèêíïóôõöúç]+(?:\s+[A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ][a-záàâãéèêíïóôõöúç]+){0,3})/i);
+          if (nameMatch?.[1]) {
+            const detectedName = nameMatch[1].trim();
+            console.log(`[PROFILE] Auto-detected name: "${detectedName}"`);
+            await supabase.from("contacts").update({ name: detectedName }).eq("id", ctx.contactId);
+            ctx.contactName = detectedName;
+          }
+        }
+      } catch (e) {
+        console.error("[PROFILE] Auto-save error:", e);
+      }
 
       for (const m of messages) {
         const role = m.direction === "inbound" ? "user" : "assistant";
