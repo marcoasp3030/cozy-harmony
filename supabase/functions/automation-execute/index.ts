@@ -1410,6 +1410,7 @@ REGRAS PARA "ready":
         .single();
 
       // ── 3. PRODUCT CATALOG: use pre-fetched data from search_product node OR search dynamically ──
+      const msgForProductSearch = groupedMessages || transcription || ctx.messageContent || "";
       let productContext = "";
       
       // Check if a previous search_product node already populated catalog data
@@ -1420,7 +1421,6 @@ REGRAS PARA "ready":
         console.log("[LLM CONTEXT] Using pre-fetched product data from search_product node");
       } else {
         // Dynamic search only if no prior search_product node ran
-        const msgForProductSearch = groupedMessages || transcription || ctx.messageContent || "";
         const productKeywords = /produ|preço|preco|valor|quanto|custa|comprar|item|estoque|barcode|código|codigo/i;
         if (productKeywords.test(msgForProductSearch) && ctx.userId) {
           try {
