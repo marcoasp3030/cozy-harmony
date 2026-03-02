@@ -331,6 +331,7 @@ async function executeFromNode(
       action_collect_messages: "Aguardar & Agrupar", action_transcribe_audio: "Transcrever Áudio",
       action_extract_pdf: "Extrair Texto PDF", action_send_interactive: "Mensagem Interativa",
       action_send_media: "Enviar Mídia", action_register_occurrence: "Registrar Ocorrência",
+      action_analyze_image: "Analisar Imagem",
     };
 
     // Build result object for logging
@@ -1762,6 +1763,252 @@ REGRAS PARA "ready":
     if (type === "action_ab_split") {
       const splitPct = parseInt(d.split_percentage) || 50;
       return Math.random() * 100 < splitPct; // true = path A, false = path B
+    }
+
+    // ── ANALYZE IMAGE NODE ──
+    if (type === "action_analyze_image") {
+      const analysisType = d.analysis_type || "product_identify";
+      const customPrompt = d.custom_prompt || "";
+      const searchCatalog = d.search_catalog !== false;
+      const sendResult = d.send_result !== false;
+
+      // Find last image from contact (from collect or recent messages)
+      let imageUrl = ctx.variables["imagem_url"] || "";
+      if (!imageUrl) {
+        const { data: imgMsgs } = await supabase
+          .from("messages")
+          .select("media_url")
+          .eq("contact_id", ctx.contactId)
+          .eq("direction", "inbound")
+          .eq("type", "image")
+          .order("created_at", { ascending: false })
+          .limit(1);
+        imageUrl = imgMsgs?.[0]?.media_url || "";
+      }
+
+      if (!imageUrl) {
+        const noImageMsg = "Não encontrei nenhuma imagem para analisar. Por favor, envie uma foto do produto ou do código de barras. 📸";
+        if (sendResult) await sendWhatsAppMessage(supabase, ctx, noImageMsg);
+        ctx.variables["imagem_analise"] = "";
+        ctx.variables["produto_identificado"] = "";
+        ctx.variables["imagem_qualidade"] = "sem_imagem";
+        return { analyzed: false, reason: "no_image" };
+      }
+
+      // Download image → base64
+      let imgBase64 = "";
+      try {
+        const imgResp = await fetch(imageUrl);
+        if (!imgResp.ok) throw new Error(`Download failed: ${imgResp.status}`);
+        const imgBuffer = await imgResp.arrayBuffer();
+        const { encode: base64Encode } = await import("https://deno.land/std@0.168.0/encoding/base64.ts");
+        imgBase64 = base64Encode(imgBuffer);
+        console.log(`[IMAGE ANALYSIS] Downloaded image (${Math.round(imgBuffer.byteLength / 1024)}KB)`);
+      } catch (e) {
+        console.error("[IMAGE ANALYSIS] Failed to download:", e);
+        if (sendResult) await sendWhatsAppMessage(supabase, ctx, "Não consegui processar a imagem. Pode tentar enviar novamente? 📸");
+        ctx.variables["imagem_qualidade"] = "erro_download";
+        return { analyzed: false, reason: "download_failed" };
+      }
+
+      // Build analysis prompt based on type
+      const analysisPrompts: Record<string, string> = {
+        product_identify: `Você é um especialista em identificação de produtos da Nutricar Brasil (rede de mini mercados autônomos 24h).
+
+Analise esta imagem cuidadosamente e tente identificar o produto mostrado.
+
+PROCESSO DE ANÁLISE:
+1. Primeiro, avalie a QUALIDADE da imagem:
+   - A imagem está nítida o suficiente para identificar o produto?
+   - O produto ou rótulo está visível e legível?
+   - A iluminação é adequada?
+
+2. Se a imagem for ADEQUADA:
+   - Identifique o nome do produto (marca, tipo, variante)
+   - Leia o código de barras se visível (números)
+   - Identifique o peso/volume se visível
+   - Identifique a marca/fabricante
+   - Estime a categoria (bebidas, laticínios, snacks, higiene, limpeza, etc.)
+
+3. Se a imagem NÃO for adequada:
+   - Explique o que está errado (desfocada, escura, produto não visível, etc.)
+   - Sugira como tirar uma foto melhor
+
+${customPrompt ? `INSTRUÇÃO ADICIONAL: ${customPrompt}` : ""}
+
+Responda APENAS com JSON válido:
+{
+  "quality": "boa" | "ruim" | "parcial",
+  "quality_issue": "descrição do problema se quality != boa, ou null",
+  "identified": true/false,
+  "product_name": "nome completo do produto ou null",
+  "brand": "marca ou null",
+  "barcode": "código de barras se visível ou null",
+  "weight_volume": "peso ou volume se visível ou null",
+  "category": "categoria estimada ou null",
+  "confidence": 0-100,
+  "description": "descrição breve do que foi visto na imagem",
+  "suggestion": "sugestão para melhorar a foto se quality != boa, ou null"
+}`,
+        barcode_read: `Analise esta imagem e tente ler o código de barras (EAN-13, UPC, Code128, QR Code, etc.).
+${customPrompt ? `INSTRUÇÃO: ${customPrompt}` : ""}
+Responda com JSON: {"quality": "boa"|"ruim"|"parcial", "quality_issue": "...", "barcode": "números ou null", "barcode_type": "EAN-13|UPC|QR|outro", "confidence": 0-100, "identified": true/false, "product_name": null, "brand": null, "category": null, "description": "...", "suggestion": "..."}`,
+        label_read: `Analise esta imagem e leia todas as informações do rótulo/etiqueta do produto (nome, ingredientes, validade, peso, preço, etc.).
+${customPrompt ? `INSTRUÇÃO: ${customPrompt}` : ""}
+Responda com JSON: {"quality": "boa"|"ruim"|"parcial", "quality_issue": "...", "identified": true/false, "product_name": "...", "brand": "...", "barcode": "...", "weight_volume": "...", "category": "...", "expiry_date": "...", "price_on_label": "...", "ingredients": "...", "confidence": 0-100, "description": "...", "suggestion": "..."}`,
+        general: `Analise esta imagem e descreva detalhadamente o que você vê.
+${customPrompt ? `INSTRUÇÃO: ${customPrompt}` : ""}
+Responda com JSON: {"quality": "boa"|"ruim"|"parcial", "quality_issue": "...", "identified": false, "product_name": null, "brand": null, "barcode": null, "category": null, "confidence": 0-100, "description": "descrição detalhada", "suggestion": null}`,
+      };
+
+      const visionPrompt = analysisPrompts[analysisType] || analysisPrompts.product_identify;
+
+      // Call Lovable AI with vision
+      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+      if (!LOVABLE_API_KEY) {
+        console.error("[IMAGE ANALYSIS] No LOVABLE_API_KEY");
+        return { analyzed: false, reason: "no_ai_key" };
+      }
+
+      let analysisResult: any = null;
+      try {
+        const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [{
+              role: "user",
+              content: [
+                { type: "text", text: visionPrompt },
+                { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imgBase64}` } },
+              ],
+            }],
+            max_tokens: 600,
+            temperature: 0.2,
+          }),
+        });
+
+        if (!resp.ok) {
+          const errText = await resp.text();
+          throw new Error(`Vision API error (${resp.status}): ${errText.slice(0, 200)}`);
+        }
+
+        const data = await resp.json();
+        const reply = data.choices?.[0]?.message?.content?.trim() || "";
+        const jsonMatch = reply.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          analysisResult = JSON.parse(jsonMatch[0]);
+        }
+      } catch (e) {
+        console.error("[IMAGE ANALYSIS] Vision error:", e);
+        if (sendResult) await sendWhatsAppMessage(supabase, ctx, "Tive dificuldade para analisar a imagem. Pode tentar enviar novamente com mais nitidez? 📸");
+        return { analyzed: false, reason: "vision_error" };
+      }
+
+      if (!analysisResult) {
+        if (sendResult) await sendWhatsAppMessage(supabase, ctx, "Não consegui interpretar a imagem. Tente enviar uma foto mais nítida do produto ou do código de barras. 📸");
+        return { analyzed: false, reason: "parse_error" };
+      }
+
+      // Store results in variables
+      ctx.variables["imagem_qualidade"] = analysisResult.quality || "desconhecido";
+      ctx.variables["imagem_analise"] = analysisResult.description || "";
+      ctx.variables["produto_identificado"] = analysisResult.product_name || "";
+      ctx.variables["produto_marca"] = analysisResult.brand || "";
+      ctx.variables["produto_barcode"] = analysisResult.barcode || "";
+      ctx.variables["produto_categoria"] = analysisResult.category || "";
+      ctx.variables["imagem_confianca"] = String(analysisResult.confidence || 0);
+
+      console.log(`[IMAGE ANALYSIS] quality=${analysisResult.quality}, identified=${analysisResult.identified}, product="${analysisResult.product_name}", confidence=${analysisResult.confidence}%`);
+
+      // ── Handle poor quality images ──
+      if (analysisResult.quality === "ruim") {
+        const poorQualityMsg = analysisResult.suggestion
+          ? `A imagem não ficou muito clara para eu identificar o produto. 😕\n\n💡 *Dica:* ${analysisResult.suggestion}\n\nPode tentar enviar outra foto? 📸`
+          : "A imagem está um pouco difícil de ler. Pode enviar outra foto com mais iluminação e foco no produto ou rótulo? 📸";
+        if (sendResult) await sendWhatsAppMessage(supabase, ctx, poorQualityMsg);
+        return { analyzed: true, quality: "ruim", identified: false, suggestion: analysisResult.suggestion };
+      }
+
+      // ── Product identified — search catalog if enabled ──
+      let catalogMatch = "";
+      if (searchCatalog && analysisResult.identified && ctx.userId) {
+        try {
+          const searchQuery = analysisResult.product_name || analysisResult.barcode || "";
+          if (searchQuery.length > 2) {
+            // Try barcode first if available
+            if (analysisResult.barcode) {
+              const { data: barcodeProducts } = await supabase.rpc("search_products", {
+                _user_id: ctx.userId,
+                _query: analysisResult.barcode,
+                _limit: 3,
+              });
+              if (barcodeProducts?.length > 0) {
+                catalogMatch = barcodeProducts.map((p: any) =>
+                  `• ${p.name}${p.barcode ? ` (cód: ${p.barcode})` : ""}: *R$ ${Number(p.price).toFixed(2)}*${p.category ? ` [${p.category}]` : ""}`
+                ).join("\n");
+                ctx.variables["produto_preco"] = String(barcodeProducts[0].price);
+                ctx.variables["produto_nome_catalogo"] = barcodeProducts[0].name;
+              }
+            }
+            // Fallback to name search
+            if (!catalogMatch && analysisResult.product_name) {
+              const { data: nameProducts } = await supabase.rpc("search_products", {
+                _user_id: ctx.userId,
+                _query: analysisResult.product_name,
+                _limit: 3,
+              });
+              if (nameProducts?.length > 0) {
+                catalogMatch = nameProducts.map((p: any) =>
+                  `• ${p.name}${p.barcode ? ` (cód: ${p.barcode})` : ""}: *R$ ${Number(p.price).toFixed(2)}*${p.category ? ` [${p.category}]` : ""}`
+                ).join("\n");
+                ctx.variables["produto_preco"] = String(nameProducts[0].price);
+                ctx.variables["produto_nome_catalogo"] = nameProducts[0].name;
+              }
+            }
+          }
+        } catch (e) {
+          console.error("[IMAGE ANALYSIS] Catalog search error:", e);
+        }
+      }
+
+      // ── Build response message ──
+      if (sendResult) {
+        let responseMsg = "";
+
+        if (analysisResult.identified && analysisResult.confidence >= 60) {
+          responseMsg = `Identifiquei o produto! 🔍\n\n📦 *${analysisResult.product_name}*`;
+          if (analysisResult.brand) responseMsg += `\n🏷️ Marca: ${analysisResult.brand}`;
+          if (analysisResult.barcode) responseMsg += `\n📊 Código: ${analysisResult.barcode}`;
+          if (analysisResult.weight_volume) responseMsg += `\n⚖️ ${analysisResult.weight_volume}`;
+
+          if (catalogMatch) {
+            responseMsg += `\n\n💰 *Preço no catálogo:*\n${catalogMatch}`;
+          } else if (searchCatalog) {
+            responseMsg += `\n\n⚠️ Este produto não foi encontrado no nosso catálogo. Vou verificar com a equipe!`;
+          }
+        } else if (analysisResult.quality === "parcial") {
+          responseMsg = `Consegui ver parcialmente o produto, mas não tenho certeza. 🤔\n\n${analysisResult.description || ""}`;
+          if (analysisResult.suggestion) responseMsg += `\n\n💡 *Dica:* ${analysisResult.suggestion}`;
+          responseMsg += `\n\nPode enviar outra foto mais nítida do rótulo ou código de barras? 📸`;
+        } else {
+          responseMsg = `Não consegui identificar o produto com certeza. 😕\n\n${analysisResult.description || ""}`;
+          responseMsg += `\n\n💡 Para melhor identificação, tente:\n• Foto do *rótulo frontal* com boa iluminação\n• Foto do *código de barras* (números visíveis)\n• Foto mais *próxima* do produto`;
+        }
+
+        await sendWhatsAppMessage(supabase, ctx, responseMsg);
+      }
+
+      return {
+        analyzed: true,
+        quality: analysisResult.quality,
+        identified: analysisResult.identified,
+        product: analysisResult.product_name,
+        barcode: analysisResult.barcode,
+        confidence: analysisResult.confidence,
+        catalogFound: !!catalogMatch,
+      };
     }
 
     // ── MULTIMODAL NODES ──
