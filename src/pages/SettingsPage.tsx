@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
-import { Wifi, WifiOff, CheckCircle2, Loader2, QrCode, Unplug, Save, Plus, Link2, ExternalLink, Copy, Check, Volume2, VolumeX, Brain, Eye, EyeOff, Sparkles, FileText, Image, Mic, Video, MessageSquare, Wrench, Bell, BellOff } from "lucide-react";
+import { Wifi, WifiOff, CheckCircle2, Loader2, QrCode, Unplug, Save, Plus, Link2, ExternalLink, Copy, Check, Volume2, VolumeX, Brain, Eye, EyeOff, Sparkles, FileText, Image, Mic, Video, MessageSquare, Wrench, Bell, BellOff, Package } from "lucide-react";
 import InstanceManager from "@/components/settings/InstanceManager";
 import UserManagement from "@/components/settings/UserManagement";
 import BusinessHoursSettings from "@/components/settings/BusinessHoursSettings";
 import InactivitySettings from "@/components/settings/InactivitySettings";
 import ElevenLabsSettings from "@/components/settings/ElevenLabsSettings";
+import ProductCatalog from "@/components/settings/ProductCatalog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -794,6 +795,7 @@ const SettingsPage = () => {
           <TabsTrigger value="apillm" className="text-xs md:text-sm">API LLM</TabsTrigger>
           <TabsTrigger value="elevenlabs" className="text-xs md:text-sm">ElevenLabs</TabsTrigger>
           <TabsTrigger value="company" className="text-xs md:text-sm">Empresa</TabsTrigger>
+          <TabsTrigger value="products" className="text-xs md:text-sm">Produtos</TabsTrigger>
           <TabsTrigger value="users" className="text-xs md:text-sm">Usuários</TabsTrigger>
           <TabsTrigger value="webhooks" className="text-xs md:text-sm">Webhooks</TabsTrigger>
         </TabsList>
@@ -835,6 +837,10 @@ const SettingsPage = () => {
           <NotificationSoundToggle />
           <PushNotificationToggle />
           <AutoAssignToggle />
+        </TabsContent>
+
+        <TabsContent value="products">
+          <ProductCatalog />
         </TabsContent>
 
         <TabsContent value="users">
