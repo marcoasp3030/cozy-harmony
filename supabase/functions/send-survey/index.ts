@@ -64,7 +64,13 @@ serve(async (req) => {
     const jid = contactPhone.includes('@') ? contactPhone : `${contactPhone}@s.whatsapp.net`;
     const name = contactName || 'cliente';
     const surveyText = survey.question.replace(/\{\{nome\}\}/gi, name);
-    const choices = survey.options.map((opt: any) => `${opt.label}|${opt.value}`).join(',');
+    
+    // choices must be an ARRAY of "title|id" strings (not a comma-separated string)
+    const choices = survey.options.map((opt: any, idx: number) => {
+      const title = (opt.label || `Opção ${idx + 1}`).slice(0, 20);
+      const id = opt.value || `btn_${idx}`;
+      return `${title}|${id}`;
+    });
 
     const menuPayload = {
       phone: jid,
@@ -76,64 +82,17 @@ serve(async (req) => {
 
     console.log(`Sending survey to ${contactPhone}, payload:`, JSON.stringify(menuPayload));
 
-    // Try /send/menu first
-    let resp = await fetch(`${apiBase}/send/menu`, {
+    const resp = await fetch(`${apiBase}/send/menu`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'token': instanceToken },
       body: JSON.stringify(menuPayload),
     });
 
-    let result = await resp.json().catch(() => ({}));
+    const result = await resp.json().catch(() => ({}));
     console.log(`Menu result (${resp.status}):`, JSON.stringify(result).slice(0, 300));
 
-    // If /send/menu fails, try /send/buttons format
     if (!resp.ok || result?.error) {
-      console.log('Trying /send/buttons fallback...');
-      const buttonsPayload = {
-        phone: jid,
-        message: surveyText,
-        footer: 'Pesquisa de satisfação',
-        buttons: survey.options.map((opt: any, idx: number) => ({
-          id: opt.value || `btn_${idx}`,
-          text: opt.label,
-        })),
-      };
-      console.log('Buttons payload:', JSON.stringify(buttonsPayload));
-
-      resp = await fetch(`${apiBase}/send/buttons`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-        body: JSON.stringify(buttonsPayload),
-      });
-      result = await resp.json().catch(() => ({}));
-      console.log(`Buttons result (${resp.status}):`, JSON.stringify(result).slice(0, 300));
-
-      // If buttons also fails, try /send/interactive
-      if (!resp.ok || result?.error) {
-        console.log('Trying /send/interactive fallback...');
-        const interactivePayload = {
-          phone: jid,
-          type: 'buttons',
-          body: surveyText,
-          footer: 'Pesquisa de satisfação',
-          buttons: survey.options.map((opt: any, idx: number) => ({
-            type: 'reply',
-            reply: {
-              id: opt.value || `btn_${idx}`,
-              title: opt.label.substring(0, 20),
-            },
-          })),
-        };
-        console.log('Interactive payload:', JSON.stringify(interactivePayload));
-
-        resp = await fetch(`${apiBase}/send/interactive`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-          body: JSON.stringify(interactivePayload),
-        });
-        result = await resp.json().catch(() => ({}));
-        console.log(`Interactive result (${resp.status}):`, JSON.stringify(result).slice(0, 300));
-      }
+      return json({ error: 'Falha ao enviar pesquisa: ' + JSON.stringify(result), payload: menuPayload }, 400);
     }
 
     return json({ success: true, result });
