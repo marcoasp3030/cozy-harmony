@@ -61,11 +61,11 @@ serve(async (req) => {
       return json({ error: 'Nenhuma instância WhatsApp configurada' }, 400);
     }
 
-    const jid = contactPhone.includes('@') ? contactPhone : `${contactPhone}@s.whatsapp.net`;
+    const cleanNumber = contactPhone.replace(/\D/g, '');
     const name = contactName || 'cliente';
     const surveyText = survey.question.replace(/\{\{nome\}\}/gi, name);
     
-    // choices must be an ARRAY of "title|id" strings (not a comma-separated string)
+    // choices must be an ARRAY of "title|id" strings
     const choices = survey.options.map((opt: any, idx: number) => {
       const title = (opt.label || `Opção ${idx + 1}`).slice(0, 20);
       const id = opt.value || `btn_${idx}`;
@@ -73,7 +73,7 @@ serve(async (req) => {
     });
 
     const menuPayload = {
-      phone: jid,
+      number: cleanNumber,
       type: 'button',
       text: surveyText,
       choices,

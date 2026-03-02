@@ -93,8 +93,9 @@ serve(async (req) => {
                 return `${title}|${id}`;
               });
 
+            const cleanNumber = String(contact.phone).replace(/\D/g, '');
             const menuPayload = {
-              phone: jid,
+              number: cleanNumber,
               type: 'button',
               text: surveyText,
               choices,
