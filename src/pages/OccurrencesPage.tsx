@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -67,6 +67,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { format, isAfter, isBefore, startOfDay, endOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -168,6 +169,7 @@ const OccurrencesPage = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
   const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const { data: occurrences = [], isLoading } = useQuery({
     queryKey: ["occurrences"],
@@ -280,6 +282,36 @@ const OccurrencesPage = () => {
     },
     onError: () => toast.error("Erro ao excluir ocorrência"),
   });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { error } = await supabase.from("occurrences").delete().in("id", ids);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["occurrences"] });
+      toast.success(`${selectedIds.size} ocorrências excluídas!`);
+      setSelectedIds(new Set());
+    },
+    onError: () => toast.error("Erro ao excluir ocorrências"),
+  });
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filtered.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filtered.map((o: any) => o.id)));
+    }
+  };
 
   const filtered = occurrences.filter((o: any) => {
     const matchSearch =
@@ -496,6 +528,31 @@ const OccurrencesPage = () => {
         )}
       </div>
 
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border bg-muted/50 p-3">
+          <span className="text-sm font-medium">{selectedIds.size} selecionada(s)</span>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" size="sm">
+                <Trash2 className="mr-1 h-3.5 w-3.5" /> Excluir selecionadas
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Excluir {selectedIds.size} ocorrências?</AlertDialogTitle>
+                <AlertDialogDescription>Esta ação não pode ser desfeita. Todas as ocorrências selecionadas serão removidas permanentemente.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}>Excluir</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+          <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>Limpar seleção</Button>
+        </div>
+      )}
+
       {/* Table */}
       <Card>
         <CardContent className="p-0">
@@ -512,6 +569,12 @@ const OccurrencesPage = () => {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                      onCheckedChange={toggleSelectAll}
+                    />
+                  </TableHead>
                   <TableHead>Data</TableHead>
                   <TableHead>Loja</TableHead>
                   <TableHead>Tipo</TableHead>
@@ -529,6 +592,7 @@ const OccurrencesPage = () => {
                     <TableRow
                       key={occ.id}
                       className="cursor-pointer"
+                      data-state={selectedIds.has(occ.id) ? "selected" : undefined}
                       onClick={() => {
                         setSelectedOccurrence(occ);
                         setResolution(occ.resolution || "");
@@ -536,6 +600,12 @@ const OccurrencesPage = () => {
                         setDetailOpen(true);
                       }}
                     >
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={selectedIds.has(occ.id)}
+                          onCheckedChange={() => toggleSelect(occ.id)}
+                        />
+                      </TableCell>
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                         {format(new Date(occ.created_at), "dd/MM/yy HH:mm", { locale: ptBR })}
                       </TableCell>
