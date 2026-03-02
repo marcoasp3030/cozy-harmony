@@ -35,8 +35,19 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useSidebarBadges } from "@/hooks/useSidebarBadges";
+import { useUserRole } from "@/hooks/useUserRole";
 
-const mainItems = [
+type RequiredRole = "admin" | "supervisor" | "admin_or_supervisor" | null;
+
+interface SidebarItem {
+  to: string;
+  label: string;
+  icon: any;
+  badgeKey: BadgeKey | null;
+  requiredRole?: RequiredRole;
+}
+
+const mainItems: SidebarItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, badgeKey: null },
   { to: "/inbox", label: "Inbox", icon: Inbox, badgeKey: "inbox" as const },
   { to: "/contacts", label: "Contatos", icon: Users, badgeKey: null },
@@ -45,10 +56,10 @@ const mainItems = [
   { to: "/funnels", label: "Funis", icon: GitBranchPlus, badgeKey: null },
   { to: "/occurrences", label: "Ocorrências", icon: ClipboardList, badgeKey: null },
   { to: "/queue", label: "Fila", icon: ListOrdered, badgeKey: null },
-  { to: "/attendants", label: "Atendentes", icon: Headphones, badgeKey: null },
+  { to: "/attendants", label: "Atendentes", icon: Headphones, badgeKey: null, requiredRole: "admin_or_supervisor" },
 ];
 
-const secondaryItems = [
+const secondaryItems: SidebarItem[] = [
   { to: "/templates", label: "Templates", icon: FileText, badgeKey: null },
   { to: "/reports", label: "Relatórios", icon: BarChart3, badgeKey: null },
   { to: "/settings", label: "Configurações", icon: Settings, badgeKey: null },
@@ -61,8 +72,18 @@ const AppSidebar = () => {
   const collapsed = state === "collapsed";
   const location = useLocation();
   const badges = useSidebarBadges();
+  const { isAdmin, isAdminOrSupervisor } = useUserRole();
 
-  const renderItem = (item: { to: string; label: string; icon: any; badgeKey: BadgeKey | null }) => {
+  const hasAccess = (requiredRole?: RequiredRole) => {
+    if (!requiredRole) return true;
+    if (requiredRole === "admin") return isAdmin;
+    if (requiredRole === "supervisor") return isAdminOrSupervisor;
+    if (requiredRole === "admin_or_supervisor") return isAdminOrSupervisor;
+    return true;
+  };
+
+  const renderItem = (item: SidebarItem) => {
+    if (!hasAccess(item.requiredRole)) return null;
     const isActive = location.pathname.startsWith(item.to);
     const Icon = item.icon;
     const badgeCount = item.badgeKey ? badges[item.badgeKey] : 0;
