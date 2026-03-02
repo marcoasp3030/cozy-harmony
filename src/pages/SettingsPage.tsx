@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Wifi, WifiOff, CheckCircle2, Loader2, QrCode, Unplug, Save, Plus, Link2, ExternalLink, Copy, Check, Volume2, VolumeX, Brain, Eye, EyeOff, Sparkles, FileText, Image, Mic, Video, MessageSquare, Wrench, Bell, BellOff } from "lucide-react";
 import InstanceManager from "@/components/settings/InstanceManager";
+import UserManagement from "@/components/settings/UserManagement";
 import BusinessHoursSettings from "@/components/settings/BusinessHoursSettings";
 import ElevenLabsSettings from "@/components/settings/ElevenLabsSettings";
 import { Button } from "@/components/ui/button";
@@ -831,15 +832,7 @@ const SettingsPage = () => {
         </TabsContent>
 
         <TabsContent value="users">
-          <Card>
-            <CardHeader>
-              <CardTitle className="font-heading">Usuários</CardTitle>
-              <CardDescription>Gerencie os usuários do sistema</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">Em breve...</p>
-            </CardContent>
-          </Card>
+          <UserManagement />
         </TabsContent>
 
         <TabsContent value="webhooks">
