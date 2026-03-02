@@ -331,7 +331,7 @@ async function executeFromNode(
       action_collect_messages: "Aguardar & Agrupar", action_transcribe_audio: "Transcrever Áudio",
       action_extract_pdf: "Extrair Texto PDF", action_send_interactive: "Mensagem Interativa",
       action_send_media: "Enviar Mídia", action_register_occurrence: "Registrar Ocorrência",
-      action_analyze_image: "Analisar Imagem",
+      action_analyze_image: "Analisar Imagem", action_search_product: "Buscar Produto",
     };
 
     // Build result object for logging
@@ -1763,6 +1763,111 @@ REGRAS PARA "ready":
     if (type === "action_ab_split") {
       const splitPct = parseInt(d.split_percentage) || 50;
       return Math.random() * 100 < splitPct; // true = path A, false = path B
+    }
+
+    // ── SEARCH PRODUCT NODE ──
+    if (type === "action_search_product") {
+      const searchSource = d.search_source || "message";
+      const maxResults = parseInt(d.max_results) || 5;
+      const sendResult = d.send_result !== false;
+      const resultTemplate = String(d.result_template || "").trim();
+      const notFoundMsg = interpolate(String(d.not_found_message || "Não encontrei esse produto no catálogo."), ctx);
+
+      // Determine search query based on source
+      let searchQuery = "";
+      if (searchSource === "variable") {
+        const varName = String(d.search_variable || "produto_identificado").trim();
+        searchQuery = ctx.variables[varName] || "";
+      } else if (searchSource === "fixed") {
+        searchQuery = interpolate(String(d.search_term || ""), ctx);
+      } else {
+        // "message" — extract product-related terms from the message
+        const grouped = ctx.variables["mensagens_agrupadas"] || "";
+        const rawText = grouped || ctx.messageContent || "";
+        // Remove common filler words to get better search terms
+        const stopWords = ["qual", "quanto", "custa", "preço", "valor", "do", "da", "de", "o", "a", "um", "uma", "por", "favor", "me", "quero", "tem", "voces", "vocês", "esse", "essa", "desse", "dessa", "aquele", "aquela"];
+        const words = rawText
+          .toLowerCase()
+          .replace(/[^\w\sáàâãéèêíìîóòôõúùûç]/g, "")
+          .split(/\s+/)
+          .filter((w: string) => w.length > 2 && !stopWords.includes(w));
+        searchQuery = words.slice(0, 6).join(" ");
+      }
+
+      if (!searchQuery || searchQuery.length < 2) {
+        ctx.variables["produto_encontrado"] = "false";
+        ctx.variables["produtos_lista"] = "";
+        ctx.variables["produto_nome"] = "";
+        ctx.variables["produto_preco"] = "";
+        ctx.variables["produto_categoria"] = "";
+        if (sendResult && notFoundMsg) {
+          await sendWhatsAppMessage(supabase, ctx, notFoundMsg);
+        }
+        return { found: false, reason: "empty_query", query: searchQuery };
+      }
+
+      console.log(`[SEARCH_PRODUCT] Query: "${searchQuery}", max: ${maxResults}, userId: ${ctx.userId}`);
+
+      // Call search_products RPC
+      const { data: products, error: searchErr } = await supabase.rpc("search_products", {
+        _user_id: ctx.userId,
+        _query: searchQuery,
+        _limit: maxResults,
+      });
+
+      if (searchErr) {
+        console.error("[SEARCH_PRODUCT] RPC error:", searchErr);
+        ctx.variables["produto_encontrado"] = "false";
+        return { found: false, reason: "rpc_error", error: searchErr.message };
+      }
+
+      if (!products || products.length === 0) {
+        ctx.variables["produto_encontrado"] = "false";
+        ctx.variables["produtos_lista"] = "";
+        ctx.variables["produto_nome"] = "";
+        ctx.variables["produto_preco"] = "";
+        ctx.variables["produto_categoria"] = "";
+        if (sendResult && notFoundMsg) {
+          await sendWhatsAppMessage(supabase, ctx, notFoundMsg);
+        }
+        console.log(`[SEARCH_PRODUCT] No results for "${searchQuery}"`);
+        return { found: false, query: searchQuery };
+      }
+
+      // Store first result in variables for easy access
+      const first = products[0];
+      ctx.variables["produto_encontrado"] = "true";
+      ctx.variables["produto_nome"] = first.name || "";
+      ctx.variables["produto_preco"] = String(first.price || 0);
+      ctx.variables["produto_categoria"] = first.category || "";
+      ctx.variables["produto_barcode"] = first.barcode || "";
+      ctx.variables["produtos_quantidade"] = String(products.length);
+
+      // Build formatted product list
+      const productList = products.map((p: any, i: number) => {
+        const priceFormatted = Number(p.price || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        return `${i + 1}. *${p.name}* — ${priceFormatted}${p.category ? ` (${p.category})` : ""}${p.barcode ? ` | Cód: ${p.barcode}` : ""}`;
+      }).join("\n");
+      ctx.variables["produtos_lista"] = productList;
+
+      // Send result to client
+      if (sendResult) {
+        let message = "";
+        if (resultTemplate) {
+          message = interpolate(resultTemplate.replace(/\{\{produtos\}\}/gi, productList), ctx);
+        } else {
+          if (products.length === 1) {
+            const priceFormatted = Number(first.price || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+            message = `✅ Encontrei: *${first.name}*\n💰 Preço: ${priceFormatted}${first.category ? `\n📦 Categoria: ${first.category}` : ""}`;
+          } else {
+            message = `📋 Encontrei ${products.length} produto(s):\n\n${productList}`;
+          }
+        }
+        await sendWhatsAppMessage(supabase, ctx, message);
+      }
+
+      console.log(`[SEARCH_PRODUCT] Found ${products.length} for "${searchQuery}"`);
+      return { found: true, count: products.length, query: searchQuery, first: first.name };
     }
 
     // ── ANALYZE IMAGE NODE ──
