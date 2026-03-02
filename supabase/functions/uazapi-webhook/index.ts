@@ -123,11 +123,31 @@ serve(async (req) => {
         return json({ success: true, note: 'Group or invalid' });
       }
 
+      // ── Extract interactive button/list responses ──
+      // When a user clicks a button or selects from a list, UazAPI sends
+      // the response in special fields instead of plain text.
+      const buttonResponse = msg.buttonsResponseMessage?.selectedButtonId
+        || msg.buttonsResponseMessage?.selectedDisplayText
+        || msg.selectedButtonId
+        || msg.selectedButtonText
+        || msg.listResponseMessage?.singleSelectReply?.selectedRowId
+        || msg.listResponseMessage?.title
+        || msg.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson
+        || msg.interactiveResponseMessage?.body?.text
+        || null;
+
       // content can be object for media/interactive payloads — always coerce to string
-      const rawContent = msg.text || msg.caption || msg.Text || msg.Body || msg.content || '';
-      const messageContent = typeof rawContent === 'string'
+      const rawContent = msg.text || msg.caption || msg.Text || msg.Body || msg.content || buttonResponse || '';
+      let messageContent = typeof rawContent === 'string'
         ? rawContent
         : (rawContent?.text || rawContent?.caption || '');
+
+      // If we still have no content but have a button response, use it
+      if (!messageContent && buttonResponse) {
+        messageContent = String(buttonResponse);
+      }
+
+      console.log(`Content extraction: rawContent="${String(rawContent).slice(0,60)}", buttonResponse="${buttonResponse || 'NULL'}", final="${messageContent.slice(0,60)}"`);
 
       // Prefer mediaType/messageType over generic `type` (which often comes as "chat")
       const rawMsgType = String(msg.mediaType || msg.messageType || msg.type || 'text').toLowerCase();
@@ -137,6 +157,8 @@ serve(async (req) => {
         'video': 'video', 'videomessage': 'video',
         'audio': 'audio', 'audiomessage': 'audio', 'ptt': 'audio', 'voice': 'audio', 'voicenote': 'audio',
         'document': 'document', 'documentmessage': 'document', 'pdf': 'document',
+        'buttonsresponsemessage': 'text', 'listresponsemessage': 'text',
+        'interactiveresponsemessage': 'text', 'templatebuttonreplymessage': 'text',
       };
       const messageType = typeMap[rawMsgType] || 'text';
 
