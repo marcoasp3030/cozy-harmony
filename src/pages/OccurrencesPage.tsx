@@ -170,6 +170,7 @@ const OccurrencesPage = () => {
   const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
   const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [sendSurveyOnResolve, setSendSurveyOnResolve] = useState(false);
 
   const { data: occurrences = [], isLoading } = useQuery({
     queryKey: ["occurrences"],
@@ -215,7 +216,7 @@ const OccurrencesPage = () => {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ id, status, resolution }: { id: string; status: string; resolution?: string }) => {
+    mutationFn: async ({ id, status, resolution, sendSurvey, contactPhone, contactName }: { id: string; status: string; resolution?: string; sendSurvey?: boolean; contactPhone?: string; contactName?: string }) => {
       const updates: any = { status };
       if (status === "resolvido") {
         updates.resolved_at = new Date().toISOString();
@@ -227,6 +228,57 @@ const OccurrencesPage = () => {
       }
       const { error } = await supabase.from("occurrences").update(updates).eq("id", id);
       if (error) throw error;
+
+      // Send satisfaction survey if requested
+      if (sendSurvey && contactPhone && status === "resolvido") {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            // Load survey config
+            const { data: settingsData } = await supabase
+              .from("settings")
+              .select("value")
+              .eq("user_id", user.id)
+              .eq("key", "inactivity_auto_close")
+              .single();
+            const surveyConfig = (settingsData?.value as any)?.survey;
+
+            if (surveyConfig?.enabled && surveyConfig?.question && surveyConfig?.options?.length >= 2) {
+              // Get WhatsApp instance
+              const { data: instances } = await supabase
+                .from("whatsapp_instances")
+                .select("base_url, instance_token, is_default")
+                .eq("user_id", user.id)
+                .limit(5);
+              const instance = (instances || []).find((i) => i.is_default) || instances?.[0];
+              const apiBase = instance?.base_url ? String(instance.base_url).replace(/\/+$/, "") : null;
+              const token = instance?.instance_token || null;
+
+              if (apiBase && token) {
+                const jid = contactPhone.includes("@") ? contactPhone : `${contactPhone}@s.whatsapp.net`;
+                const name = contactName || "cliente";
+                const surveyText = surveyConfig.question.replace(/\{\{nome\}\}/gi, name);
+                const choices = surveyConfig.options.map((opt: any) => `${opt.label}|${opt.value}`).join(",");
+
+                await fetch(`${apiBase}/send/menu`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", token },
+                  body: JSON.stringify({
+                    phone: jid,
+                    type: "button",
+                    text: surveyText,
+                    choices,
+                    footerText: "Pesquisa de satisfação",
+                  }),
+                });
+              }
+            }
+          }
+        } catch (surveyErr) {
+          console.error("Failed to send survey:", surveyErr);
+        }
+      }
+
       return { id, status, resolution };
     },
     onSuccess: (result) => {
@@ -784,12 +836,31 @@ const OccurrencesPage = () => {
                       <Label>Resolução / Observação</Label>
                       <Textarea placeholder="Descreva a resolução..." rows={3} value={resolution} onChange={(e) => setResolution(e.target.value)} />
                     </div>
+                    {selectedOccurrence.contact_phone && (
+                      <div className="flex items-center gap-2 rounded-lg border p-2.5">
+                        <Checkbox
+                          id="send-survey"
+                          checked={sendSurveyOnResolve}
+                          onCheckedChange={(v) => setSendSurveyOnResolve(!!v)}
+                        />
+                        <Label htmlFor="send-survey" className="text-sm cursor-pointer flex-1">
+                          Enviar pesquisa de satisfação ao resolver
+                        </Label>
+                      </div>
+                    )}
                     <div className="flex gap-2">
                       <Button variant="outline" className="flex-1" onClick={() => updateStatusMutation.mutate({ id: selectedOccurrence.id, status: "em_andamento" })}>
                         Em Andamento
                       </Button>
-                      <Button className="flex-1" onClick={() => updateStatusMutation.mutate({ id: selectedOccurrence.id, status: "resolvido", resolution })}>
-                        Resolver
+                      <Button className="flex-1" onClick={() => updateStatusMutation.mutate({
+                        id: selectedOccurrence.id,
+                        status: "resolvido",
+                        resolution,
+                        sendSurvey: sendSurveyOnResolve,
+                        contactPhone: selectedOccurrence.contact_phone,
+                        contactName: selectedOccurrence.contact_name,
+                      })}>
+                        <CheckCircle2 className="mr-1.5 h-4 w-4" /> Resolver
                       </Button>
                       <Button variant="outline" className="flex-1 text-destructive" onClick={() => updateStatusMutation.mutate({ id: selectedOccurrence.id, status: "cancelado" })}>
                         Cancelar
