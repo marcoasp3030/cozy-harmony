@@ -3,7 +3,7 @@ import {
   Send, Bot, Globe, Zap, Volume2, BarChart3, GitBranch,
   Variable, Timer, Mail, Phone, Filter, Users, Building2,
   FileType, Layers, AudioLines, FileText, BrainCircuit, ListOrdered,
-  ImagePlus, ClipboardList, ScanSearch
+  ImagePlus, ClipboardList, ScanSearch, ShoppingCart
 } from "lucide-react";
 
 export type NodeCategory = "trigger" | "condition" | "action";
@@ -446,6 +446,27 @@ export const NODE_TYPES: NodeTypeConfig[] = [
       { key: "custom_prompt", label: "Instrução adicional (opcional)", type: "textarea", placeholder: "Procure especificamente por..." },
       { key: "search_catalog", label: "Buscar no catálogo de produtos", type: "switch", defaultValue: true },
       { key: "send_result", label: "Enviar resultado ao cliente", type: "switch", defaultValue: true },
+    ],
+  },
+  {
+    type: "action_search_product",
+    label: "Buscar Produto",
+    category: "action",
+    icon: ShoppingCart,
+    color: "#10b981",
+    description: "Consulta o catálogo de produtos por nome ou código de barras e retorna preço e detalhes",
+    fields: [
+      { key: "search_source", label: "Fonte da busca", type: "select", options: [
+        { value: "message", label: "Texto da mensagem do cliente" },
+        { value: "variable", label: "Variável do fluxo" },
+        { value: "fixed", label: "Termo fixo" },
+      ], defaultValue: "message", required: true },
+      { key: "search_variable", label: "Nome da variável (se fonte = variável)", type: "text", placeholder: "produto_identificado" },
+      { key: "search_term", label: "Termo fixo (se fonte = fixo)", type: "text", placeholder: "Arroz Integral" },
+      { key: "max_results", label: "Máx. resultados", type: "number", placeholder: "5", defaultValue: 5 },
+      { key: "send_result", label: "Enviar resultado ao cliente", type: "switch", defaultValue: true },
+      { key: "result_template", label: "Template da resposta", type: "textarea", placeholder: "Deixe vazio para formato padrão. Use {{produtos}} para a lista formatada.", defaultValue: "" },
+      { key: "not_found_message", label: "Mensagem se não encontrar", type: "textarea", placeholder: "Não encontrei esse produto no catálogo. Pode verificar o nome?", defaultValue: "Não encontrei esse produto no catálogo. Pode verificar o nome?" },
     ],
   },
   {
