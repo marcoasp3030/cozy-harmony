@@ -569,6 +569,124 @@ serve(async (req) => {
         return json({ success: false, error: msgError.message });
       }
 
+      // ── SATISFACTION SURVEY RESPONSE HANDLER ──────────────
+      // Check if this message is a response to an auto-close survey
+      if (buttonResponse && conversation) {
+        try {
+          // Check if the last outbound message was a survey
+          const { data: lastSurveyMsg } = await supabase
+            .from('messages')
+            .select('id, metadata')
+            .eq('contact_id', contact.id)
+            .eq('direction', 'outbound')
+            .order('created_at', { ascending: false })
+            .limit(5);
+
+          const surveyMsg = (lastSurveyMsg || []).find((m: any) => m.metadata?.survey === true);
+
+          if (surveyMsg) {
+            console.log(`Survey response detected: "${messageContent}" from ${phone}`);
+
+            // Load inactivity config for thank you message
+            const { data: inactivitySetting } = await supabase
+              .from('settings')
+              .select('value')
+              .eq('key', 'inactivity_auto_close')
+              .limit(1)
+              .maybeSingle();
+
+            const surveyConfig = (inactivitySetting?.value as any)?.survey;
+
+            // Save rating as tag on the contact
+            const ratingTag = `avaliacao:${messageContent.toLowerCase().replace(/[^a-záàãâéêíóôõúç0-9]/gi, '').slice(0, 30)}`;
+            
+            // Create or find the tag
+            const { data: existingTag } = await supabase
+              .from('tags')
+              .select('id')
+              .eq('name', ratingTag)
+              .maybeSingle();
+
+            let tagId = existingTag?.id;
+            if (!tagId) {
+              const { data: newTag } = await supabase
+                .from('tags')
+                .insert({ name: ratingTag, color: '#f59e0b', created_by: ownerUserId })
+                .select('id')
+                .single();
+              tagId = newTag?.id;
+            }
+
+            if (tagId) {
+              // Remove old rating tags from this contact
+              const { data: existingContactTags } = await supabase
+                .from('contact_tags')
+                .select('tag_id, tags!inner(name)')
+                .eq('contact_id', contact.id);
+
+              const oldRatingTags = (existingContactTags || []).filter((ct: any) =>
+                ct.tags?.name?.startsWith('avaliacao:')
+              );
+              for (const old of oldRatingTags) {
+                await supabase.from('contact_tags').delete()
+                  .eq('contact_id', contact.id)
+                  .eq('tag_id', old.tag_id);
+              }
+
+              // Add new rating tag
+              await supabase.from('contact_tags').insert({ contact_id: contact.id, tag_id: tagId });
+              console.log(`Tagged contact ${contact.id} with "${ratingTag}"`);
+            }
+
+            // Send thank you message
+            if (surveyConfig?.thankYouMessage) {
+              let thankYou = surveyConfig.thankYouMessage;
+              thankYou = thankYou.replace(/\{\{nome\}\}/gi, pushName || 'cliente');
+              thankYou = thankYou.replace(/\{\{resposta\}\}/gi, messageContent);
+
+              const { data: sendInstances } = await supabase
+                .from('whatsapp_instances')
+                .select('base_url, instance_token, is_default')
+                .limit(5);
+              const sendInstance = (sendInstances || []).find((i: any) => i.is_default) || sendInstances?.[0];
+
+              if (sendInstance?.base_url && sendInstance?.instance_token) {
+                const sendBase = String(sendInstance.base_url).replace(/\/+$/, '');
+                const sendJid = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+
+                await fetch(`${sendBase}/send/text`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'token': sendInstance.instance_token },
+                  body: JSON.stringify({ phone: sendJid, message: thankYou }),
+                });
+
+                await supabase.from('messages').insert({
+                  contact_id: contact.id,
+                  direction: 'outbound',
+                  type: 'text',
+                  content: thankYou,
+                  status: 'sent',
+                  user_id: ownerUserId,
+                  metadata: { auto_close: true, survey_thank_you: true },
+                });
+
+                console.log(`Sent survey thank-you to ${phone}`);
+              }
+            }
+
+            // Mark the survey message as responded
+            await supabase.from('messages').update({
+              metadata: { ...surveyMsg.metadata, survey_response: messageContent, responded_at: new Date().toISOString() },
+            }).eq('id', surveyMsg.id);
+
+            // Don't trigger automations for survey responses
+            return json({ success: true, type: 'survey_response', rating: messageContent });
+          }
+        } catch (surveyErr) {
+          console.error('Survey response handler error (non-fatal):', surveyErr);
+        }
+      }
+
       // ── OUT-OF-HOURS AUTO-REPLY ───────────────────────────
       try {
         // Load all business_hours settings (any user who configured it)
