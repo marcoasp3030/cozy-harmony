@@ -87,8 +87,11 @@ serve(async (req) => {
           try {
             const surveyText = survey.question.replace(/\{\{nome\}\}/gi, contactName);
             const choices = survey.options
-              .map((opt: any) => `${opt.label}|${opt.value}`)
-              .join(',');
+              .map((opt: any, idx: number) => {
+                const title = (opt.label || `Opção ${idx + 1}`).slice(0, 20);
+                const id = opt.value || `btn_${idx}`;
+                return `${title}|${id}`;
+              });
 
             const menuPayload = {
               phone: jid,
