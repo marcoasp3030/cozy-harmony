@@ -292,6 +292,7 @@ export type Database = {
           phone: string
           profile_picture: string | null
           updated_at: string
+          user_id: string | null
           whatsapp_exists: boolean | null
         }
         Insert: {
@@ -306,6 +307,7 @@ export type Database = {
           phone: string
           profile_picture?: string | null
           updated_at?: string
+          user_id?: string | null
           whatsapp_exists?: boolean | null
         }
         Update: {
@@ -320,6 +322,7 @@ export type Database = {
           phone?: string
           profile_picture?: string | null
           updated_at?: string
+          user_id?: string | null
           whatsapp_exists?: boolean | null
         }
         Relationships: []
@@ -340,6 +343,7 @@ export type Database = {
           status: string
           unread_count: number | null
           updated_at: string
+          user_id: string | null
         }
         Insert: {
           assigned_to?: string | null
@@ -356,6 +360,7 @@ export type Database = {
           status?: string
           unread_count?: number | null
           updated_at?: string
+          user_id?: string | null
         }
         Update: {
           assigned_to?: string | null
@@ -372,6 +377,7 @@ export type Database = {
           status?: string
           unread_count?: number | null
           updated_at?: string
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -497,6 +503,7 @@ export type Database = {
           metadata: Json | null
           status: string | null
           type: string
+          user_id: string | null
         }
         Insert: {
           campaign_id?: string | null
@@ -510,6 +517,7 @@ export type Database = {
           metadata?: Json | null
           status?: string | null
           type?: string
+          user_id?: string | null
         }
         Update: {
           campaign_id?: string | null
@@ -523,6 +531,7 @@ export type Database = {
           metadata?: Json | null
           status?: string | null
           type?: string
+          user_id?: string | null
         }
         Relationships: [
           {
