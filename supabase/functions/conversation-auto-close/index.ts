@@ -20,7 +20,6 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     );
 
-    // Load inactivity settings from any user who configured it
     const { data: settings } = await supabase
       .from('settings')
       .select('value, user_id')
@@ -39,7 +38,6 @@ serve(async (req) => {
 
       const thresholdDate = new Date(Date.now() - config.hours * 60 * 60 * 1000).toISOString();
 
-      // Find conversations that are open/in_progress/waiting and last activity before threshold
       const { data: staleConversations } = await supabase
         .from('conversations')
         .select('id, contact_id, last_message_at')
@@ -52,71 +50,121 @@ serve(async (req) => {
 
       console.log(`Found ${staleConversations.length} stale conversations for user ${setting.user_id} (threshold: ${config.hours}h)`);
 
+      // Get WhatsApp instance once per user
+      const { data: instances } = await supabase
+        .from('whatsapp_instances')
+        .select('base_url, instance_token, is_default')
+        .eq('user_id', setting.user_id)
+        .limit(5);
+
+      const instance = (instances || []).find((i: any) => i.is_default) || instances?.[0];
+      const apiBase = instance?.base_url ? String(instance.base_url).replace(/\/+$/, '') : null;
+      const token = instance?.instance_token || null;
+
       for (const conv of staleConversations) {
-        // Close the conversation
-        await supabase
-          .from('conversations')
-          .update({
-            status: 'resolved',
-            funnel_stage_id: null,
-            funnel_id: null,
-          })
-          .eq('id', conv.id);
+        if (!conv.contact_id) { totalClosed++; continue; }
 
-        // Send close message if configured
-        if (config.closeMessage && conv.contact_id) {
+        // Get contact info
+        const { data: contact } = await supabase
+          .from('contacts')
+          .select('phone, name')
+          .eq('id', conv.contact_id)
+          .single();
+
+        if (!contact?.phone || !apiBase || !token) {
+          // Just close without messaging
+          await supabase.from('conversations').update({ status: 'resolved', funnel_stage_id: null, funnel_id: null }).eq('id', conv.id);
+          totalClosed++;
+          continue;
+        }
+
+        const jid = contact.phone.includes('@') ? contact.phone : `${contact.phone}@s.whatsapp.net`;
+        const contactName = contact.name || 'cliente';
+
+        // ── STEP 1: Send satisfaction survey with interactive buttons ──
+        const survey = config.survey;
+        if (survey?.enabled && survey?.question && survey?.options?.length >= 2) {
           try {
-            // Get contact info
-            const { data: contact } = await supabase
-              .from('contacts')
-              .select('phone, name')
-              .eq('id', conv.contact_id)
-              .single();
+            const surveyText = survey.question.replace(/\{\{nome\}\}/gi, contactName);
+            const choices = survey.options
+              .map((opt: any) => `${opt.label}|${opt.value}`)
+              .join(',');
 
-            if (contact?.phone) {
-              // Get WhatsApp instance
-              const { data: instances } = await supabase
-                .from('whatsapp_instances')
-                .select('base_url, instance_token, is_default')
-                .eq('user_id', setting.user_id)
-                .limit(5);
+            const menuPayload = {
+              phone: jid,
+              type: 'button',
+              text: surveyText,
+              choices,
+              footerText: 'Pesquisa de satisfação',
+            };
 
-              const instance = (instances || []).find((i: any) => i.is_default) || instances?.[0];
+            console.log(`Sending survey to ${contact.phone}:`, JSON.stringify(menuPayload).slice(0, 200));
 
-              if (instance?.base_url && instance?.instance_token) {
-                let closeText = config.closeMessage;
-                closeText = closeText.replace(/\{\{nome\}\}/gi, contact.name || 'cliente');
+            const surveyResp = await fetch(`${apiBase}/send/menu`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'token': token },
+              body: JSON.stringify(menuPayload),
+            });
 
-                const apiBase = String(instance.base_url).replace(/\/+$/, '');
-                const jid = contact.phone.includes('@') ? contact.phone : `${contact.phone}@s.whatsapp.net`;
+            const surveyResult = await surveyResp.json().catch(() => ({}));
+            console.log(`Survey send result (${surveyResp.status}):`, JSON.stringify(surveyResult).slice(0, 200));
 
-                await fetch(`${apiBase}/send/text`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'token': instance.instance_token,
-                  },
-                  body: JSON.stringify({ phone: jid, message: closeText }),
-                });
+            // Save survey message in DB
+            await supabase.from('messages').insert({
+              contact_id: conv.contact_id,
+              direction: 'outbound',
+              type: 'interactive',
+              content: surveyText,
+              status: 'sent',
+              user_id: setting.user_id,
+              metadata: {
+                auto_close: true,
+                survey: true,
+                interactive: {
+                  type: 'buttons',
+                  body: surveyText,
+                  buttons: survey.options,
+                },
+              },
+            });
+          } catch (surveyErr) {
+            console.error(`Survey send error for conv ${conv.id}:`, surveyErr);
+          }
+        }
 
-                // Save the message in DB
-                await supabase.from('messages').insert({
-                  contact_id: conv.contact_id,
-                  direction: 'outbound',
-                  type: 'text',
-                  content: closeText,
-                  status: 'sent',
-                  user_id: setting.user_id,
-                  metadata: { auto_close: true },
-                });
+        // ── STEP 2: Send close message (after survey) ──
+        if (config.closeMessage) {
+          try {
+            const closeText = config.closeMessage.replace(/\{\{nome\}\}/gi, contactName);
 
-                console.log(`Sent close message to ${contact.phone} for conversation ${conv.id}`);
-              }
-            }
+            await fetch(`${apiBase}/send/text`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'token': token },
+              body: JSON.stringify({ phone: jid, message: closeText }),
+            });
+
+            await supabase.from('messages').insert({
+              contact_id: conv.contact_id,
+              direction: 'outbound',
+              type: 'text',
+              content: closeText,
+              status: 'sent',
+              user_id: setting.user_id,
+              metadata: { auto_close: true },
+            });
+
+            console.log(`Sent close message to ${contact.phone} for conversation ${conv.id}`);
           } catch (sendErr) {
             console.error(`Failed to send close message for conv ${conv.id}:`, sendErr);
           }
         }
+
+        // ── STEP 3: Close the conversation ──
+        await supabase.from('conversations').update({
+          status: 'resolved',
+          funnel_stage_id: null,
+          funnel_id: null,
+        }).eq('id', conv.id);
 
         totalClosed++;
       }
