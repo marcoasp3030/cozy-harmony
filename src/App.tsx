@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { useUserRole } from "@/hooks/useUserRole";
 import AppLayout from "@/components/layout/AppLayout";
 import Auth from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
@@ -37,6 +38,22 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function RoleGuard({ children, requiredRole }: { children: React.ReactNode; requiredRole: "admin" | "admin_or_supervisor" }) {
+  const { isAdmin, isAdminOrSupervisor, isLoading } = useUserRole();
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  const hasAccess = requiredRole === "admin" ? isAdmin : isAdminOrSupervisor;
+  if (!hasAccess) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
 function AuthRedirect() {
   const { user, loading } = useAuth();
   if (loading) return null;
@@ -67,7 +84,7 @@ const App = () => (
             <Route path="/inbox" element={<InboxPage />} />
             <Route path="/funnels" element={<FunnelsPage />} />
             <Route path="/occurrences" element={<OccurrencesPage />} />
-            <Route path="/attendants" element={<AttendantsPage />} />
+            <Route path="/attendants" element={<RoleGuard requiredRole="admin_or_supervisor"><AttendantsPage /></RoleGuard>} />
             <Route path="/queue" element={<QueuePage />} />
             <Route path="/templates" element={<Templates />} />
             <Route path="/reports" element={<Reports />} />
