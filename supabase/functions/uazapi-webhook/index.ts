@@ -398,9 +398,55 @@ serve(async (req) => {
       // Find or create conversation
       let { data: conversation } = await supabase
         .from('conversations')
-        .select('id, unread_count, status')
+        .select('id, unread_count, status, last_message_at')
         .eq('contact_id', contact.id)
         .single();
+
+      // ── INACTIVITY AUTO-CLOSE CHECK ──
+      // If an existing conversation has been inactive beyond the configured threshold,
+      // mark it as resolved so the automation flow starts fresh.
+      if (conversation && conversation.status !== 'resolved') {
+        try {
+          const { data: inactivitySetting } = await supabase
+            .from('settings')
+            .select('value')
+            .eq('key', 'inactivity_auto_close')
+            .limit(1)
+            .maybeSingle();
+
+          const inactivityConfig = inactivitySetting?.value as any;
+          if (inactivityConfig?.enabled && inactivityConfig?.hours > 0 && conversation.last_message_at) {
+            const lastActivity = new Date(conversation.last_message_at).getTime();
+            const thresholdMs = inactivityConfig.hours * 60 * 60 * 1000;
+            const now = Date.now();
+
+            if (now - lastActivity > thresholdMs) {
+              console.log(`Inactivity threshold exceeded (${inactivityConfig.hours}h). Auto-closing conversation ${conversation.id} before reopening fresh.`);
+
+              // Mark current conversation as resolved
+              await supabase
+                .from('conversations')
+                .update({
+                  status: 'resolved',
+                  funnel_stage_id: null,
+                  funnel_id: null,
+                })
+                .eq('id', conversation.id);
+
+              // Send close message if configured
+              if (inactivityConfig.closeMessage) {
+                // We don't send the close message here since it would be delayed;
+                // the edge function handles that. Just mark as resolved.
+              }
+
+              // Force creation of a new "session" by treating this as resolved
+              conversation.status = 'resolved';
+            }
+          }
+        } catch (inactivityErr) {
+          console.error('Inactivity check error (non-fatal):', inactivityErr);
+        }
+      }
 
       if (!conversation) {
         const { data: newConv } = await supabase
@@ -425,6 +471,7 @@ serve(async (req) => {
         if (conversation.status === 'resolved') {
           updateData.status = 'open';
           updateData.funnel_stage_id = null;
+          updateData.funnel_id = null;
           console.log('Reopening resolved conversation:', conversation.id);
         }
         await supabase
