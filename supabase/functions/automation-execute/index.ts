@@ -1763,16 +1763,43 @@ REGRAS PARA "ready":
         console.log(`[TRANSCRIBE] Processing audio ${i + 1}/${audioMsgs.length}: ${audioUrl.slice(0, 60)}`);
 
         let audioBlob: Blob;
-        try {
-          const audioResp = await fetch(audioUrl);
-          if (!audioResp.ok) {
-            console.error(`[TRANSCRIBE] Download failed for audio ${i + 1} (HTTP ${audioResp.status})`);
+        let finalAudioUrl = audioUrl;
+
+        // If the URL is an encrypted WhatsApp URL, try downloading via UazAPI first
+        const isEncryptedUrl = audioUrl.includes('.enc') || audioUrl.includes('mmg.whatsapp.net');
+        if (isEncryptedUrl) {
+          console.log(`[TRANSCRIBE] Audio ${i + 1} is encrypted WhatsApp URL, attempting UazAPI download`);
+          const redownloaded = await tryUazapiMediaDownload(supabase, ctx, audioMsgs[i], audioUrl);
+          if (redownloaded) {
+            finalAudioUrl = redownloaded.url;
+            audioBlob = redownloaded.blob;
+            console.log(`[TRANSCRIBE] Audio ${i + 1} re-downloaded via UazAPI: ${finalAudioUrl.slice(0, 60)}`);
+          } else {
+            // Fallback: try direct download anyway
+            try {
+              const audioResp = await fetch(audioUrl);
+              if (!audioResp.ok) {
+                console.error(`[TRANSCRIBE] Direct download also failed for audio ${i + 1} (HTTP ${audioResp.status})`);
+                continue;
+              }
+              audioBlob = await audioResp.blob();
+            } catch (e) {
+              console.error(`[TRANSCRIBE] Download error for audio ${i + 1}:`, e);
+              continue;
+            }
+          }
+        } else {
+          try {
+            const audioResp = await fetch(finalAudioUrl);
+            if (!audioResp.ok) {
+              console.error(`[TRANSCRIBE] Download failed for audio ${i + 1} (HTTP ${audioResp.status})`);
+              continue;
+            }
+            audioBlob = await audioResp.blob();
+          } catch (e) {
+            console.error(`[TRANSCRIBE] Download error for audio ${i + 1}:`, e);
             continue;
           }
-          audioBlob = await audioResp.blob();
-        } catch (e) {
-          console.error(`[TRANSCRIBE] Download error for audio ${i + 1}:`, e);
-          continue;
         }
 
         let singleTranscription = "";
@@ -2386,5 +2413,136 @@ async function sendWhatsAppImage(supabase: any, ctx: ExecutionContext, imageUrl:
     console.log(`Sent image to ${cleanNumber}`);
   } catch (err) {
     console.error("Failed to send image:", err);
+  }
+}
+
+// ── Re-download encrypted media via UazAPI and upload to storage ──
+async function tryUazapiMediaDownload(
+  supabase: any,
+  ctx: ExecutionContext,
+  audioMsg: any,
+  originalUrl: string
+): Promise<{ url: string; blob: Blob } | null> {
+  try {
+    // Find the external_id for this message to use in UazAPI download
+    const { data: msgRecord } = await supabase
+      .from("messages")
+      .select("external_id")
+      .eq("contact_id", ctx.contactId)
+      .eq("media_url", originalUrl)
+      .eq("direction", "inbound")
+      .limit(1)
+      .maybeSingle();
+
+    const externalId = msgRecord?.external_id;
+    if (!externalId) {
+      console.log("[TRANSCRIBE] No external_id found for audio message");
+      return null;
+    }
+
+    // Get the WhatsApp instance config
+    const instance = await getCachedInstance(supabase, ctx.userId, ctx.instanceId);
+    if (!instance) {
+      console.log("[TRANSCRIBE] No WhatsApp instance for UazAPI download");
+      return null;
+    }
+
+    const baseUrl = String(instance.base_url).replace(/\/+$/, "");
+    const token = instance.instance_token;
+
+    // Try multiple download endpoints
+    const downloadAttempts = [
+      { ep: "/message/downloadMediaMessage", body: { id: externalId } },
+      { ep: "/message/downloadMediaMessage", body: { messageId: externalId } },
+      { ep: "/chat/downloadMediaMessage", body: { id: externalId } },
+      { ep: "/message/download", body: { id: externalId } },
+    ];
+
+    for (const attempt of downloadAttempts) {
+      try {
+        console.log(`[TRANSCRIBE] Trying UazAPI: POST ${attempt.ep}`);
+        const resp = await fetch(`${baseUrl}${attempt.ep}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", token },
+          body: JSON.stringify(attempt.body),
+        });
+
+        if (resp.status === 404 || resp.status === 405 || resp.status === 400) continue;
+
+        if (!resp.ok) {
+          console.log(`[TRANSCRIBE] UazAPI ${attempt.ep} returned ${resp.status}`);
+          continue;
+        }
+
+        const contentType = resp.headers.get("content-type") || "application/octet-stream";
+
+        if (contentType.includes("application/json")) {
+          const dlData = await resp.json();
+          const downloadedUrl = dlData.url || dlData.fileURL || dlData.fileUrl || dlData.mediaUrl || dlData.file || dlData.data?.url || "";
+          const base64Data = dlData.base64 || dlData.data || "";
+
+          if (downloadedUrl && typeof downloadedUrl === "string" && downloadedUrl.startsWith("http")) {
+            const fileResp = await fetch(downloadedUrl);
+            if (fileResp.ok) {
+              const fileBuffer = await fileResp.arrayBuffer();
+              const blob = new Blob([new Uint8Array(fileBuffer)], { type: "audio/ogg" });
+              // Upload to storage
+              const phone = ctx.contactPhone.replace(/\D/g, "");
+              const fileName = `media/${phone}/${Date.now()}_${externalId.slice(-8)}.ogg`;
+              const { data: upload } = await supabase.storage
+                .from("chat-media")
+                .upload(fileName, new Uint8Array(fileBuffer), { contentType: "audio/ogg" });
+              if (upload?.path) {
+                const { data: urlData } = supabase.storage.from("chat-media").getPublicUrl(upload.path);
+                // Update the message record with new URL
+                await supabase.from("messages").update({ media_url: urlData.publicUrl }).eq("external_id", externalId).eq("direction", "inbound");
+                console.log(`[TRANSCRIBE] Re-uploaded audio to storage: ${urlData.publicUrl.slice(0, 60)}`);
+                return { url: urlData.publicUrl, blob };
+              }
+              return { url: downloadedUrl, blob };
+            }
+          } else if (base64Data && typeof base64Data === "string" && base64Data.length > 100) {
+            const binaryData = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
+            const blob = new Blob([binaryData], { type: "audio/ogg" });
+            const phone = ctx.contactPhone.replace(/\D/g, "");
+            const fileName = `media/${phone}/${Date.now()}_${externalId.slice(-8)}.ogg`;
+            const { data: upload } = await supabase.storage
+              .from("chat-media")
+              .upload(fileName, binaryData, { contentType: "audio/ogg" });
+            if (upload?.path) {
+              const { data: urlData } = supabase.storage.from("chat-media").getPublicUrl(upload.path);
+              await supabase.from("messages").update({ media_url: urlData.publicUrl }).eq("external_id", externalId).eq("direction", "inbound");
+              console.log(`[TRANSCRIBE] Uploaded base64 audio to storage: ${urlData.publicUrl.slice(0, 60)}`);
+              return { url: urlData.publicUrl, blob };
+            }
+          }
+        } else {
+          // Binary response
+          const buffer = await resp.arrayBuffer();
+          if (buffer.byteLength > 100) {
+            const blob = new Blob([new Uint8Array(buffer)], { type: contentType });
+            const phone = ctx.contactPhone.replace(/\D/g, "");
+            const fileName = `media/${phone}/${Date.now()}_${externalId.slice(-8)}.ogg`;
+            const { data: upload } = await supabase.storage
+              .from("chat-media")
+              .upload(fileName, new Uint8Array(buffer), { contentType });
+            if (upload?.path) {
+              const { data: urlData } = supabase.storage.from("chat-media").getPublicUrl(upload.path);
+              await supabase.from("messages").update({ media_url: urlData.publicUrl }).eq("external_id", externalId).eq("direction", "inbound");
+              console.log(`[TRANSCRIBE] Uploaded binary audio to storage: ${urlData.publicUrl.slice(0, 60)}`);
+              return { url: urlData.publicUrl, blob };
+            }
+          }
+        }
+      } catch (fetchErr) {
+        console.log(`[TRANSCRIBE] UazAPI ${attempt.ep} error: ${fetchErr}`);
+      }
+    }
+
+    console.log("[TRANSCRIBE] All UazAPI download attempts failed");
+    return null;
+  } catch (err) {
+    console.error("[TRANSCRIBE] tryUazapiMediaDownload error:", err);
+    return null;
   }
 }
