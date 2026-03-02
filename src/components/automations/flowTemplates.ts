@@ -607,10 +607,25 @@ Se {{produto_encontrado}} = "true", confirme o valor do catálogo ao invés de p
         send_result: true,
       },
     },
+    // Buscar produto no catálogo após análise de imagem
+    {
+      id: "multi_image_search_product",
+      type: "flowNode",
+      position: { x: X + 700, y: 840 },
+      data: {
+        nodeType: "action_search_product",
+        search_source: "variable",
+        search_variable: "produto_identificado",
+        max_results: 3,
+        send_result: true,
+        result_template: "💚 Encontrei no catálogo:\n{{produtos_lista}}",
+        not_found_message: "Não encontrei esse produto no nosso catálogo. Pode me dizer o nome ou enviar outra foto?",
+      },
+    },
     {
       id: "multi_image_tag",
       type: "flowNode",
-      position: { x: X + 700, y: 840 },
+      position: { x: X + 700, y: 980 },
       data: { nodeType: "action_add_tag", tag_name: "produto-foto" },
     },
 
@@ -791,9 +806,10 @@ FRASE INSTITUCIONAL: A Nutricar Brasil utiliza tecnologia, controle de acesso e 
 
     // ── Rota Imagem (se não é áudio, verificar se é imagem) ──
     makeEdge("multi_check_audio", "multi_check_image", "no"),
-    // Imagem SIM → analisar → tag → ocorrência final
+    // Imagem SIM → analisar → buscar produto → tag → ocorrência final
     makeEdge("multi_check_image", "multi_image_analyze", "yes"),
-    makeEdge("multi_image_analyze", "multi_image_tag"),
+    makeEdge("multi_image_analyze", "multi_image_search_product"),
+    makeEdge("multi_image_search_product", "multi_image_tag"),
     makeEdge("multi_image_tag", "multi_occ_final"),
     // Imagem NÃO → rota texto (pagamento ou IA)
     makeEdge("multi_check_image", "multi_text_pix_check", "no"),
