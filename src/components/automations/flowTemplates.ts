@@ -455,7 +455,7 @@ export function createMultimodalTemplate(): FlowTemplate {
       position: { x: X - 350, y: 700 },
       data: {
         nodeType: "condition_contains",
-        text: "pix,pagamento,pagar,cobrou,cobrança,cobranca,cartão,cartao,débito,debito,crédito,credito,maquininha,não passou,nao passou,valor,dinheiro,troco,comprovante,financeiro,boleto,transferência,transferencia",
+        text: "pix,pagamento,pagar,cobrou,cobrança,cobranca,cartão,cartao,débito,debito,crédito,credito,maquininha,não passou,nao passou,valor,dinheiro,troco,comprovante,financeiro,boleto,transferência,transferencia,totem,desligado,não funciona,nao funciona,sem funcionar",
         case_sensitive: false,
       },
     },
@@ -522,44 +522,52 @@ FRASE INSTITUCIONAL: A Nutricar Brasil utiliza tecnologia, controle de acesso e 
       data: { nodeType: "action_add_tag", tag_name: "atendimento-audio" },
     },
 
-    // Áudio COM pagamento → PIX por TEXTO (nunca áudio)
+    // Áudio COM pagamento → IA qualifica produto/valor ANTES de enviar PIX
     {
-      id: "multi_audio_pix_msg",
+      id: "multi_audio_pix_qualify",
       type: "flowNode",
       position: { x: X - 100, y: 860 },
       data: {
-        nodeType: "action_send_message",
-        message: "Entendi, {{nome}}! Vi que você está com uma questão sobre pagamento. 💳\n\nPor segurança, os dados de pagamento são enviados sempre por escrito. Veja abaixo 👇",
+        nodeType: "action_llm_reply",
+        system_prompt:
+          `Você é a atendente da Nutricar Brasil. O cliente mencionou um problema de pagamento (possivelmente totem desligado, cartão recusado, etc.).
+
+OBJETIVO: Entender a situação ANTES de enviar dados de PIX. Você precisa saber:
+1. O que o cliente estava tentando comprar / qual produto?
+2. Qual o valor da compra?
+3. Em qual loja/unidade ele está?
+
+REGRAS:
+- NÃO envie a chave PIX ainda. Primeiro entenda a situação.
+- Se o cliente já disse o produto e valor, confirme os dados antes de prosseguir.
+- Se o cliente NÃO disse o que comprou ou o valor, pergunte de forma natural e empática.
+- Seja breve (2-3 frases). Tom caloroso e resolutivo.
+- NÃO use emojis (será convertido em áudio TTS).
+- Exemplo: "Entendi que o totem deu problema. Me conta o que você estava comprando e o valor que apareceu, pra eu te ajudar com o pagamento alternativo?"
+
+Se o catálogo de produtos estiver disponível no contexto, use os dados reais de preço para confirmar o valor.`,
+        provider: "openai",
+        model: "gpt-4o-mini",
+        max_tokens: 200,
+        suppress_send: true,
       },
     },
-    // Chave PIX via mensagem interativa (botões)
+    // Enviar qualificação como áudio
     {
-      id: "multi_audio_pix_interactive",
+      id: "multi_audio_pix_qualify_tts",
       type: "flowNode",
       position: { x: X - 100, y: 1020 },
       data: {
-        nodeType: "action_send_interactive",
-        interactive_type: "buttons",
-        body_text: "💰 *Dados para Pagamento PIX*\n\n🔑 *Chave PIX (e-mail):*\nfinanceiro@nutricarbrasil.com.br\n\n👤 *Favorecido:* Nutricar Brasil\n\n⚠️ Confira o nome do beneficiário antes de confirmar!",
-        footer: "Nutricar Brasil — Mini Mercado 24h",
-        options: "Já fiz o PIX ✅|pix_feito\nPreciso de ajuda|ajuda_pix\nFalar com financeiro|financeiro",
-      },
-    },
-    // Pedir comprovante
-    {
-      id: "multi_audio_pix_receipt",
-      type: "flowNode",
-      position: { x: X - 100, y: 1160 },
-      data: {
-        nodeType: "action_send_message",
-        message: "Perfeito! 📸 Agora por favor *envie o comprovante de pagamento* aqui nesta conversa para que possamos confirmar.\n\nAssim que recebermos, vamos validar rapidinho! ✅",
+        nodeType: "action_elevenlabs_tts",
+        text: "{{ia_reply}}",
+        voice_id: "EXAVITQu4vr4xnSDxMaL",
       },
     },
     {
       id: "multi_audio_pix_tag",
       type: "flowNode",
-      position: { x: X - 100, y: 1300 },
-      data: { nodeType: "action_add_tag", tag_name: "pagamento-pix" },
+      position: { x: X - 100, y: 1160 },
+      data: { nodeType: "action_add_tag", tag_name: "pagamento-qualificacao" },
     },
 
     // ═══ ROTA 2: TEXTO (sem áudio) ═══
@@ -570,38 +578,47 @@ FRASE INSTITUCIONAL: A Nutricar Brasil utiliza tecnologia, controle de acesso e 
       position: { x: X + 350, y: 420 },
       data: {
         nodeType: "condition_contains",
-        text: "pix,pagamento,pagar,cobrou,cobrança,cobranca,cartão,cartao,débito,debito,crédito,credito,maquininha,não passou,nao passou,dinheiro,troco",
+        text: "pix,pagamento,pagar,cobrou,cobrança,cobranca,cartão,cartao,débito,debito,crédito,credito,maquininha,não passou,nao passou,dinheiro,troco,totem,desligado,não funciona,nao funciona,sem funcionar",
         case_sensitive: false,
       },
     },
-    // Texto COM pagamento → PIX interativo
+    // Texto COM pagamento → IA qualifica produto/valor ANTES de enviar PIX
     {
-      id: "multi_text_pix_interactive",
+      id: "multi_text_pix_qualify",
       type: "flowNode",
       position: { x: X + 600, y: 580 },
       data: {
-        nodeType: "action_send_interactive",
-        interactive_type: "buttons",
-        body_text: "Oi {{nome}}! Vi que precisa de ajuda com pagamento. 💳\n\n💰 *Chave PIX (e-mail):*\nfinanceiro@nutricarbrasil.com.br\n\n👤 *Favorecido:* Nutricar Brasil\n\n⚠️ Confira o nome antes de confirmar!",
-        footer: "Nutricar Brasil — Mini Mercado 24h",
-        options: "Já fiz o PIX ✅|pix_feito\nPreciso de ajuda|ajuda_pix\nFalar com financeiro|financeiro",
-      },
-    },
-    // Pedir comprovante (texto)
-    {
-      id: "multi_text_pix_receipt",
-      type: "flowNode",
-      position: { x: X + 600, y: 740 },
-      data: {
-        nodeType: "action_send_message",
-        message: "Depois de fazer o PIX, por favor *envie o comprovante* aqui pra gente confirmar! 📸✅",
+        nodeType: "action_llm_reply",
+        system_prompt:
+          `Você é a atendente virtual da Nutricar Brasil 💚. O cliente mencionou um problema de pagamento.
+
+OBJETIVO: Entender a situação ANTES de enviar dados de PIX. Você precisa saber:
+1. O que o cliente estava tentando comprar / qual produto?
+2. Qual o valor da compra?
+3. Em qual loja/unidade ele está?
+
+REGRAS:
+- NÃO envie a chave PIX ainda. Primeiro entenda a situação.
+- Se o cliente JÁ disse o produto e valor, confirme: "Então foi [produto] no valor de R$ [valor], certo?"
+- Se o cliente NÃO disse o que comprou ou o valor, pergunte de forma natural e empática.
+- Seja breve (2-3 frases). Tom caloroso e resolutivo.
+- Use 1 emoji com moderação.
+- Exemplo: "Entendi que o totem deu problema, {{nome}}. 😊 Me conta o que você estava comprando e o valor que apareceu no totem, pra eu te ajudar com o pagamento alternativo?"
+- Se o cliente já informou a loja, NÃO pergunte de novo.
+
+Se o catálogo de produtos estiver disponível no contexto, use os dados reais de preço para confirmar o valor.
+
+IMPORTANTE: Depois que o cliente confirmar produto e valor, a equipe vai enviar os dados do PIX com o valor correto. Mas agora, apenas colete as informações.`,
+        provider: "openai",
+        model: "gpt-4o-mini",
+        max_tokens: 250,
       },
     },
     {
       id: "multi_text_pix_tag",
       type: "flowNode",
-      position: { x: X + 600, y: 880 },
-      data: { nodeType: "action_add_tag", tag_name: "pagamento-pix" },
+      position: { x: X + 600, y: 740 },
+      data: { nodeType: "action_add_tag", tag_name: "pagamento-qualificacao" },
     },
 
     // Texto SEM pagamento → IA humanizada
@@ -706,18 +723,16 @@ FRASE INSTITUCIONAL: A Nutricar Brasil utiliza tecnologia, controle de acesso e 
     makeEdge("multi_audio_ia", "multi_audio_tts"),
     makeEdge("multi_audio_tts", "multi_audio_tag"),
     makeEdge("multi_audio_tag", "multi_occ_final"),
-    // Áudio com pagamento → msg → PIX interativo → comprovante → tag
-    makeEdge("multi_audio_pix_check", "multi_audio_pix_msg", "yes"),
-    makeEdge("multi_audio_pix_msg", "multi_audio_pix_interactive"),
-    makeEdge("multi_audio_pix_interactive", "multi_audio_pix_receipt"),
-    makeEdge("multi_audio_pix_receipt", "multi_audio_pix_tag"),
+    // Áudio com pagamento → IA qualifica → TTS → tag
+    makeEdge("multi_audio_pix_check", "multi_audio_pix_qualify", "yes"),
+    makeEdge("multi_audio_pix_qualify", "multi_audio_pix_qualify_tts"),
+    makeEdge("multi_audio_pix_qualify_tts", "multi_audio_pix_tag"),
 
     // ── Rota Texto ──
     makeEdge("multi_check_audio", "multi_text_pix_check", "no"),
-    // Texto com pagamento → PIX interativo → comprovante → tag
-    makeEdge("multi_text_pix_check", "multi_text_pix_interactive", "yes"),
-    makeEdge("multi_text_pix_interactive", "multi_text_pix_receipt"),
-    makeEdge("multi_text_pix_receipt", "multi_text_pix_tag"),
+    // Texto com pagamento → IA qualifica → tag
+    makeEdge("multi_text_pix_check", "multi_text_pix_qualify", "yes"),
+    makeEdge("multi_text_pix_qualify", "multi_text_pix_tag"),
     // Texto sem pagamento → IA → tag → classificar intenção → ocorrência final
     makeEdge("multi_text_pix_check", "multi_text_ia", "no"),
     makeEdge("multi_text_ia", "multi_text_tag"),
