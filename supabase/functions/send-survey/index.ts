@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
 serve(async (req) => {
@@ -66,22 +66,75 @@ serve(async (req) => {
     const surveyText = survey.question.replace(/\{\{nome\}\}/gi, name);
     const choices = survey.options.map((opt: any) => `${opt.label}|${opt.value}`).join(',');
 
-    console.log(`Sending survey to ${contactPhone}: ${surveyText}`);
+    const menuPayload = {
+      phone: jid,
+      type: 'button',
+      text: surveyText,
+      choices,
+      footerText: 'Pesquisa de satisfação',
+    };
 
-    const resp = await fetch(`${apiBase}/send/menu`, {
+    console.log(`Sending survey to ${contactPhone}, payload:`, JSON.stringify(menuPayload));
+
+    // Try /send/menu first
+    let resp = await fetch(`${apiBase}/send/menu`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-      body: JSON.stringify({
-        phone: jid,
-        type: 'button',
-        text: surveyText,
-        choices,
-        footerText: 'Pesquisa de satisfação',
-      }),
+      body: JSON.stringify(menuPayload),
     });
 
-    const result = await resp.json().catch(() => ({}));
-    console.log(`Survey send result (${resp.status}):`, JSON.stringify(result).slice(0, 300));
+    let result = await resp.json().catch(() => ({}));
+    console.log(`Menu result (${resp.status}):`, JSON.stringify(result).slice(0, 300));
+
+    // If /send/menu fails, try /send/buttons format
+    if (!resp.ok || result?.error) {
+      console.log('Trying /send/buttons fallback...');
+      const buttonsPayload = {
+        phone: jid,
+        message: surveyText,
+        footer: 'Pesquisa de satisfação',
+        buttons: survey.options.map((opt: any, idx: number) => ({
+          id: opt.value || `btn_${idx}`,
+          text: opt.label,
+        })),
+      };
+      console.log('Buttons payload:', JSON.stringify(buttonsPayload));
+
+      resp = await fetch(`${apiBase}/send/buttons`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'token': instanceToken },
+        body: JSON.stringify(buttonsPayload),
+      });
+      result = await resp.json().catch(() => ({}));
+      console.log(`Buttons result (${resp.status}):`, JSON.stringify(result).slice(0, 300));
+
+      // If buttons also fails, try /send/interactive
+      if (!resp.ok || result?.error) {
+        console.log('Trying /send/interactive fallback...');
+        const interactivePayload = {
+          phone: jid,
+          type: 'buttons',
+          body: surveyText,
+          footer: 'Pesquisa de satisfação',
+          buttons: survey.options.map((opt: any, idx: number) => ({
+            type: 'reply',
+            reply: {
+              id: opt.value || `btn_${idx}`,
+              title: opt.label.substring(0, 20),
+            },
+          })),
+        };
+        console.log('Interactive payload:', JSON.stringify(interactivePayload));
+
+        resp = await fetch(`${apiBase}/send/interactive`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'token': instanceToken },
+          body: JSON.stringify(interactivePayload),
+        });
+        result = await resp.json().catch(() => ({}));
+        console.log(`Interactive result (${resp.status}):`, JSON.stringify(result).slice(0, 300));
+      }
+    }
 
     return json({ success: true, result });
   } catch (err) {
