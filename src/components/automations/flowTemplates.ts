@@ -522,11 +522,24 @@ FRASE INSTITUCIONAL: A Nutricar Brasil utiliza tecnologia, controle de acesso e 
       data: { nodeType: "action_add_tag", tag_name: "atendimento-audio" },
     },
 
-    // Áudio COM pagamento → IA qualifica produto/valor ANTES de enviar PIX
+    // Áudio COM pagamento → Buscar Produto no catálogo
+    {
+      id: "multi_audio_search_product",
+      type: "flowNode",
+      position: { x: X - 100, y: 860 },
+      data: {
+        nodeType: "action_search_product",
+        search_source: "message",
+        max_results: 3,
+        send_result: false,
+        not_found_message: "",
+      },
+    },
+    // Depois da busca → IA qualifica com dados do catálogo
     {
       id: "multi_audio_pix_qualify",
       type: "flowNode",
-      position: { x: X - 100, y: 860 },
+      position: { x: X - 100, y: 1000 },
       data: {
         nodeType: "action_llm_reply",
         system_prompt:
@@ -545,7 +558,11 @@ REGRAS:
 - NÃO use emojis (será convertido em áudio TTS).
 - Exemplo: "Entendi que o totem deu problema. Me conta o que você estava comprando e o valor que apareceu, pra eu te ajudar com o pagamento alternativo?"
 
-Se o catálogo de produtos estiver disponível no contexto, use os dados reais de preço para confirmar o valor.`,
+Se o nó anterior (Buscar Produto) encontrou resultados, use as variáveis:
+- {{produto_nome}}: nome do produto encontrado
+- {{produto_preco}}: preço do catálogo
+- {{produtos_lista}}: lista completa de resultados
+Se {{produto_encontrado}} = "true", confirme o valor do catálogo ao invés de perguntar.`,
         provider: "openai",
         model: "gpt-4o-mini",
         max_tokens: 200,
@@ -609,11 +626,24 @@ Se o catálogo de produtos estiver disponível no contexto, use os dados reais d
         case_sensitive: false,
       },
     },
-    // Texto COM pagamento → IA qualifica produto/valor ANTES de enviar PIX
+    // Texto COM pagamento → Buscar Produto no catálogo
+    {
+      id: "multi_text_search_product",
+      type: "flowNode",
+      position: { x: X + 600, y: 560 },
+      data: {
+        nodeType: "action_search_product",
+        search_source: "message",
+        max_results: 3,
+        send_result: false,
+        not_found_message: "",
+      },
+    },
+    // Depois da busca → IA qualifica com dados do catálogo
     {
       id: "multi_text_pix_qualify",
       type: "flowNode",
-      position: { x: X + 600, y: 580 },
+      position: { x: X + 600, y: 700 },
       data: {
         nodeType: "action_llm_reply",
         system_prompt:
@@ -633,7 +663,11 @@ REGRAS:
 - Use 1 emoji com moderação.
 - Se o cliente já informou a loja, NÃO pergunte de novo.
 
-Se o catálogo de produtos estiver disponível no contexto, use os dados reais de preço para confirmar o valor.
+Se o nó anterior (Buscar Produto) encontrou resultados, use as variáveis:
+- {{produto_nome}}: nome do produto encontrado
+- {{produto_preco}}: preço do catálogo
+- {{produtos_lista}}: lista completa
+Se {{produto_encontrado}} = "true", confirme o valor do catálogo ao invés de perguntar.
 Se o cliente enviar uma foto do produto, diga que pode enviar para identificarmos.`,
         provider: "openai",
         model: "gpt-4o-mini",
@@ -749,8 +783,9 @@ FRASE INSTITUCIONAL: A Nutricar Brasil utiliza tecnologia, controle de acesso e 
     makeEdge("multi_audio_ia", "multi_audio_tts"),
     makeEdge("multi_audio_tts", "multi_audio_tag"),
     makeEdge("multi_audio_tag", "multi_occ_final"),
-    // Áudio com pagamento → IA qualifica → TTS → tag
-    makeEdge("multi_audio_pix_check", "multi_audio_pix_qualify", "yes"),
+    // Áudio com pagamento → buscar produto → IA qualifica → TTS → tag
+    makeEdge("multi_audio_pix_check", "multi_audio_search_product", "yes"),
+    makeEdge("multi_audio_search_product", "multi_audio_pix_qualify"),
     makeEdge("multi_audio_pix_qualify", "multi_audio_pix_qualify_tts"),
     makeEdge("multi_audio_pix_qualify_tts", "multi_audio_pix_tag"),
 
@@ -762,8 +797,9 @@ FRASE INSTITUCIONAL: A Nutricar Brasil utiliza tecnologia, controle de acesso e 
     makeEdge("multi_image_tag", "multi_occ_final"),
     // Imagem NÃO → rota texto (pagamento ou IA)
     makeEdge("multi_check_image", "multi_text_pix_check", "no"),
-    // Texto com pagamento → IA qualifica → tag
-    makeEdge("multi_text_pix_check", "multi_text_pix_qualify", "yes"),
+    // Texto com pagamento → buscar produto → IA qualifica → tag
+    makeEdge("multi_text_pix_check", "multi_text_search_product", "yes"),
+    makeEdge("multi_text_search_product", "multi_text_pix_qualify"),
     makeEdge("multi_text_pix_qualify", "multi_text_pix_tag"),
     // Texto sem pagamento → IA → tag → classificar intenção → ocorrência final
     makeEdge("multi_text_pix_check", "multi_text_ia", "no"),
