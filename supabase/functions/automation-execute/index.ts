@@ -1409,36 +1409,45 @@ REGRAS PARA "ready":
         .eq("id", ctx.conversationId)
         .single();
 
-      // ── 3. PRODUCT CATALOG: search if message mentions products/prices ──
+      // ── 3. PRODUCT CATALOG: use pre-fetched data from search_product node OR search dynamically ──
       let productContext = "";
-      const msgForProductSearch = groupedMessages || transcription || ctx.messageContent || "";
-      const productKeywords = /produ|preço|preco|valor|quanto|custa|comprar|item|estoque|barcode|código|codigo/i;
-      if (productKeywords.test(msgForProductSearch) && ctx.userId) {
-        try {
-          // Extract potential product names (words >3 chars, excluding common words)
-          const stopWords = new Set(["para", "como", "quero", "saber", "qual", "esse", "essa", "favor", "pode", "aqui", "mais", "muito", "obrigado", "obrigada", "vocês", "voces", "sobre", "tenho", "estou", "esta", "isso"]);
-          const words = msgForProductSearch
-            .replace(/[^\p{L}\p{N}\s]/gu, " ")
-            .split(/\s+/)
-            .filter((w: string) => w.length > 3 && !stopWords.has(w.toLowerCase()));
-          
-          const searchTerms = words.slice(0, 5).join(" ");
-          if (searchTerms.length > 3) {
-            const { data: products } = await supabase.rpc("search_products", {
-              _user_id: ctx.userId,
-              _query: searchTerms,
-              _limit: 5,
-            });
-            if (products && products.length > 0) {
-              productContext = "\n\n📦 PRODUTOS ENCONTRADOS NO CATÁLOGO:\n" +
-                products.map((p: any) => 
-                  `- ${p.name}${p.barcode ? ` (cód: ${p.barcode})` : ""}: R$ ${Number(p.price).toFixed(2)}${p.category ? ` [${p.category}]` : ""}`
-                ).join("\n") +
-                "\nUse essas informações reais ao responder sobre produtos. Se o cliente perguntar sobre um produto que NÃO está na lista acima, diga que vai verificar e peça para ele enviar foto do código de barras.";
+      
+      // Check if a previous search_product node already populated catalog data
+      if (ctx.variables["produto_encontrado"] === "true" && ctx.variables["produtos_lista"]) {
+        productContext = "\n\n📦 PRODUTOS ENCONTRADOS NO CATÁLOGO (dados reais — USE ESTES PREÇOS, não invente valores):\n" +
+          ctx.variables["produtos_lista"] +
+          "\n\n⚠️ OBRIGATÓRIO: Use EXATAMENTE os preços listados acima. NÃO invente, arredonde ou altere valores. Se o cliente perguntar sobre um produto que NÃO está na lista acima, diga que vai verificar.";
+        console.log("[LLM CONTEXT] Using pre-fetched product data from search_product node");
+      } else {
+        // Dynamic search only if no prior search_product node ran
+        const msgForProductSearch = groupedMessages || transcription || ctx.messageContent || "";
+        const productKeywords = /produ|preço|preco|valor|quanto|custa|comprar|item|estoque|barcode|código|codigo/i;
+        if (productKeywords.test(msgForProductSearch) && ctx.userId) {
+          try {
+            const stopWords = new Set(["para", "como", "quero", "saber", "qual", "esse", "essa", "favor", "pode", "aqui", "mais", "muito", "obrigado", "obrigada", "vocês", "voces", "sobre", "tenho", "estou", "esta", "isso"]);
+            const words = msgForProductSearch
+              .replace(/[^\p{L}\p{N}\s]/gu, " ")
+              .split(/\s+/)
+              .filter((w: string) => w.length > 3 && !stopWords.has(w.toLowerCase()));
+            
+            const searchTerms = words.slice(0, 5).join(" ");
+            if (searchTerms.length > 3) {
+              const { data: products } = await supabase.rpc("search_products", {
+                _user_id: ctx.userId,
+                _query: searchTerms,
+                _limit: 5,
+              });
+              if (products && products.length > 0) {
+                productContext = "\n\n📦 PRODUTOS ENCONTRADOS NO CATÁLOGO (dados reais — USE ESTES PREÇOS, não invente valores):\n" +
+                  products.map((p: any) => 
+                    `- ${p.name}${p.barcode ? ` (cód: ${p.barcode})` : ""}: R$ ${Number(p.price).toFixed(2)}${p.category ? ` [${p.category}]` : ""}`
+                  ).join("\n") +
+                  "\n\n⚠️ OBRIGATÓRIO: Use EXATAMENTE os preços listados acima. NÃO invente, arredonde ou altere valores. Se o cliente perguntar sobre um produto que NÃO está na lista acima, diga que vai verificar e peça para ele enviar foto do código de barras.";
+              }
             }
+          } catch (e) {
+            console.error("[PRODUCT SEARCH] Error:", e);
           }
-        } catch (e) {
-          console.error("[PRODUCT SEARCH] Error:", e);
         }
       }
 
