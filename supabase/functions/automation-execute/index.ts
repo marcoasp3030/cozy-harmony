@@ -2483,11 +2483,33 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
 
   if (!PIX_DIFFICULTY_KEYWORDS.test(allContext)) return false;
 
+  // ── GUARD: Only send PIX if product/value has been identified ──
+  // If the search_product node ran and found a product, we know what they want
+  const productIdentified = ctx.variables["produto_encontrado"] === "true";
+  // Also check if the IA reply already mentions a confirmed value (e.g. "R$ 11,35")
+  const iaReply = ctx.variables["ia_reply"] || "";
+  const replyHasPrice = /R\$\s*\d+[.,]\d{2}/.test(iaReply);
+  // Check if the client already confirmed the product/value in their messages
+  const clientConfirmed = /confirm|isso|correto|certo|sim|exato|esse mesmo/i.test(ctx.messageContent || "");
+
+  if (!productIdentified && !replyHasPrice && !clientConfirmed) {
+    // Product not yet identified — let the IA ask first, don't send PIX yet
+    console.log(`[PIX] Payment difficulty detected but product NOT identified yet — holding PIX key`);
+    return false;
+  }
+
   // Mark as sent to avoid duplicates
   ctx.variables["_pix_key_sent"] = "true";
 
-  console.log(`[PIX] Payment DIFFICULTY detected, sending PIX key to ${ctx.contactPhone}`);
-  await sendWhatsAppMessage(supabase, ctx, PIX_KEY_MESSAGE);
+  // Include the product/value in the PIX message if available
+  let pixMessage = PIX_KEY_MESSAGE;
+  if (productIdentified && ctx.variables["produto_nome"] && ctx.variables["produto_preco"]) {
+    const priceFormatted = Number(ctx.variables["produto_preco"]).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    pixMessage = `🛒 *Produto:* ${ctx.variables["produto_nome"]}\n💰 *Valor:* ${priceFormatted}\n\n${PIX_KEY_MESSAGE}`;
+  }
+
+  console.log(`[PIX] Payment difficulty detected + product identified, sending PIX key to ${ctx.contactPhone}`);
+  await sendWhatsAppMessage(supabase, ctx, pixMessage);
   return true;
 }
 
