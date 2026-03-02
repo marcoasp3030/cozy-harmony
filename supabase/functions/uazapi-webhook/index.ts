@@ -159,6 +159,32 @@ serve(async (req) => {
 
       console.log(`Processing message from ${phone}, type=${messageType}, id=${externalId}, mediaUrl="${(mediaUrl || 'NULL').slice(0, 80)}"`);
 
+      // ── Resolve owner user_id from matching WhatsApp instance ──
+      let ownerUserId: string | null = null;
+      const baseUrlFromPayloadEarly = body.BaseUrl || body.baseUrl || '';
+      if (baseUrlFromPayloadEarly) {
+        const { data: ownerInstances } = await supabase
+          .from('whatsapp_instances')
+          .select('user_id, base_url')
+          .limit(10);
+        const matched = (ownerInstances || []).find((inst: any) => {
+          const a = String(inst.base_url || '').replace(/\/+$/, '');
+          const b = String(baseUrlFromPayloadEarly).replace(/\/+$/, '');
+          return a === b || a.includes(b) || b.includes(a);
+        });
+        if (matched) ownerUserId = matched.user_id;
+      }
+      if (!ownerUserId) {
+        // Fallback: pick the first instance's owner
+        const { data: fallbackInst } = await supabase
+          .from('whatsapp_instances')
+          .select('user_id')
+          .limit(1)
+          .maybeSingle();
+        if (fallbackInst) ownerUserId = fallbackInst.user_id;
+      }
+      console.log(`Resolved owner user_id: ${ownerUserId}`);
+
       // ── Download encrypted media via UazAPI and upload to Storage ──
       if (messageType !== 'text' && externalId) {
         const isEncryptedUrl = mediaUrl && (String(mediaUrl).includes('.enc') || String(mediaUrl).includes('mmg.whatsapp.net'));
@@ -329,6 +355,7 @@ serve(async (req) => {
             name: pushName,
             profile_picture: profilePic,
             last_message_at: new Date().toISOString(),
+            user_id: ownerUserId,
           })
           .select('id')
           .single();
@@ -361,6 +388,7 @@ serve(async (req) => {
             status: 'open',
             last_message_at: new Date().toISOString(),
             unread_count: 1,
+            user_id: ownerUserId,
           })
           .select('id, unread_count')
           .single();
@@ -464,6 +492,7 @@ serve(async (req) => {
         media_url: mediaUrl,
         status: 'received',
         metadata: { pushName, remoteJid: rawJid, profilePic },
+        user_id: ownerUserId,
       });
 
       if (msgError) {
