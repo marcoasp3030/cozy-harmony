@@ -229,53 +229,25 @@ const OccurrencesPage = () => {
       const { error } = await supabase.from("occurrences").update(updates).eq("id", id);
       if (error) throw error;
 
-      // Send satisfaction survey if requested
+      // Send satisfaction survey via Edge Function
       if (sendSurvey && contactPhone && status === "resolvido") {
         try {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            // Load survey config
-            const { data: settingsData } = await supabase
-              .from("settings")
-              .select("value")
-              .eq("user_id", user.id)
-              .eq("key", "inactivity_auto_close")
-              .single();
-            const surveyConfig = (settingsData?.value as any)?.survey;
-
-            if (surveyConfig?.enabled && surveyConfig?.question && surveyConfig?.options?.length >= 2) {
-              // Get WhatsApp instance
-              const { data: instances } = await supabase
-                .from("whatsapp_instances")
-                .select("base_url, instance_token, is_default")
-                .eq("user_id", user.id)
-                .limit(5);
-              const instance = (instances || []).find((i) => i.is_default) || instances?.[0];
-              const apiBase = instance?.base_url ? String(instance.base_url).replace(/\/+$/, "") : null;
-              const token = instance?.instance_token || null;
-
-              if (apiBase && token) {
-                const jid = contactPhone.includes("@") ? contactPhone : `${contactPhone}@s.whatsapp.net`;
-                const name = contactName || "cliente";
-                const surveyText = surveyConfig.question.replace(/\{\{nome\}\}/gi, name);
-                const choices = surveyConfig.options.map((opt: any) => `${opt.label}|${opt.value}`).join(",");
-
-                await fetch(`${apiBase}/send/menu`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", token },
-                  body: JSON.stringify({
-                    phone: jid,
-                    type: "button",
-                    text: surveyText,
-                    choices,
-                    footerText: "Pesquisa de satisfação",
-                  }),
-                });
-              }
+          const { data: sessionData } = await supabase.auth.getSession();
+          const accessToken = sessionData?.session?.access_token;
+          if (accessToken) {
+            const surveyResp = await supabase.functions.invoke("send-survey", {
+              body: { contactPhone, contactName: contactName || "cliente" },
+            });
+            if (surveyResp.error) {
+              console.error("Survey error:", surveyResp.error);
+              toast.error("Erro ao enviar pesquisa: " + (surveyResp.error.message || "Verifique as configurações"));
+            } else {
+              toast.success("Pesquisa de satisfação enviada!");
             }
           }
         } catch (surveyErr) {
           console.error("Failed to send survey:", surveyErr);
+          toast.error("Erro ao enviar pesquisa de satisfação");
         }
       }
 
