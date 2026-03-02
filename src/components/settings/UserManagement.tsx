@@ -16,6 +16,7 @@ import {
   Eye,
   EyeOff,
   Pencil,
+  KeyRound,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -85,6 +86,9 @@ const UserManagement = () => {
   const [editTarget, setEditTarget] = useState<UserData | null>(null);
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
+  const [resetTarget, setResetTarget] = useState<UserData | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [showResetPassword, setShowResetPassword] = useState(false);
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ["all-users"],
@@ -208,10 +212,32 @@ const UserManagement = () => {
     onError: (err: any) => toast.error(err.message),
   });
 
+  const resetPasswordMutation = useMutation({
+    mutationFn: async ({ userId, password }: { userId: string; password: string }) => {
+      const { data, error } = await supabase.functions.invoke("reset-password-admin", {
+        body: { user_id: userId, new_password: password },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+    },
+    onSuccess: () => {
+      toast.success("Senha alterada com sucesso!");
+      setResetTarget(null);
+      setResetPassword("");
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
+
   const openEditDialog = (u: UserData) => {
     setEditTarget(u);
     setEditName(u.name);
     setEditEmail(u.email);
+  };
+
+  const openResetDialog = (u: UserData) => {
+    setResetTarget(u);
+    setResetPassword("");
+    setShowResetPassword(false);
   };
 
   const getInitials = (name: string) =>
@@ -379,6 +405,9 @@ const UserManagement = () => {
                           <DropdownMenuItem onClick={() => openEditDialog(u)}>
                             <Pencil className="mr-2 h-4 w-4" /> Editar dados
                           </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openResetDialog(u)}>
+                            <KeyRound className="mr-2 h-4 w-4" /> Resetar senha
+                          </DropdownMenuItem>
                           {(["admin", "supervisor", "atendente"] as AppRole[]).map((role) => (
                             <DropdownMenuItem
                               key={role}
@@ -479,6 +508,54 @@ const UserManagement = () => {
             >
               {editProfileMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Salvar Alterações
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset password dialog */}
+      <Dialog open={!!resetTarget} onOpenChange={(open) => !open && setResetTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Resetar Senha</DialogTitle>
+            <DialogDescription>
+              Defina uma nova senha para <strong>{resetTarget?.name}</strong> ({resetTarget?.email}).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label>Nova Senha *</Label>
+              <div className="relative">
+                <Input
+                  type={showResetPassword ? "text" : "password"}
+                  placeholder="Mínimo 6 caracteres"
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  minLength={6}
+                  maxLength={72}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowResetPassword(!showResetPassword)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showResetPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+            <Button
+              className="w-full"
+              disabled={resetPassword.length < 6 || resetPasswordMutation.isPending}
+              onClick={() =>
+                resetTarget &&
+                resetPasswordMutation.mutate({
+                  userId: resetTarget.user_id,
+                  password: resetPassword,
+                })
+              }
+            >
+              {resetPasswordMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Alterar Senha
             </Button>
           </div>
         </DialogContent>
