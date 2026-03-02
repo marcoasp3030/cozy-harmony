@@ -571,7 +571,8 @@ serve(async (req) => {
 
       // ── SATISFACTION SURVEY RESPONSE HANDLER ──────────────
       // Check if this message is a response to an auto-close survey
-      if (buttonResponse && conversation) {
+      // Trigger on button responses OR any short message that might be a survey answer
+      if (conversation) {
         try {
           // Check if the last outbound message was a survey
           const { data: lastSurveyMsg } = await supabase
@@ -585,6 +586,19 @@ serve(async (req) => {
           const surveyMsg = (lastSurveyMsg || []).find((m: any) => m.metadata?.survey === true);
 
           if (surveyMsg) {
+            // Verify this message matches a survey option (button click or text matching option label/value)
+            const surveyOptions = surveyMsg.metadata?.interactive?.buttons || [];
+            const normalizedContent = messageContent.toLowerCase().trim();
+            const isMatchingSurveyOption = buttonResponse || surveyOptions.some((opt: any) => {
+              const label = (opt.label || '').toLowerCase().trim();
+              const value = (opt.value || '').toLowerCase().trim();
+              return normalizedContent === label || normalizedContent === value
+                || normalizedContent.includes(label) || label.includes(normalizedContent);
+            });
+
+            if (!isMatchingSurveyOption) {
+              console.log(`Message "${messageContent}" does not match survey options, skipping survey handler`);
+            } else {
             console.log(`Survey response detected: "${messageContent}" from ${phone}`);
 
             // Load inactivity config for thank you message
@@ -681,6 +695,7 @@ serve(async (req) => {
 
             // Don't trigger automations for survey responses
             return json({ success: true, type: 'survey_response', rating: messageContent });
+            } // end isMatchingSurveyOption
           }
         } catch (surveyErr) {
           console.error('Survey response handler error (non-fatal):', surveyErr);
