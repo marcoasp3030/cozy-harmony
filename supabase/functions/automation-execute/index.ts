@@ -837,6 +837,22 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
       const defaultType = d.occurrence_type || "reclamacao";
       const priority = d.priority || "normal";
 
+      // ── Dedup: skip if there's already a recent occurrence for this contact ──
+      const dedupMinutes = 30;
+      const dedupCutoff = new Date(Date.now() - dedupMinutes * 60 * 1000).toISOString();
+      const { data: recentOcc } = await supabase
+        .from("occurrences")
+        .select("id, type, created_at")
+        .eq("contact_phone", ctx.contactPhone)
+        .gte("created_at", dedupCutoff)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (recentOcc && recentOcc.length > 0) {
+        console.log(`[OCCURRENCE] Dedup: skipping for ${ctx.contactPhone}, recent occurrence ${recentOcc[0].id} (${recentOcc[0].type}) at ${recentOcc[0].created_at}`);
+        return { registered: false, reason: "dedup", existing_id: recentOcc[0].id };
+      }
+
       // Build full conversation context for AI analysis (include both inbound AND outbound)
       const grouped = ctx.variables["mensagens_agrupadas"] || "";
       const transcription = ctx.variables["transcricao"] || "";

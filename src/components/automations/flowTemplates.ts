@@ -676,47 +676,12 @@ FRASE INSTITUCIONAL: A Nutricar Brasil utiliza tecnologia, controle de acesso e 
         custom_prompt: "Classifique se a mensagem é uma reclamação, sugestão, elogio, dúvida ou outro tipo de feedback. Se for saudação simples, classifique como 'outro'.",
       },
     },
-    // Registrar ocorrência para reclamação
+    // ═══ NÓ ÚNICO DE OCORRÊNCIA (final do fluxo) ═══
+    // Registra ocorrência apenas uma vez, ao final de QUALQUER rota
     {
-      id: "multi_occ_reclamacao",
+      id: "multi_occ_final",
       type: "flowNode",
-      position: { x: X - 100, y: 1020 },
-      data: {
-        nodeType: "action_register_occurrence",
-        occurrence_type: "reclamacao",
-        store_name: "Não informada",
-        priority: "alta",
-      },
-    },
-    // Registrar ocorrência para outros tipos (sugestão, elogio, dúvida)
-    {
-      id: "multi_occ_outros",
-      type: "flowNode",
-      position: { x: X + 300, y: 1020 },
-      data: {
-        nodeType: "action_register_occurrence",
-        occurrence_type: "outro",
-        store_name: "Não informada",
-        priority: "normal",
-      },
-    },
-    // Registrar ocorrência jurídica
-    {
-      id: "multi_occ_juridico",
-      type: "flowNode",
-      position: { x: X, y: 980 },
-      data: {
-        nodeType: "action_register_occurrence",
-        occurrence_type: "reclamacao",
-        store_name: "Não informada",
-        priority: "urgente",
-      },
-    },
-    // Registrar ocorrência de áudio (reclamação)
-    {
-      id: "multi_occ_audio",
-      type: "flowNode",
-      position: { x: X - 600, y: 1300 },
+      position: { x: X, y: 1160 },
       data: {
         nodeType: "action_register_occurrence",
         occurrence_type: "reclamacao",
@@ -733,23 +698,22 @@ FRASE INSTITUCIONAL: A Nutricar Brasil utiliza tecnologia, controle de acesso e 
 
     // Collect → Check jurídico PRIMEIRO
     makeEdge("multi_collect", "multi_check_juridico"),
-    // Jurídico SIM → escalonamento
+    // Jurídico SIM → escalonamento → ocorrência final
     makeEdge("multi_check_juridico", "multi_juridico_msg", "yes"),
     makeEdge("multi_juridico_msg", "multi_juridico_tag"),
     makeEdge("multi_juridico_tag", "multi_juridico_score"),
-    // Registrar ocorrência jurídica
-    makeEdge("multi_juridico_score", "multi_occ_juridico"),
+    makeEdge("multi_juridico_score", "multi_occ_final"),
     // Jurídico NÃO → segue fluxo normal (check áudio)
     makeEdge("multi_check_juridico", "multi_check_audio", "no"),
 
     // ── Rota Áudio ──
     makeEdge("multi_check_audio", "multi_transcribe", "yes"),
     makeEdge("multi_transcribe", "multi_audio_pix_check"),
-    // Áudio sem pagamento → IA → TTS → tag → ocorrência
+    // Áudio sem pagamento → IA → TTS → tag → ocorrência final
     makeEdge("multi_audio_pix_check", "multi_audio_ia", "no"),
     makeEdge("multi_audio_ia", "multi_audio_tts"),
     makeEdge("multi_audio_tts", "multi_audio_tag"),
-    makeEdge("multi_audio_tag", "multi_occ_audio"),
+    makeEdge("multi_audio_tag", "multi_occ_final"),
     // Áudio com pagamento → msg → PIX interativo → comprovante → tag
     makeEdge("multi_audio_pix_check", "multi_audio_pix_msg", "yes"),
     makeEdge("multi_audio_pix_msg", "multi_audio_pix_interactive"),
@@ -762,21 +726,20 @@ FRASE INSTITUCIONAL: A Nutricar Brasil utiliza tecnologia, controle de acesso e 
     makeEdge("multi_text_pix_check", "multi_text_pix_interactive", "yes"),
     makeEdge("multi_text_pix_interactive", "multi_text_pix_receipt"),
     makeEdge("multi_text_pix_receipt", "multi_text_pix_tag"),
-    // Texto sem pagamento → IA → tag → classificar intenção → registrar ocorrência
+    // Texto sem pagamento → IA → tag → classificar intenção → ocorrência final
     makeEdge("multi_text_pix_check", "multi_text_ia", "no"),
     makeEdge("multi_text_ia", "multi_text_tag"),
     makeEdge("multi_text_tag", "multi_text_intent"),
-    // Intenção = reclamação → registrar como reclamação (alta prioridade)
-    makeEdge("multi_text_intent", "multi_occ_reclamacao", "yes"),
-    // Intenção ≠ reclamação → registrar como outro tipo
-    makeEdge("multi_text_intent", "multi_occ_outros", "no"),
+    // Intenção classificada → converge para ocorrência final (ambos os caminhos)
+    makeEdge("multi_text_intent", "multi_occ_final", "yes"),
+    makeEdge("multi_text_intent", "multi_occ_final", "no"),
   ];
 
   return {
     id: "atendimento_multimodal",
     name: "Nutricar Brasil — Atendimento Multimodal",
     description: "Atendente virtual humanizado: responde áudios com áudio, envia PIX interativo para pagamentos e solicita comprovante",
-    emoji: "🛒",
+    emoji: "💚",
     triggerType: "message",
     nodes,
     edges,
