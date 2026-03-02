@@ -95,6 +95,38 @@ serve(async (req) => {
       return json({ error: 'Falha ao enviar pesquisa: ' + JSON.stringify(result), payload: menuPayload }, 400);
     }
 
+    // Save survey message in DB so webhook can detect responses
+    // Find the contact by phone
+    const { data: contact } = await supabase
+      .from('contacts')
+      .select('id')
+      .eq('user_id', user.id)
+      .or(`phone.eq.${cleanNumber},phone.eq.+${cleanNumber}`)
+      .limit(1)
+      .maybeSingle();
+
+    if (contact) {
+      await supabase.from('messages').insert({
+        contact_id: contact.id,
+        direction: 'outbound',
+        type: 'interactive',
+        content: surveyText,
+        status: 'sent',
+        user_id: user.id,
+        metadata: {
+          auto_close: true,
+          survey: true,
+          source: 'occurrence_resolve',
+          interactive: {
+            type: 'buttons',
+            body: surveyText,
+            buttons: survey.options,
+          },
+        },
+      });
+      console.log(`Saved survey message for contact ${contact.id}`);
+    }
+
     return json({ success: true, result });
   } catch (err) {
     console.error('Send survey error:', err);
