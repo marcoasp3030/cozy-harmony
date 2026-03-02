@@ -570,7 +570,34 @@ Se o catálogo de produtos estiver disponível no contexto, use os dados reais d
       data: { nodeType: "action_add_tag", tag_name: "pagamento-qualificacao" },
     },
 
-    // ═══ ROTA 2: TEXTO (sem áudio) ═══
+    // ═══ ROTA 1.5: IMAGEM (identificação de produto) ═══
+    {
+      id: "multi_check_image",
+      type: "flowNode",
+      position: { x: X + 700, y: 560 },
+      data: { nodeType: "condition_media_type", media_type: "image" },
+    },
+    // Analisar imagem para identificar produto
+    {
+      id: "multi_image_analyze",
+      type: "flowNode",
+      position: { x: X + 700, y: 700 },
+      data: {
+        nodeType: "action_analyze_image",
+        analysis_type: "product_identify",
+        custom_prompt: "Este é um produto de mini mercado / conveniência. Identifique marca, nome e tente ler o código de barras se visível.",
+        search_catalog: true,
+        send_result: true,
+      },
+    },
+    {
+      id: "multi_image_tag",
+      type: "flowNode",
+      position: { x: X + 700, y: 840 },
+      data: { nodeType: "action_add_tag", tag_name: "produto-foto" },
+    },
+
+    // ═══ ROTA 2: TEXTO (sem áudio, sem imagem) ═══
     // Verificar se texto fala de pagamento
     {
       id: "multi_text_pix_check",
@@ -593,7 +620,7 @@ Se o catálogo de produtos estiver disponível no contexto, use os dados reais d
           `Você é a atendente virtual da Nutricar Brasil 💚. O cliente mencionou um problema de pagamento.
 
 OBJETIVO: Entender a situação ANTES de enviar dados de PIX. Você precisa saber:
-1. O que o cliente estava tentando comprar / qual produto?
+1. O que o cliente estava tentando comprar / qual produto? Se ele enviar uma foto, analise a imagem.
 2. Qual o valor da compra?
 3. Em qual loja/unidade ele está?
 
@@ -601,14 +628,13 @@ REGRAS:
 - NÃO envie a chave PIX ainda. Primeiro entenda a situação.
 - Se o cliente JÁ disse o produto e valor, confirme: "Então foi [produto] no valor de R$ [valor], certo?"
 - Se o cliente NÃO disse o que comprou ou o valor, pergunte de forma natural e empática.
+- Se o produto foi identificado por foto (variável {{produto_identificado}}), use essa informação.
 - Seja breve (2-3 frases). Tom caloroso e resolutivo.
 - Use 1 emoji com moderação.
-- Exemplo: "Entendi que o totem deu problema, {{nome}}. 😊 Me conta o que você estava comprando e o valor que apareceu no totem, pra eu te ajudar com o pagamento alternativo?"
 - Se o cliente já informou a loja, NÃO pergunte de novo.
 
 Se o catálogo de produtos estiver disponível no contexto, use os dados reais de preço para confirmar o valor.
-
-IMPORTANTE: Depois que o cliente confirmar produto e valor, a equipe vai enviar os dados do PIX com o valor correto. Mas agora, apenas colete as informações.`,
+Se o cliente enviar uma foto do produto, diga que pode enviar para identificarmos.`,
         provider: "openai",
         model: "gpt-4o-mini",
         max_tokens: 250,
@@ -728,8 +754,14 @@ FRASE INSTITUCIONAL: A Nutricar Brasil utiliza tecnologia, controle de acesso e 
     makeEdge("multi_audio_pix_qualify", "multi_audio_pix_qualify_tts"),
     makeEdge("multi_audio_pix_qualify_tts", "multi_audio_pix_tag"),
 
-    // ── Rota Texto ──
-    makeEdge("multi_check_audio", "multi_text_pix_check", "no"),
+    // ── Rota Imagem (se não é áudio, verificar se é imagem) ──
+    makeEdge("multi_check_audio", "multi_check_image", "no"),
+    // Imagem SIM → analisar → tag → ocorrência final
+    makeEdge("multi_check_image", "multi_image_analyze", "yes"),
+    makeEdge("multi_image_analyze", "multi_image_tag"),
+    makeEdge("multi_image_tag", "multi_occ_final"),
+    // Imagem NÃO → rota texto (pagamento ou IA)
+    makeEdge("multi_check_image", "multi_text_pix_check", "no"),
     // Texto com pagamento → IA qualifica → tag
     makeEdge("multi_text_pix_check", "multi_text_pix_qualify", "yes"),
     makeEdge("multi_text_pix_qualify", "multi_text_pix_tag"),

@@ -3,7 +3,7 @@ import {
   Send, Bot, Globe, Zap, Volume2, BarChart3, GitBranch,
   Variable, Timer, Mail, Phone, Filter, Users, Building2,
   FileType, Layers, AudioLines, FileText, BrainCircuit, ListOrdered,
-  ImagePlus, ClipboardList
+  ImagePlus, ClipboardList, ScanSearch
 } from "lucide-react";
 
 export type NodeCategory = "trigger" | "condition" | "action";
@@ -427,6 +427,25 @@ export const NODE_TYPES: NodeTypeConfig[] = [
       { key: "media_url", label: "URL da mídia", type: "text", placeholder: "https://exemplo.com/imagem.jpg", required: true },
       { key: "caption", label: "Legenda (opcional)", type: "textarea", placeholder: "Olá {{nome}}, segue o arquivo solicitado!" },
       { key: "file_name", label: "Nome do arquivo (só documentos)", type: "text", placeholder: "relatorio.pdf" },
+    ],
+  },
+  {
+    type: "action_analyze_image",
+    label: "Analisar Imagem (IA)",
+    category: "action",
+    icon: ScanSearch,
+    color: "#8b5cf6",
+    description: "Analisa a imagem enviada pelo cliente para identificar produtos, códigos de barras ou rótulos",
+    fields: [
+      { key: "analysis_type", label: "Tipo de análise", type: "select", options: [
+        { value: "product_identify", label: "Identificar produto" },
+        { value: "barcode_read", label: "Ler código de barras" },
+        { value: "label_read", label: "Ler rótulo/etiqueta" },
+        { value: "general", label: "Análise geral" },
+      ], defaultValue: "product_identify", required: true },
+      { key: "custom_prompt", label: "Instrução adicional (opcional)", type: "textarea", placeholder: "Procure especificamente por..." },
+      { key: "search_catalog", label: "Buscar no catálogo de produtos", type: "switch", defaultValue: true },
+      { key: "send_result", label: "Enviar resultado ao cliente", type: "switch", defaultValue: true },
     ],
   },
   {
