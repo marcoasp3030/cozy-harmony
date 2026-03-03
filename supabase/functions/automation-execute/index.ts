@@ -689,7 +689,10 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
       ].join(" ");
       const isDifficultyInteractive = PIX_DIFFICULTY_KEYWORDS.test(customerContextInteractive);
       const isExplicitPixInteractive = PIX_EXPLICIT_REQUEST.test(customerContextInteractive);
-      const isPaymentMsg = /pix|pagamento|pagar|valor|chave/i.test(bodyText);
+      // Check BOTH the template body AND the customer context for payment-related content
+      const isPaymentMsg = /pix|pagamento|pagar|valor|chave/i.test(bodyText) || /pix|pagamento|pagar|valor|chave/i.test(customerContextInteractive);
+
+      console.log(`[PIX GUARD DEBUG] isDifficulty=${isDifficultyInteractive}, isExplicitPix=${isExplicitPixInteractive}, isPaymentMsg=${isPaymentMsg}, customerMsg="${(ctx.messageContent || "").slice(0, 80)}", bodyText="${bodyText.slice(0, 80)}"`);
 
       if (isDifficultyInteractive && !isExplicitPixInteractive && isPaymentMsg) {
         // Customer has a PROBLEM — don't offer PIX, ask for details instead
