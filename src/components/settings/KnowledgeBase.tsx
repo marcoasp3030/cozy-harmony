@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, Save, X, GripVertical, BookOpen, FolderOpen, ChevronDown, ChevronRight, Tag, Sparkles } from "lucide-react";
+import { Plus, Trash2, Edit2, Save, X, GripVertical, BookOpen, FolderOpen, ChevronDown, ChevronRight, Tag, Sparkles, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,6 +29,7 @@ interface Article {
   content: string;
   tags: string[];
   is_active: boolean;
+  hit_count: number;
 }
 
 const COLORS = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
@@ -226,6 +227,10 @@ const KnowledgeBase = () => {
                               <div className="flex items-center gap-2">
                                 <span className={`text-sm font-medium ${!art.is_active ? "line-through text-muted-foreground" : ""}`}>{art.title}</span>
                                 {!art.is_active && <Badge variant="outline" className="text-[10px]">Inativo</Badge>}
+                                <Badge variant="secondary" className="text-[10px] gap-0.5">
+                                  <BarChart3 className="h-2.5 w-2.5" />
+                                  {art.hit_count} consulta{art.hit_count !== 1 ? "s" : ""}
+                                </Badge>
                               </div>
                               <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{art.content}</p>
                               {art.tags.length > 0 && (
