@@ -3061,57 +3061,137 @@ function normalizeTranscription(text: string): string {
   return result;
 }
 
-// ── Normalize numbers for better TTS pronunciation ──
-function normalizeNumbersForTTS(text: string): string {
-  if (!text) return text;
+// ── Full Portuguese Text Normalization for TTS ──
 
-  const numberWords: Record<number, string> = {
-    0: "zero", 1: "um", 2: "dois", 3: "três", 4: "quatro",
-    5: "cinco", 6: "seis", 7: "sete", 8: "oito", 9: "nove",
-    10: "dez", 11: "onze", 12: "doze", 13: "treze", 14: "quatorze",
-    15: "quinze", 16: "dezesseis", 17: "dezessete", 18: "dezoito", 19: "dezenove",
-    20: "vinte", 30: "trinta", 40: "quarenta", 50: "cinquenta",
-    60: "sessenta", 70: "setenta", 80: "oitenta", 90: "noventa",
-    100: "cem", 200: "duzentos", 300: "trezentos", 400: "quatrocentos",
-    500: "quinhentos", 600: "seiscentos", 700: "setecentos", 800: "oitocentos",
-    900: "novecentos", 1000: "mil",
-  };
+const UNITS_TTS = ['', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove'];
+const TEENS_TTS = ['dez', 'onze', 'doze', 'treze', 'quatorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove'];
+const TENS_TTS = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa'];
+const HUNDREDS_TTS = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos'];
 
-  function numberToWords(n: number): string {
-    if (n < 0) return "menos " + numberToWords(-n);
-    if (n <= 20) return numberWords[n] || String(n);
-    if (n < 100) {
-      const tens = Math.floor(n / 10) * 10;
-      const units = n % 10;
-      return units === 0 ? numberWords[tens] : `${numberWords[tens]} e ${numberWords[units]}`;
-    }
-    if (n === 100) return "cem";
-    if (n < 200) return `cento e ${numberToWords(n - 100)}`;
-    if (n < 1000) {
-      const hundreds = Math.floor(n / 100) * 100;
-      const remainder = n % 100;
-      return remainder === 0 ? numberWords[hundreds] : `${numberWords[hundreds]} e ${numberToWords(remainder)}`;
-    }
-    if (n === 1000) return "mil";
-    if (n < 2000) {
-      const remainder = n % 1000;
-      return remainder === 0 ? "mil" : `mil e ${numberToWords(remainder)}`;
-    }
-    if (n < 1000000) {
-      const thousands = Math.floor(n / 1000);
-      const remainder = n % 1000;
-      const thousandStr = thousands === 1 ? "mil" : `${numberToWords(thousands)} mil`;
-      return remainder === 0 ? thousandStr : `${thousandStr} e ${numberToWords(remainder)}`;
-    }
-    return String(n); // Fallback for very large numbers
+function numberToWordsFull(n: number): string {
+  if (n === 0) return 'zero';
+  if (n === 100) return 'cem';
+  if (n < 0) return 'menos ' + numberToWordsFull(-n);
+  const parts: string[] = [];
+  if (n >= 1000000) {
+    const millions = Math.floor(n / 1000000);
+    parts.push(millions === 1 ? 'um milhão' : numberToWordsFull(millions) + ' milhões');
+    n %= 1000000;
+    if (n > 0) parts.push(n < 100 ? 'e' : '');
   }
+  if (n >= 1000) {
+    const thousands = Math.floor(n / 1000);
+    parts.push(thousands === 1 ? 'mil' : numberToWordsFull(thousands) + ' mil');
+    n %= 1000;
+    if (n > 0) parts.push(n < 100 ? 'e' : '');
+  }
+  if (n >= 100) {
+    if (n === 100) { parts.push('cem'); return parts.join(' '); }
+    parts.push(HUNDREDS_TTS[Math.floor(n / 100)]);
+    n %= 100;
+    if (n > 0) parts.push('e');
+  }
+  if (n >= 20) {
+    parts.push(TENS_TTS[Math.floor(n / 10)]);
+    n %= 10;
+    if (n > 0) parts.push('e ' + UNITS_TTS[n]);
+  } else if (n >= 10) {
+    parts.push(TEENS_TTS[n - 10]);
+  } else if (n > 0) {
+    parts.push(UNITS_TTS[n]);
+  }
+  return parts.join(' ').replace(/\s+/g, ' ').trim();
+}
 
-  // Replace standalone numbers (1-999999) but NOT inside URLs, dates (dd/mm), phone numbers, or IDs
-  return text.replace(/(?<![\/\d\w.:-])(\d{1,6})(?![\/\d\w.:-])/g, (match) => {
-    const num = parseInt(match);
-    if (isNaN(num) || num > 999999) return match;
-    return numberToWords(num);
+function normalizeCurrencyTTS(text: string): string {
+  return text.replace(/R\$\s?(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?)/g, (_m, value) => {
+    const cleaned = value.replace(/\./g, '').replace(',', '.');
+    const num = parseFloat(cleaned);
+    const reais = Math.floor(num);
+    const centavos = Math.round((num - reais) * 100);
+    let result = '';
+    if (reais > 0) result += numberToWordsFull(reais) + (reais === 1 ? ' real' : ' reais');
+    if (centavos > 0) {
+      if (reais > 0) result += ' e ';
+      result += numberToWordsFull(centavos) + (centavos === 1 ? ' centavo' : ' centavos');
+    }
+    return result || 'zero reais';
   });
+}
+
+function normalizePercentagesTTS(text: string): string {
+  return text.replace(/(\d+(?:[,.]\d+)?)\s?%/g, (_m, num) => {
+    const val = parseFloat(num.replace(',', '.'));
+    if (Number.isInteger(val)) return numberToWordsFull(val) + ' por cento';
+    const intPart = Math.floor(val);
+    const decPart = Math.round((val - intPart) * 10);
+    return numberToWordsFull(intPart) + ' vírgula ' + numberToWordsFull(decPart) + ' por cento';
+  });
+}
+
+const ACRONYMS_TTS: Record<string, string> = {
+  'CPF': 'cê pê éfe', 'CNPJ': 'cê ene pê jota', 'RG': 'érre gê',
+  'PIX': 'picks', 'CEO': 'cê i ôu', 'TI': 'tê í', 'RH': 'érre agá',
+  'SMS': 'ésse ême ésse', 'PDF': 'pê dê éfe', 'CEP': 'cê ê pê',
+  'ONG': 'ô ene gê', 'SUS': 'ésse ú ésse', 'INSS': 'í ene ésse ésse',
+  'FGTS': 'éfe gê tê ésse', 'CLT': 'cê éle tê', 'MEI': 'mêi',
+  'LTDA': 'limitada', 'S.A.': 'ésse á', 'SA': 'ésse á',
+  'KG': 'quilos', 'kg': 'quilos', 'KM': 'quilômetros', 'km': 'quilômetros',
+  'ML': 'mililitros', 'ml': 'mililitros', 'GB': 'gigabytes', 'MB': 'megabytes',
+};
+
+function normalizeAcronymsTTS(text: string): string {
+  for (const [acr, spoken] of Object.entries(ACRONYMS_TTS)) {
+    text = text.replace(new RegExp(`\\b${acr.replace('.', '\\.')}\\b`, 'g'), spoken);
+  }
+  const letters: Record<string, string> = {
+    'A':'á','B':'bê','C':'cê','D':'dê','E':'ê','F':'éfe','G':'gê','H':'agá',
+    'I':'í','J':'jota','K':'cá','L':'éle','M':'ême','N':'ene','O':'ó','P':'pê',
+    'Q':'quê','R':'érre','S':'ésse','T':'tê','U':'ú','V':'vê','W':'dáblio',
+    'X':'xis','Y':'ípsilon','Z':'zê',
+  };
+  text = text.replace(/\b([A-Z]{2,4})\b/g, (match) => {
+    if (ACRONYMS_TTS[match]) return ACRONYMS_TTS[match];
+    return match.split('').map(c => letters[c] || c).join(' ');
+  });
+  return text;
+}
+
+function normalizeOrdinalsTTS(text: string): string {
+  const ordMap: Record<string, string> = {
+    '1º': 'primeiro', '2º': 'segundo', '3º': 'terceiro', '4º': 'quarto', '5º': 'quinto',
+    '6º': 'sexto', '7º': 'sétimo', '8º': 'oitavo', '9º': 'nono', '10º': 'décimo',
+    '1ª': 'primeira', '2ª': 'segunda', '3ª': 'terceira', '4ª': 'quarta', '5ª': 'quinta',
+    '6ª': 'sexta', '7ª': 'sétima', '8ª': 'oitava', '9ª': 'nona', '10ª': 'décima',
+  };
+  for (const [ord, spoken] of Object.entries(ordMap)) {
+    text = text.replaceAll(ord, spoken);
+  }
+  return text;
+}
+
+function normalizeSymbolsTTS(text: string): string {
+  return text
+    .replace(/&/g, ' e ').replace(/@/g, ' arroba ').replace(/\+/g, ' mais ')
+    .replace(/=/g, ' igual ').replace(/\//g, ' barra ').replace(/#/g, ' hashtag ')
+    .replace(/\*/g, '').replace(/_/g, ' ')
+    .replace(/\n+/g, '... ').replace(/\s{2,}/g, ' ');
+}
+
+function normalizeNumbersForTTS(text: string): string {
+  let normalized = text;
+  normalized = normalizeCurrencyTTS(normalized);
+  normalized = normalizePercentagesTTS(normalized);
+  normalized = normalizeOrdinalsTTS(normalized);
+  normalized = normalizeAcronymsTTS(normalized);
+  // Standalone numbers
+  normalized = normalized.replace(/\b(\d{1,7})\b/g, (_m, num) => {
+    const n = parseInt(num, 10);
+    if (n > 9999999) return num;
+    return numberToWordsFull(n);
+  });
+  normalized = normalizeSymbolsTTS(normalized);
+  return normalized.trim();
 }
 
 async function sendElevenLabsAudioFromText(
