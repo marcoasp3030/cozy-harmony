@@ -1696,8 +1696,8 @@ REGRAS PARA "ready":
       if ((convMeta?.score ?? 0) > 0) profileParts.push(`Score: ${convMeta.score}`);
 
       const profileContext = profileParts.length > 0
-        ? `\n\n👤 PERFIL DO CONTATO (dados já conhecidos — PROIBIDO perguntar novamente):\n${profileParts.join("\n")}\n\n🚫 REGRA ABSOLUTA: Se o nome do contato já está listado acima, NUNCA peça "nome completo", "seu nome" ou "como posso te chamar". Use o nome que já temos. Se a unidade/loja já foi mencionada no histórico ou notas, NÃO pergunte novamente. Só peça informações que ainda NÃO temos.`
-        : "";
+        ? `\n\n👤 PERFIL DO CONTATO (dados já conhecidos — PROIBIDO perguntar novamente):\n${profileParts.join("\n")}\n\n🚫 REGRA ABSOLUTA: Se o nome do contato já está listado acima, NUNCA peça "nome completo", "seu nome" ou "como posso te chamar". Use o nome que já temos. Se a unidade/loja já foi mencionada no histórico ou notas, NÃO pergunte novamente. Só peça informações que ainda NÃO temos.\n\n🔍 REGRA DE CONTEXTO CONVERSACIONAL: Releia TODA a conversa acima antes de responder. Se o cliente já informou QUALQUER dado (nome da loja, unidade, produto, problema, etc.) em mensagens anteriores, considere essa informação como já coletada. NUNCA re-pergunte algo que já foi dito. Se o cliente disse "Alpha Vita" em uma mensagem, por exemplo, NÃO pergunte "em qual loja/unidade" novamente.`
+        : `\n\n🔍 REGRA DE CONTEXTO CONVERSACIONAL: Releia TODA a conversa acima antes de responder. Se o cliente já informou QUALQUER dado (nome da loja, unidade, produto, problema, etc.) em mensagens anteriores, considere essa informação como já coletada. NUNCA re-pergunte algo que já foi dito.`;
 
       // ── 6. LANGUAGE DETECTION: adapt tone/language to client ──
       let languageHint = "";
@@ -1742,7 +1742,7 @@ REGRAS PARA "ready":
 - NUNCA inclua o email "financeiro@nutricarbrasil.com.br" na sua resposta. O sistema injeta isso automaticamente.
 - Se o cliente mencionar PROBLEMA com pagamento (totem travou, cartão recusado, erro, não conseguiu pagar, cobrança errada), siga OBRIGATORIAMENTE esta sequência:
   1. Demonstre empatia pelo problema
-  2. Pergunte detalhes: qual foi o problema exato, qual produto, qual loja
+  2. Pergunte SOMENTE os detalhes que ainda NÃO foram informados na conversa. Se o cliente já disse a loja/unidade, NÃO pergunte novamente.
   3. NÃO ofereça PIX imediatamente — primeiro entenda a situação
   4. Só DEPOIS de entender o problema, SE for o caso, pergunte: "Deseja que eu envie a chave PIX para pagamento?"
   5. AGUARDE a confirmação do cliente antes de qualquer ação de pagamento
