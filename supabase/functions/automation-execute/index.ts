@@ -694,6 +694,7 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
       if (isDifficultyInteractive && !isExplicitPixInteractive && isPaymentMsg) {
         // Customer has a PROBLEM — don't offer PIX, ask for details instead
         console.log(`[PIX GUARD] Difficulty detected in interactive node — converting to AI qualification message`);
+        ctx.variables["_difficulty_detected"] = "true";
         ctx.variables["_audit_reply_suppressed"] = `Mensagem interativa PIX bloqueada — relato de dificuldade: "${ctx.messageContent?.slice(0, 100)}"`;
         
         // Use AI to generate a context-aware qualification message instead of hardcoded text
@@ -2326,6 +2327,10 @@ REGRAS PARA "ready":
           ctx.variables["transcricao"] || "",
         ].join(" ");
         const isDifficultyContext = PIX_DIFFICULTY_KEYWORDS.test(customerContextForGuard);
+        if (isDifficultyContext) {
+          ctx.variables["_difficulty_detected"] = "true";
+          console.log(`[PIX GUARD] Difficulty detected in LLM reply context — setting _difficulty_detected flag`);
+        }
         const replyOffersPix = /\b(enviar?\s*(a\s*)?chave|chave\s*pix|pagar?\s*(via|por|com)\s*pix|pagamento\s*(via|por|com)\s*pix)\b/i.test(reply);
 
         if (replyOffersPix && ctx.variables["_pix_key_sent"] !== "true") {
@@ -3462,7 +3467,9 @@ const PIX_EXPLICIT_REQUEST = /\b(me\s*envi[ae]\s*(a\s*)?chave|manda\s*(a\s*)?cha
 // Also matches interactive button responses like "Enviar chave PIX" or "pix_enviar"
 const PIX_CONFIRMATION = /^(pode\s*(enviar|mandar)|sim|quero|manda|envia|pode\s*sim|bora|vamos|isso|ok|blz|beleza|fechou|fecho|pode\s*ser|por\s*favor|pfv|pfvr|claro|com\s*certeza|pode|manda\s*a[ií]|envia\s*a[ií]|pode\s*ser\s*sim|quero\s*sim|sim\s*quero|sim\s*pode|pode\s*s[ií]|manda\s*pra\s*mim|pix_enviar|enviar\s*chave\s*pix|✅\s*enviar\s*chave\s*pix)[\s!.]*$/i;
 // Matches problems/failures with payment — used to INVESTIGATE, not to send PIX immediately
-const PIX_DIFFICULTY_KEYWORDS = /\b(n[aã]o.*consig[ou].*pagar|n[aã]o.*conseg.*pagar|n[aã]o.*passou|n[aã]o.*aceito[ua]?|n[aã]o.*funciono[ua]|problema.*pag|erro.*pag|pag.*erro|pag.*n[aã]o.*foi|cobran[cç]a.*indevid|valor.*cobrado.*errado|cobrou.*errado|cobrou.*mais|cobrou.*a\s*mais|cobrou.*diferente|estorno|reembolso|devolu[cç][aã]o|totem.*n[aã]o|totem.*com.*defeito|totem.*erro|totem.*travou|totem.*desligad|cart[aã]o.*recus|cart[aã]o.*n[aã]o|pix.*n[aã]o.*funciono|pix.*erro|pix.*problema|dificuldade.*pag|n[aã]o.*conseg.*pix|n[aã]o.*conseg.*fazer.*pag|n[aã]o.*estou.*conseguindo|n[aã]o.*t[aá].*conseguindo)\b/i;
+// IMPORTANT: use "pag" (not "pagar") to also match "pagamento", "pago", etc.
+// Use "consig" AND "conseg" variants to cover "consigo" and "consegui/consegue"
+const PIX_DIFFICULTY_KEYWORDS = /\b(n[aã]o.*consig[ou].*pag|n[aã]o.*conseg.*pag|n[aã]o.*consigo.*fazer.*pag|n[aã]o.*consegui.*pag|n[aã]o.*passou|n[aã]o.*aceito[ua]?|n[aã]o.*funciono[ua]|problema.*pag|erro.*pag|pag.*erro|pag.*n[aã]o.*foi|cobran[cç]a.*indevid|valor.*cobrado.*errado|cobrou.*errado|cobrou.*mais|cobrou.*a\s*mais|cobrou.*diferente|estorno|reembolso|devolu[cç][aã]o|totem.*n[aã]o|totem.*com.*defeito|totem.*erro|totem.*travou|totem.*desligad|cart[aã]o.*recus|cart[aã]o.*n[aã]o|pix.*n[aã]o.*funciono|pix.*erro|pix.*problema|dificuldade.*pag|n[aã]o.*conseg.*pix|n[aã]o.*consig.*pix|n[aã]o.*conseg.*fazer.*pag|n[aã]o.*estou.*conseguindo|n[aã]o.*t[aá].*conseguindo|n[aã]o.*consigo.*pix)\b/i;
 const PIX_KEY_MESSAGE = `💳 *Segue as opções de pagamento via PIX da Nutricar Brasil:*\n\n📧 *Chave PIX:* financeiro@nutricarbrasil.com.br\n\nApós o pagamento, envie o comprovante aqui pra gente confirmar! 😊\n_Nutricar Brasil - Mini Mercado 24h_`;
 
 function buildPixPaymentMessage(productName?: string, productPrice?: string | number): string {
@@ -3548,6 +3555,11 @@ async function sendInteractiveButtons(
 async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext): Promise<boolean> {
   // Check if PIX was already sent in this execution
   if (ctx.variables["_pix_key_sent"] === "true") return false;
+  // Check if difficulty was detected earlier in the flow — never auto-send PIX during problem reports
+  if (ctx.variables["_difficulty_detected"] === "true") {
+    console.log(`[PIX] Skipping sendPixKeyIfPaymentRelated — _difficulty_detected flag is set`);
+    return false;
+  }
 
   // ── GUARD: If customer says they ALREADY PAID, don't resend PIX — ask for receipt ──
   const alreadyPaidPattern = /j[aá]\s*(fiz|paguei|pago|transferi|enviei)|fiz\s*o\s*pi[x]|fiz\s*o\s*pagamento|t[aá]\s*pago|realizei\s*o\s*pagamento|fiz\s*a\s*transfer[eê]ncia/i;
