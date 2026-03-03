@@ -1922,10 +1922,11 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
 🖥️ TOTEM DE PAGAMENTO COM DEFEITO:
 - Pergunte: qual o erro exibido? Tela travada? Não aceita cartão? Não lê código de barras?
 - Oriente: tentar reiniciar tocando e segurando o botão lateral, aguardar 30 segundos
-- Se não resolver: ofereça pagamento via PIX como alternativa (usando pergunta, não afirmação)
+- Se não resolver: peça para o cliente enviar uma FOTO DO CÓDIGO DE BARRAS dos produtos que pegou para que possamos consultar os valores e oferecer pagamento via PIX como alternativa
 
 💳 PROBLEMAS DE PAGAMENTO / COBRANÇA:
 - Pergunte: o que aconteceu exatamente? Cobrou valor diferente? Cobrou duas vezes? Cartão recusado?
+- SEMPRE peça ao cliente para enviar o CÓDIGO DE BARRAS dos produtos que está tentando pagar — sem isso NÃO oferecemos PIX
 - Se cobrança indevida: solicite o comprovante e registre ocorrência para análise da equipe financeira
 - NUNCA prometa estorno — diga que vai encaminhar para a equipe financeira analisar
 
@@ -1961,17 +1962,31 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
 - Confirme que TODOS os problemas foram registrados`;
 
       const pixQualificationHint = `\n\n💳 REGRAS DE PIX/PAGAMENTO (OBRIGATÓRIO — SEGUIR À RISCA):
-- NUNCA envie a chave PIX proativamente. O sistema faz isso automaticamente SOMENTE quando o cliente pedir explicitamente.
-- NUNCA inclua o email "financeiro@nutricarbrasil.com.br" na sua resposta. O sistema injeta isso automaticamente.
-- Se o cliente mencionar PROBLEMA com pagamento (totem travou, cartão recusado, erro, não conseguiu pagar, cobrança errada), siga OBRIGATORIAMENTE esta sequência:
-  1. Demonstre empatia pelo problema
-  2. Pergunte SOMENTE os detalhes que ainda NÃO foram informados na conversa. Se o cliente já disse a loja/unidade, NÃO pergunte novamente.
-  3. NÃO ofereça PIX imediatamente — primeiro entenda a situação
-  4. Só DEPOIS de entender o problema, SE for o caso, pergunte: "Deseja que eu envie a chave PIX para pagamento?"
-  5. AGUARDE a confirmação do cliente antes de qualquer ação de pagamento
+- NUNCA envie a chave PIX proativamente em texto. NUNCA inclua o email "financeiro@nutricarbrasil.com.br" na sua resposta. O sistema controla o envio automaticamente.
+- O FLUXO OBRIGATÓRIO para qualquer situação envolvendo pagamento é:
+
+  📋 ETAPA 1 — ENTENDER O PROBLEMA:
+  - Demonstre empatia
+  - Pergunte SOMENTE os detalhes que ainda NÃO foram informados (loja, o que aconteceu)
+  - NÃO ofereça PIX nesta etapa
+
+  📸 ETAPA 2 — SOLICITAR CÓDIGO DE BARRAS:
+  - Peça ao cliente para enviar uma FOTO DO CÓDIGO DE BARRAS de TODOS os produtos que pegou
+  - Explique: "Com o código de barras consigo consultar o valor exato no sistema"
+  - Se o cliente enviar o nome do produto em vez do código, tente consultar, mas INCENTIVE o envio do código de barras para precisão
+
+  🛒 ETAPA 3 — CONFIRMAR VALORES:
+  - Após identificar os produtos e valores no catálogo, liste todos com nome e preço
+  - O SISTEMA enviará automaticamente um botão interativo perguntando se o cliente deseja receber a chave PIX
+  - NÃO tente enviar a chave PIX no texto — o sistema faz isso via botão
+
+  ✅ ETAPA 4 — CHAVE PIX (AUTOMÁTICA):
+  - A chave PIX SÓ é enviada quando o cliente clica no botão "Enviar chave PIX"
+  - Você NÃO precisa (e NÃO deve) enviar a chave no texto
+
 - NUNCA assuma que "problema com pagamento" = "quer pagar via PIX". O cliente pode querer estorno, reclamação, ou ajuda técnica.
-- Se o cliente EXPLICITAMENTE pedir a chave PIX (ex: "me envia a chave PIX"), o sistema enviará automaticamente. NÃO envie no texto.
-- CONFIRMAÇÃO OBRIGATÓRIA: Sempre que for oferecer PIX como alternativa, use formato de PERGUNTA (ex: "Gostaria que eu envie a chave PIX?"), NUNCA como afirmação.`;
+- NUNCA pule etapas. Mesmo que o cliente peça "me envia a chave PIX", primeiro confirme qual produto e valor.
+- Se o cliente disser "já paguei" ou "tá pago", NÃO envie chave PIX — peça o comprovante.`;
 
       // ── 9. KNOWLEDGE BASE: inject relevant articles ──
       let knowledgeContext = "";
@@ -3681,49 +3696,42 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
     return false;
   }
 
-  // If no explicit PIX request, check if we should offer PIX via interactive buttons
-  if (!isExplicitPixRequest) {
-    // If product is identified and PIX not yet offered via buttons, send interactive buttons
-    const productIdentifiedForOffer = ctx.variables["produto_encontrado"] === "true";
-    const pixButtonsAlreadySent = ctx.variables["_pix_buttons_sent"] === "true";
-    
-    if (productIdentifiedForOffer && !pixButtonsAlreadySent && !isDifficultyReport) {
-      const prodName = ctx.variables["produto_nome"] || "";
-      const prodPriceRaw = Number(ctx.variables["produto_preco"]);
-      if (prodName && Number.isFinite(prodPriceRaw) && prodPriceRaw > 0) {
-        const prodPriceFormatted = prodPriceRaw.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-        const offerMsg = `🛒 Produto: *${prodName}*\n💰 Valor: *${prodPriceFormatted}*\n\nDeseja pagar via PIX? 😊`;
-        
-        const sent = await sendInteractiveButtons(supabase, ctx, offerMsg, [
-          { label: "✅ Enviar chave PIX", id: "pix_enviar" },
-          { label: "❌ Não, obrigado", id: "pix_cancelar" },
-        ], "Nutricar Brasil - Mini Mercado 24h");
-        
-        ctx.variables["_pix_buttons_sent"] = "true";
-        console.log(`[PIX] Product identified (${prodName}) — sent interactive PIX buttons (sent=${sent})`);
-        return sent;
-      }
+  // ── UNIVERSAL RULE: PIX is ONLY sent via interactive buttons after product confirmation ──
+  const productIdentified = ctx.variables["produto_encontrado"] === "true";
+  const pixButtonsAlreadySent = ctx.variables["_pix_buttons_sent"] === "true";
+
+  if (!productIdentified) {
+    // No product confirmed yet — AI must ask for barcode first
+    if (isExplicitPixRequest) {
+      console.log(`[PIX] Explicit PIX request but product NOT identified — AI must ask for barcode first`);
+      // Send a message asking for barcode
+      const barcodeMsg = `Para enviar a chave PIX, preciso primeiro confirmar o produto e valor. 📸\n\nPor favor, envie uma *foto do código de barras* do produto que você pegou para eu consultar o valor no sistema! 😊\n\n_Nutricar Brasil - Mini Mercado 24h_`;
+      await sendWhatsAppMessage(supabase, ctx, barcodeMsg);
+      return true;
     }
     return false;
   }
 
-  // ── GUARD: PIX only after catalog-confirmed product (no LLM-only prices) ──
-  const productIdentified = ctx.variables["produto_encontrado"] === "true";
-
-  if (!productIdentified) {
-    console.log(`[PIX] Explicit PIX request but product NOT identified in catalog — holding PIX key`);
-    return false;
+  // Product IS identified — send interactive buttons (never direct PIX key)
+  if (!pixButtonsAlreadySent) {
+    const prodName = ctx.variables["produto_nome"] || "";
+    const prodPriceRaw = Number(ctx.variables["produto_preco"]);
+    if (prodName && Number.isFinite(prodPriceRaw) && prodPriceRaw > 0) {
+      const prodPriceFormatted = prodPriceRaw.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+      const offerMsg = `🛒 Produto: *${prodName}*\n💰 Valor: *${prodPriceFormatted}*\n\nDeseja receber a chave PIX para pagamento? 😊`;
+      
+      const sent = await sendInteractiveButtons(supabase, ctx, offerMsg, [
+        { label: "✅ Enviar chave PIX", id: "pix_enviar" },
+        { label: "❌ Não, obrigado", id: "pix_cancelar" },
+      ], "Nutricar Brasil - Mini Mercado 24h");
+      
+      ctx.variables["_pix_buttons_sent"] = "true";
+      console.log(`[PIX] Product confirmed (${prodName} = ${prodPriceFormatted}) — sent interactive PIX buttons`);
+      return sent;
+    }
   }
 
-  // Mark as sent to avoid duplicates
-  ctx.variables["_pix_key_sent"] = "true";
-
-  const pixMessage = buildPixPaymentMessage(ctx.variables["produto_nome"], ctx.variables["produto_preco"]);
-
-  ctx.variables["_audit_pix_auto_sent"] = `PIX enviado via solicitação explícita: produto=${ctx.variables["produto_nome"] || "N/A"}, valor=${ctx.variables["produto_preco"] || "N/A"}`;
-  console.log(`[AUDIT] PIX key auto-sent (explicit request) at ${new Date().toISOString()} — ${ctx.contactPhone}`);
-  await sendWhatsAppMessage(supabase, ctx, pixMessage);
-  return true;
+  return false;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
