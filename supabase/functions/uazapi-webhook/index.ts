@@ -435,11 +435,14 @@ serve(async (req) => {
       }
 
       // Find or create conversation
+      // Look for a non-resolved conversation first; if all are resolved we'll create a new one
       let { data: conversation } = await supabase
         .from('conversations')
         .select('id, unread_count, status, last_message_at')
         .eq('contact_id', contact.id)
-        .single();
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       // ── INACTIVITY AUTO-CLOSE CHECK ──
       // If an existing conversation has been inactive beyond the configured threshold,
@@ -487,7 +490,12 @@ serve(async (req) => {
         }
       }
 
-      if (!conversation) {
+      // If conversation is resolved, create a brand new conversation
+      // This ensures the AI treats each resolved issue as a separate session
+      if (!conversation || conversation.status === 'resolved') {
+        if (conversation?.status === 'resolved') {
+          console.log(`Conversation ${conversation.id} is resolved. Creating NEW conversation for fresh context.`);
+        }
         const { data: newConv } = await supabase
           .from('conversations')
           .insert({
@@ -497,22 +505,15 @@ serve(async (req) => {
             unread_count: 1,
             user_id: ownerUserId,
           })
-          .select('id, unread_count')
+          .select('id, unread_count, status')
           .single();
-        conversation = newConv;
+        conversation = newConv ? { ...newConv, last_message_at: new Date().toISOString() } : null;
         console.log('Created new conversation:', conversation?.id);
       } else {
         const updateData: Record<string, unknown> = {
           last_message_at: new Date().toISOString(),
           unread_count: (conversation.unread_count || 0) + 1,
         };
-        // Reopen only if conversation was resolved
-        if (conversation.status === 'resolved') {
-          updateData.status = 'open';
-          updateData.funnel_stage_id = null;
-          updateData.funnel_id = null;
-          console.log('Reopening resolved conversation:', conversation.id);
-        }
         await supabase
           .from('conversations')
           .update(updateData)
