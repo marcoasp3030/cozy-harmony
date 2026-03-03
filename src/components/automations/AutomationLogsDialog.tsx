@@ -47,6 +47,7 @@ const statusConfig = {
 };
 
 const AUDIT_LABELS: Record<string, { label: string; icon: typeof CreditCard; color: string; bg: string }> = {
+  _audit_session_boundary: { label: "Session Boundary", icon: Clock, color: "text-purple-500", bg: "bg-purple-500/10" },
   _audit_pix_auto_sent: { label: "PIX Enviado", icon: CreditCard, color: "text-green-500", bg: "bg-green-500/10" },
   _audit_reply_suppressed: { label: "Resposta Suprimida", icon: Ban, color: "text-amber-500", bg: "bg-amber-500/10" },
   _audit_guard_block: { label: "Preço Bloqueado", icon: ShieldCheck, color: "text-red-500", bg: "bg-red-500/10" },
