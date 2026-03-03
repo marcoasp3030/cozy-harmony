@@ -133,32 +133,34 @@ serve(async (req) => {
       // ── Extract interactive button/list responses ──
       // When a user clicks a button or selects from a list, UazAPI sends
       // the response in special fields instead of plain text.
-      // Also check inside msg.content when it's an object (common UazAPI pattern)
+      // PRIORITY: displayText (human-readable) > buttonId (machine ID)
       const contentObj2 = typeof msg.content === 'object' && msg.content !== null ? msg.content as Record<string, any> : null;
-      const buttonResponse = msg.buttonOrListid
-        || msg.buttonsResponseMessage?.selectedButtonId
+      
+      // First try to get the DISPLAY TEXT (human-readable label the user sees)
+      const buttonDisplayText = contentObj2?.selectedDisplayText
         || msg.buttonsResponseMessage?.selectedDisplayText
-        || msg.selectedButtonId
         || msg.selectedButtonText
-        || msg.listResponseMessage?.singleSelectReply?.selectedRowId
         || msg.listResponseMessage?.title
-        || msg.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson
-        || msg.interactiveResponseMessage?.body?.text
-        // Deep-search inside content object for button/interactive responses
-        || contentObj2?.buttonsResponseMessage?.selectedButtonId
         || contentObj2?.buttonsResponseMessage?.selectedDisplayText
-        || contentObj2?.listResponseMessage?.singleSelectReply?.selectedRowId
         || contentObj2?.listResponseMessage?.title
-        || contentObj2?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson
         || contentObj2?.interactiveResponseMessage?.body?.text
-        // UazAPI sometimes puts button text directly in content fields
-        || contentObj2?.selectedButtonId
-        || contentObj2?.selectedDisplayText
-        || contentObj2?.selectedRowId
-        || contentObj2?.title
-        || contentObj2?.body?.text
-        || contentObj2?.body
+        || msg.interactiveResponseMessage?.body?.text
         || null;
+
+      // Then get the button ID as fallback
+      const buttonId = msg.buttonOrListid
+        || contentObj2?.selectedID
+        || msg.buttonsResponseMessage?.selectedButtonId
+        || msg.selectedButtonId
+        || msg.listResponseMessage?.singleSelectReply?.selectedRowId
+        || contentObj2?.buttonsResponseMessage?.selectedButtonId
+        || contentObj2?.listResponseMessage?.singleSelectReply?.selectedRowId
+        || contentObj2?.selectedButtonId
+        || contentObj2?.selectedRowId
+        || null;
+
+      // Prefer display text over ID for better automation matching
+      const buttonResponse = buttonDisplayText || buttonId || null;
 
       // Ensure buttonResponse is a string
       const buttonResponseStr = buttonResponse && typeof buttonResponse === 'object'
