@@ -496,6 +496,7 @@ export type Database = {
           content: string
           created_at: string
           created_by: string | null
+          hit_count: number
           id: string
           is_active: boolean
           tags: string[] | null
@@ -507,6 +508,7 @@ export type Database = {
           content: string
           created_at?: string
           created_by?: string | null
+          hit_count?: number
           id?: string
           is_active?: boolean
           tags?: string[] | null
@@ -518,6 +520,7 @@ export type Database = {
           content?: string
           created_at?: string
           created_by?: string | null
+          hit_count?: number
           id?: string
           is_active?: boolean
           tags?: string[] | null

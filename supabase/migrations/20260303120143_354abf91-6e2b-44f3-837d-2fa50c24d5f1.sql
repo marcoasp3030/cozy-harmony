@@ -1,0 +1,1 @@
+ALTER TABLE public.knowledge_articles ADD COLUMN hit_count integer NOT NULL DEFAULT 0;

@@ -1798,7 +1798,7 @@ REGRAS PARA "ready":
         if (allRelevantCatIds.length > 0) {
           const { data: kbArticles } = await supabase
             .from("knowledge_articles")
-            .select("title, content, category_id")
+            .select("id, title, content, category_id")
             .eq("is_active", true)
             .in("category_id", allRelevantCatIds);
 
@@ -1808,15 +1808,24 @@ REGRAS PARA "ready":
 
             knowledgeContext = "\n\n📚 BASE DE CONHECIMENTO DA EMPRESA (use estas informações para responder com precisão):";
             const grouped: Record<string, string[]> = {};
+            const usedArticleIds: string[] = [];
             for (const art of kbArticles) {
               const catName = catMap[art.category_id] || "Geral";
               if (!grouped[catName]) grouped[catName] = [];
               grouped[catName].push(`• ${art.title}: ${art.content}`);
+              usedArticleIds.push(art.id);
             }
             for (const [cat, items] of Object.entries(grouped)) {
               knowledgeContext += `\n\n[${cat}]\n${items.join("\n")}`;
             }
             console.log(`[KB] Injected ${kbArticles.length} articles from ${allRelevantCatIds.length} categories`);
+
+            // Increment hit_count for used articles
+            if (usedArticleIds.length > 0) {
+              for (const artId of usedArticleIds) {
+                await supabase.rpc("increment_kb_hit_count", { _article_id: artId });
+              }
+            }
           }
         }
       } catch (kbErr) {
