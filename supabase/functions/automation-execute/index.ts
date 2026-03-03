@@ -1843,7 +1843,10 @@ REGRAS PARA "ready":
         // Hard guard: never allow price in LLM reply without catalog-confirmed product
         if (pricesInReply.length > 0 && !hasCatalogProduct) {
           console.warn(`[LLM GUARD] Blocking unverified price in reply: "${reply.slice(0, 120)}"`);
+          const blockedReply = reply;
           reply = "Para te passar o valor exato, preciso identificar o produto no catálogo. Pode me enviar o nome do produto ou uma foto nítida do código de barras?";
+          ctx.variables["_audit_guard_block"] = `Preço não verificado bloqueado. Original: "${blockedReply.slice(0, 200)}"`;
+          console.log(`[AUDIT] Guard blocked unverified price at ${new Date().toISOString()}`);
         } else if (hasCatalogProduct && pricesInReply.length > 0) {
           const hasCatalogPriceInReply = pricesInReply.some((p) => Math.abs(p - catalogPriceValue) < 0.01);
           if (!hasCatalogPriceInReply) {
@@ -1904,7 +1907,8 @@ REGRAS PARA "ready":
         if (!d.suppress_send && !shouldHoldPrimaryReply) {
           await sendWhatsAppMessage(supabase, ctx, reply);
         } else if (!d.suppress_send && shouldHoldPrimaryReply) {
-          console.log("[POST-LLM] Holding primary reply to avoid contradictory message before barcode lookup");
+          ctx.variables["_audit_reply_suppressed"] = `Resposta suprimida para aguardar lookup de imagem: "${reply.slice(0, 200)}"`;
+          console.log(`[AUDIT] Primary reply suppressed at ${new Date().toISOString()} — waiting for barcode lookup`);
         }
 
         if (shouldRunPostReplyLookup) {
@@ -1960,8 +1964,9 @@ REGRAS PARA "ready":
 
                       const followUp = buildPixPaymentMessage(first.name || "", first.price);
                       ctx.variables["_pix_key_sent"] = "true";
+                      ctx.variables["_audit_pix_auto_sent"] = `PIX enviado automaticamente via barcode lookup: ${first.name} = ${prodPrice} (código: ${searchQuery})`;
                       await sendWhatsAppMessage(supabase, ctx, followUp);
-                      console.log(`[POST-LLM] Found product: ${first.name} = ${prodPrice} (PIX key sent)`);
+                      console.log(`[AUDIT] PIX key auto-sent at ${new Date().toISOString()} — product: ${first.name}, price: ${prodPrice}`);
                     } else {
                       // Product not in catalog
                       const notFound = `❌ Não encontrei esse produto no nosso catálogo${barcodeNum ? ` (código: ${barcodeNum})` : ""}. Poderia enviar outra foto mais nítida do código de barras ou me dizer o nome do produto?`;
@@ -2753,7 +2758,8 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
 
   const pixMessage = buildPixPaymentMessage(ctx.variables["produto_nome"], ctx.variables["produto_preco"]);
 
-  console.log(`[PIX] Payment difficulty detected + product identified, sending PIX key to ${ctx.contactPhone}`);
+  ctx.variables["_audit_pix_auto_sent"] = `PIX enviado via dificuldade de pagamento: produto=${ctx.variables["produto_nome"] || "N/A"}, valor=${ctx.variables["produto_preco"] || "N/A"}`;
+  console.log(`[AUDIT] PIX key auto-sent (difficulty) at ${new Date().toISOString()} — ${ctx.contactPhone}`);
   await sendWhatsAppMessage(supabase, ctx, pixMessage);
   return true;
 }
