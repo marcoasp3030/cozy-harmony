@@ -1828,7 +1828,6 @@ REGRAS PARA "ready":
           const voiceId = d.voice_id || "EXAVITQu4vr4xnSDxMaL";
           const audioResult = await sendElevenLabsAudioFromText(supabase, ctx, reply, voiceId);
           if (audioResult.sent) {
-            // After audio reply, check if we need to send PIX key as text
             await sendPixKeyIfPaymentRelated(supabase, ctx);
             return { sent: true, model, reply: (reply || "").slice(0, 80), suppressed: true, delivery: "audio" };
           }
@@ -1838,6 +1837,79 @@ REGRAS PARA "ready":
         // Only send as text message if suppress_send is not set
         if (!d.suppress_send) {
           await sendWhatsAppMessage(supabase, ctx, reply);
+        }
+
+        // ── POST-REPLY: Auto-fulfill "I'll check the price" promises ──
+        const promisedToCheck = /verificar|vou checar|já te informo|vou consultar|deixa eu ver|momento.*valor/i.test(reply);
+        const hasBarcodeMention = /código de barras|barcode|código.*barras|EAN|GTIN/i.test(reply) || /código de barras|barcode/i.test(ctx.messageContent || "");
+        
+        if (promisedToCheck && imageBase64 && ctx.userId && ctx.variables["produto_encontrado"] !== "true") {
+          console.log("[POST-LLM] AI promised to check price — extracting barcode from image");
+          try {
+            // Quick AI call to extract barcode number from the image
+            const extractPrompt = `Analise esta imagem e extraia APENAS o número do código de barras visível. Responda SOMENTE com o número (dígitos), nada mais. Se não houver código de barras visível, responda "NENHUM". Se houver texto descrevendo um produto, inclua o nome do produto após o código separado por |. Formato: CODIGO|NOME_PRODUTO ou apenas CODIGO ou NENHUM`;
+            
+            const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+            if (LOVABLE_API_KEY) {
+              const extractResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+                method: "POST",
+                headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  model: "google/gemini-2.5-flash",
+                  messages: [{
+                    role: "user",
+                    content: [
+                      { type: "text", text: extractPrompt },
+                      { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+                    ],
+                  }],
+                  max_tokens: 100,
+                  temperature: 0.1,
+                }),
+              });
+
+              if (extractResp.ok) {
+                const extractData = await extractResp.json();
+                const extracted = (extractData.choices?.[0]?.message?.content?.trim() || "").replace(/\s+/g, " ");
+                console.log(`[POST-LLM] Barcode extraction result: "${extracted}"`);
+
+                if (extracted && extracted !== "NENHUM" && extracted.length > 3) {
+                  // Parse barcode and optional product name
+                  const parts = extracted.split("|").map((p: string) => p.trim());
+                  const barcodeNum = parts[0].replace(/\D/g, "");
+                  const productHint = parts[1] || "";
+                  const searchQuery = barcodeNum || productHint;
+
+                  if (searchQuery.length > 2) {
+                    const { data: products } = await supabase.rpc("search_products", {
+                      _user_id: ctx.userId,
+                      _query: searchQuery,
+                      _limit: 3,
+                    });
+
+                    if (products && products.length > 0) {
+                      const first = products[0];
+                      ctx.variables["produto_encontrado"] = "true";
+                      ctx.variables["produto_nome"] = first.name || "";
+                      ctx.variables["produto_preco"] = String(first.price || 0);
+                      const prodPrice = Number(first.price).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                      
+                      const followUp = `✅ Encontrei o produto!\n\n🛒 *${first.name}*\n💰 Valor: *${prodPrice}*${first.barcode ? `\n📊 Código: ${first.barcode}` : ""}\n\nDeseja seguir com o pagamento via PIX? 😊`;
+                      await sendWhatsAppMessage(supabase, ctx, followUp);
+                      console.log(`[POST-LLM] Found product: ${first.name} = ${prodPrice}`);
+                    } else {
+                      // Product not in catalog
+                      const notFound = `❌ Não encontrei esse produto no nosso catálogo${barcodeNum ? ` (código: ${barcodeNum})` : ""}. Poderia enviar outra foto mais nítida do código de barras ou me dizer o nome do produto?`;
+                      await sendWhatsAppMessage(supabase, ctx, notFound);
+                      console.log(`[POST-LLM] Product not found for: "${searchQuery}"`);
+                    }
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.error("[POST-LLM] Barcode extraction error:", e);
+          }
         }
 
         // After replying, automatically send PIX key if the conversation is about payment
