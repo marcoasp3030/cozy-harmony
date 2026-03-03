@@ -602,12 +602,71 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
 
     if (type === "action_send_interactive") {
       const interactiveType = d.interactive_type || "buttons";
-      const bodyText = interpolate(String(d.body_text || ""), ctx);
+      let bodyText = interpolate(String(d.body_text || ""), ctx);
       const footer = interpolate(String(d.footer || ""), ctx);
       const buttonTitle = interpolate(String(d.button_title || "Ver opções"), ctx);
       const optionsRaw = String(d.options || "").trim();
 
       if (!bodyText || !optionsRaw) return { sent: false, reason: "empty_body_or_options" };
+
+      // ── AUTO-INJECT PRODUCT INFO for payment-related interactive messages ──
+      const isPaymentMsg = /pix|pagamento|pagar|valor|chave/i.test(bodyText);
+      if (isPaymentMsg && ctx.userId) {
+        // Check if we already have product info from a previous node
+        if (ctx.variables["produto_encontrado"] === "true" && ctx.variables["produto_nome"] && ctx.variables["produto_preco"]) {
+          const prodName = ctx.variables["produto_nome"];
+          const prodPrice = Number(ctx.variables["produto_preco"]).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+          bodyText = `🛒 Produto: *${prodName}*\n💰 Valor: *${prodPrice}*\n\n${bodyText}`;
+          console.log(`[PIX] Injected product info: ${prodName} = ${prodPrice}`);
+        } else {
+          // Try to find product from recent conversation context
+          const grouped = ctx.variables["mensagens_agrupadas"] || "";
+          const transcription = ctx.variables["transcricao"] || "";
+          const imageProduct = ctx.variables["produto_identificado"] || ctx.variables["descricao_imagem"] || "";
+          const searchText = imageProduct || grouped || transcription || ctx.messageContent || "";
+
+          if (searchText.length > 2) {
+            try {
+              // Extract meaningful words for search
+              const stopWords = new Set(["para", "como", "quero", "saber", "qual", "esse", "essa", "favor", "pode", "aqui", "mais", "muito", "obrigado", "obrigada", "sobre", "tenho", "estou", "esta", "isso", "peguei", "produto", "valor", "preco", "pagar", "pagamento", "chave"]);
+              const words = searchText
+                .replace(/[^\p{L}\p{N}\s]/gu, " ")
+                .split(/\s+/)
+                .filter((w: string) => w.length > 3 && !stopWords.has(w.toLowerCase()));
+              const query = words.slice(0, 5).join(" ");
+              
+              if (query.length > 2) {
+                const { data: products } = await supabase.rpc("search_products", {
+                  _user_id: ctx.userId,
+                  _query: query,
+                  _limit: 3,
+                });
+                if (products && products.length > 0) {
+                  const first = products[0];
+                  ctx.variables["produto_encontrado"] = "true";
+                  ctx.variables["produto_nome"] = first.name || "";
+                  ctx.variables["produto_preco"] = String(first.price || 0);
+                  const prodPrice = Number(first.price).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                  bodyText = `🛒 Produto: *${first.name}*\n💰 Valor: *${prodPrice}*\n\n${bodyText}`;
+                  console.log(`[PIX] Auto-searched product: ${first.name} = ${prodPrice} (query: "${query}")`);
+                } else {
+                  // No product found — prepend a warning asking the client to identify the product
+                  bodyText = `⚠️ Não consegui identificar o produto. Poderia enviar uma foto do produto ou código de barras para eu verificar o valor?\n\n${bodyText}`;
+                  console.log(`[PIX] No product found for query: "${query}" — asking client to identify`);
+                }
+              } else {
+                bodyText = `⚠️ Para seguir com o pagamento, preciso saber qual produto você pegou. Poderia me informar o nome ou enviar uma foto?\n\n${bodyText}`;
+                console.log(`[PIX] No search query available — asking client to identify product`);
+              }
+            } catch (e) {
+              console.error("[PIX] Product search error:", e);
+            }
+          } else {
+            bodyText = `⚠️ Para seguir com o pagamento, preciso saber qual produto você pegou. Poderia me informar o nome ou enviar uma foto?\n\n${bodyText}`;
+            console.log(`[PIX] No context for product search — asking client`);
+          }
+        }
+      }
 
       const lines = optionsRaw.split("\n").map((l: string) => l.trim()).filter(Boolean);
 
