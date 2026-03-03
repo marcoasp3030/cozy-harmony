@@ -1636,8 +1636,20 @@ REGRAS PARA "ready":
 - Varie despedidas: "Qualquer coisa, estou aqui!", "Conta comigo!", "Precisando, é só chamar!", etc.
 - Seja natural como uma pessoa real conversando, não como um bot.`;
 
+      // ── 8. PIX QUALIFICATION INSTRUCTIONS ──
+      const pixQualificationHint = `\n\n💳 REGRAS DE PIX/PAGAMENTO (OBRIGATÓRIO):
+- NUNCA envie a chave PIX proativamente. O sistema faz isso automaticamente SOMENTE quando o cliente pedir explicitamente.
+- Se o cliente mencionar PROBLEMA com pagamento (totem, cartão, erro), PRIMEIRO entenda:
+  1. Qual foi o problema exato? (totem travou, cartão recusado, cobrança errada, etc.)
+  2. Qual produto/loja está envolvido?
+  3. Qual o valor?
+- Só DEPOIS de entender o problema, ofereça alternativas (ex: "Posso te enviar a chave PIX se preferir pagar por lá").
+- NUNCA assuma que "problema com pagamento" = "quer pagar via PIX". O cliente pode querer estorno, reclamação, ou ajuda técnica.
+- Se o cliente EXPLICITAMENTE pedir a chave PIX, o sistema enviará automaticamente. Você NÃO precisa enviar a chave no texto.
+- PROIBIDO: Enviar "financeiro@nutricarbrasil.com.br" no corpo da resposta. O sistema injeta isso automaticamente.`;
+
       // ── Compose final enriched system prompt ──
-      const enrichedSystemPrompt = systemPrompt + profileContext + productContext + sentimentHint + languageHint + variationHint;
+      const enrichedSystemPrompt = systemPrompt + profileContext + productContext + sentimentHint + languageHint + variationHint + pixQualificationHint;
 
       // Merge and sort by created_at
       const allRecent = [
@@ -3008,8 +3020,10 @@ Responda APENAS com JSON válido:
   }
 }
 
-// ── Auto-send PIX key ONLY when customer reports DIFFICULTY paying ──
-// Matches problems/failures with payment, NOT general payment mentions or inquiries
+// ── Auto-send PIX key ONLY when customer EXPLICITLY requests to pay via PIX ──
+// Matches EXPLICIT PIX payment requests, NOT difficulty reports or general payment mentions
+const PIX_EXPLICIT_REQUEST = /\b(me\s*envi[ae]\s*(a\s*)?chave|manda\s*(a\s*)?chave|quero\s*pagar\s*(via\s*)?pix|pode\s*enviar\s*(a\s*)?chave|qual\s*(a\s*)?chave\s*pix|chave\s*pix\s*por\s*favor|vou\s*pagar\s*(via\s*)?pix|quero\s*fazer\s*(o\s*)?pix|como\s*fa[cç]o\s*(o\s*)?pix|quer\s*pagar\s*por\s*pix)\b/i;
+// Matches problems/failures with payment — used to INVESTIGATE, not to send PIX immediately
 const PIX_DIFFICULTY_KEYWORDS = /\b(n[aã]o.*consig[ou].*pagar|n[aã]o.*passou|n[aã]o.*aceito[ua]?|n[aã]o.*funciono[ua]|problema.*pag|erro.*pag|pag.*erro|pag.*n[aã]o.*foi|cobran[cç]a.*indevid|valor.*cobrado.*errado|cobrou.*errado|cobrou.*mais|cobrou.*a\s*mais|cobrou.*diferente|estorno|reembolso|devolu[cç][aã]o|totem.*n[aã]o|totem.*com.*defeito|totem.*erro|totem.*travou|cart[aã]o.*recus|cart[aã]o.*n[aã]o|pix.*n[aã]o.*funciono|pix.*erro|pix.*problema|dificuldade.*pag|n[aã]o.*conseg.*pix)\b/i;
 const PIX_KEY_MESSAGE = `💳 *Segue as opções de pagamento via PIX da Nutricar Brasil:*\n\n📧 *Chave PIX:* financeiro@nutricarbrasil.com.br\n\nApós o pagamento, envie o comprovante aqui pra gente confirmar! 😊\n_Nutricar Brasil - Mini Mercado 24h_`;
 
@@ -3041,7 +3055,7 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
     return true;
   }
 
-  // Check all available context for payment DIFFICULTY keywords (not general payment mentions)
+  // Check all available context
   const allContext = [
     ctx.messageContent,
     ctx.variables["mensagens_agrupadas"] || "",
@@ -3050,14 +3064,26 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
     ctx.variables["intencao"] || "",
   ].join(" ");
 
-  if (!PIX_DIFFICULTY_KEYWORDS.test(allContext)) return false;
+  // ── NEW LOGIC: Only auto-send PIX if customer EXPLICITLY requests it ──
+  const isExplicitPixRequest = PIX_EXPLICIT_REQUEST.test(allContext);
+  const isDifficultyReport = PIX_DIFFICULTY_KEYWORDS.test(allContext);
+
+  // If it's a difficulty report (NOT an explicit PIX request), do NOT send PIX
+  // Let the IA handle it by asking clarifying questions first
+  if (isDifficultyReport && !isExplicitPixRequest) {
+    console.log(`[PIX] Payment DIFFICULTY detected but NO explicit PIX request — letting IA qualify first`);
+    return false;
+  }
+
+  // Only proceed if explicit PIX request
+  if (!isExplicitPixRequest) return false;
 
   // ── GUARD: PIX only after catalog-confirmed product (no LLM-only prices) ──
   const productIdentified = ctx.variables["produto_encontrado"] === "true";
 
   if (!productIdentified) {
     // Product not yet identified in catalog — do not send PIX key yet
-    console.log(`[PIX] Payment difficulty detected but product NOT identified in catalog — holding PIX key`);
+    console.log(`[PIX] Explicit PIX request but product NOT identified in catalog — holding PIX key`);
     return false;
   }
 
@@ -3066,8 +3092,8 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
 
   const pixMessage = buildPixPaymentMessage(ctx.variables["produto_nome"], ctx.variables["produto_preco"]);
 
-  ctx.variables["_audit_pix_auto_sent"] = `PIX enviado via dificuldade de pagamento: produto=${ctx.variables["produto_nome"] || "N/A"}, valor=${ctx.variables["produto_preco"] || "N/A"}`;
-  console.log(`[AUDIT] PIX key auto-sent (difficulty) at ${new Date().toISOString()} — ${ctx.contactPhone}`);
+  ctx.variables["_audit_pix_auto_sent"] = `PIX enviado via solicitação explícita: produto=${ctx.variables["produto_nome"] || "N/A"}, valor=${ctx.variables["produto_preco"] || "N/A"}`;
+  console.log(`[AUDIT] PIX key auto-sent (explicit request) at ${new Date().toISOString()} — ${ctx.contactPhone}`);
   await sendWhatsAppMessage(supabase, ctx, pixMessage);
   return true;
 }
