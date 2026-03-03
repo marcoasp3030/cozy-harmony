@@ -1311,6 +1311,33 @@ REGRAS PARA "ready":
           throw new Error(`Erro ao registrar ocorrência: ${occErr.message}`);
         }
 
+        // ── PROGRESSIVE PROFILE: save condomínio/unidade from occurrence for future sessions ──
+        if (storeName && storeName !== "Não informada") {
+          try {
+            const { data: currentContact } = await supabase
+              .from("contacts")
+              .select("custom_fields")
+              .eq("id", ctx.contactId)
+              .single();
+            const existingFields = (currentContact?.custom_fields as Record<string, any>) || {};
+            if (!existingFields.condominio || existingFields.condominio !== storeName) {
+              await supabase.from("contacts").update({
+                custom_fields: { ...existingFields, condominio: storeName },
+              }).eq("id", ctx.contactId);
+              console.log(`[PROFILE] Auto-saved condomínio from occurrence: "${storeName}"`);
+            }
+          } catch (profileErr) {
+            console.error("[PROFILE] Error saving condomínio:", profileErr);
+          }
+        }
+
+        // Also save contact name if detected and different
+        if (contactName && contactName !== "Não informado") {
+          try {
+            await supabase.from("contacts").update({ name: contactName }).eq("id", ctx.contactId);
+          } catch {}
+        }
+
         console.log(`Occurrence registered successfully: type=${occType}, store=${storeName}, name=${contactName}`);
         return { registered: true, type: occType, store: storeName, contactName, priority: occPriority };
 
@@ -1766,14 +1793,30 @@ REGRAS PARA "ready":
       if (contactProfile?.name && contactProfile.name !== "Não informado") profileParts.push(`Nome: ${contactProfile.name}`);
       if (contactProfile?.email) profileParts.push(`Email: ${contactProfile.email}`);
       if (contactProfile?.about) profileParts.push(`Sobre: ${contactProfile.about}`);
+      // Include condomínio/unidade from custom_fields if available
+      const customFieldsData = (contactProfile?.custom_fields as Record<string, any>) || {};
+      if (customFieldsData.condominio) profileParts.push(`Condomínio/Unidade: ${customFieldsData.condominio}`);
       if (contactTags.length > 0) profileParts.push(`Tags: ${contactTags.join(", ")}`);
       if (convMeta?.priority && convMeta.priority !== "normal") profileParts.push(`Prioridade: ${convMeta.priority}`);
       if (convMeta?.notes) profileParts.push(`Notas anteriores: ${convMeta.notes}`);
       if ((convMeta?.score ?? 0) > 0) profileParts.push(`Score: ${convMeta.score}`);
 
+      // ── NEW SESSION AWARENESS ──
+      // Determine if this is a fresh session (conversation was just created / few messages)
+      const isNewSession = !allRecent || allRecent.length <= 2;
+      const newSessionHint = isNewSession
+        ? `\n\n🆕 SESSÃO NOVA: Este é um NOVO atendimento deste cliente. Ele pode ter tido problemas anteriores, mas esta é uma conversa NOVA.
+- Cumprimente o cliente usando o nome que já conhecemos (se disponível).
+- Se temos o condomínio/unidade registrada, confirme: "Você está na unidade X, correto?"
+- NÃO mencione problemas ou ocorrências de sessões anteriores.
+- NÃO assuma que o cliente quer resolver o mesmo problema de antes.
+- Trate como uma solicitação 100% nova. Pergunte "como posso ajudar?" de forma aberta.
+- Se o cliente já se identificou e informou a unidade em sessões passadas, USE esses dados mas NÃO os questione novamente.`
+        : "";
+
       const profileContext = profileParts.length > 0
-        ? `\n\n👤 PERFIL DO CONTATO (dados já conhecidos — PROIBIDO perguntar novamente):\n${profileParts.join("\n")}\n\n🚫 REGRA ABSOLUTA: Se o nome do contato já está listado acima, NUNCA peça "nome completo", "seu nome" ou "como posso te chamar". Use o nome que já temos. Se a unidade/loja já foi mencionada no histórico ou notas, NÃO pergunte novamente. Só peça informações que ainda NÃO temos.\n\n🔍 REGRA DE CONTEXTO CONVERSACIONAL: Releia TODA a conversa acima antes de responder. Se o cliente já informou QUALQUER dado (nome da loja, unidade, produto, problema, etc.) em mensagens anteriores, considere essa informação como já coletada. NUNCA re-pergunte algo que já foi dito. Se o cliente disse "Alpha Vita" em uma mensagem, por exemplo, NÃO pergunte "em qual loja/unidade" novamente.`
-        : `\n\n🔍 REGRA DE CONTEXTO CONVERSACIONAL: Releia TODA a conversa acima antes de responder. Se o cliente já informou QUALQUER dado (nome da loja, unidade, produto, problema, etc.) em mensagens anteriores, considere essa informação como já coletada. NUNCA re-pergunte algo que já foi dito.`;
+        ? `\n\n👤 PERFIL DO CONTATO (dados já conhecidos — PROIBIDO perguntar novamente):\n${profileParts.join("\n")}\n\n🚫 REGRA ABSOLUTA: Se o nome do contato já está listado acima, NUNCA peça "nome completo", "seu nome" ou "como posso te chamar". Use o nome que já temos. Se a unidade/loja/condomínio já está listado acima ou foi mencionado no histórico, NÃO pergunte novamente. Só peça informações que ainda NÃO temos.\n\n🔍 REGRA DE CONTEXTO CONVERSACIONAL: Releia TODA a conversa acima antes de responder. Se o cliente já informou QUALQUER dado (nome da loja, unidade, condomínio, produto, problema, etc.) em mensagens anteriores, considere essa informação como já coletada. NUNCA re-pergunte algo que já foi dito.${newSessionHint}`
+        : `\n\n🔍 REGRA DE CONTEXTO CONVERSACIONAL: Releia TODA a conversa acima antes de responder. Se o cliente já informou QUALQUER dado (nome da loja, unidade, condomínio, produto, problema, etc.) em mensagens anteriores, considere essa informação como já coletada. NUNCA re-pergunte algo que já foi dito.${newSessionHint}`;
 
       // ── 6. LANGUAGE DETECTION: adapt tone/language to client ──
       let languageHint = "";
@@ -2008,10 +2051,11 @@ REGRAS PARA "ready":
         { role: "system", content: enrichedSystemPrompt },
       ];
 
-      // ── PROGRESSIVE PROFILE: save name/store if detected in conversation ──
+      // ── PROGRESSIVE PROFILE: save name/store/condomínio if detected in conversation ──
       // (runs async, doesn't block response)
       try {
-        const allText = (groupedMessages || transcription || ctx.messageContent || "").toLowerCase();
+        const allText = (groupedMessages || transcription || ctx.messageContent || "");
+        const allTextLower = allText.toLowerCase();
         // Auto-save name if not yet known
         if ((!contactProfile?.name || contactProfile.name === ctx.contactPhone) && allText.length > 5) {
           const nameMatch = allText.match(/(?:meu nome é|me chamo|sou o |sou a |aqui é o |aqui é a )\s*([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ][a-záàâãéèêíïóôõöúç]+(?:\s+[A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ][a-záàâãéèêíïóôõöúç]+){0,3})/i);
@@ -2020,6 +2064,18 @@ REGRAS PARA "ready":
             console.log(`[PROFILE] Auto-detected name: "${detectedName}"`);
             await supabase.from("contacts").update({ name: detectedName }).eq("id", ctx.contactId);
             ctx.contactName = detectedName;
+          }
+        }
+        // Auto-save condomínio/unidade in custom_fields if detected and not yet stored
+        const existingCustom = (contactProfile?.custom_fields as Record<string, any>) || {};
+        if (!existingCustom.condominio && allTextLower.length > 5) {
+          const condoMatch = allText.match(/(?:condom[ií]nio|unidade|loja|resid[eê]ncia[l]?)\s+([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ][a-záàâãéèêíïóôõöúç]+(?:\s+[A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ0-9][a-záàâãéèêíïóôõöúç0-9]*){0,3})/i);
+          if (condoMatch?.[1]) {
+            const detectedCondo = condoMatch[1].trim();
+            console.log(`[PROFILE] Auto-detected condomínio: "${detectedCondo}"`);
+            const updatedCustom = { ...existingCustom, condominio: detectedCondo };
+            await supabase.from("contacts").update({ custom_fields: updatedCustom }).eq("id", ctx.contactId);
+            if (contactProfile) (contactProfile as any).custom_fields = updatedCustom;
           }
         }
       } catch (e) {
