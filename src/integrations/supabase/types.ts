@@ -490,6 +490,86 @@ export type Database = {
         }
         Relationships: []
       }
+      knowledge_articles: {
+        Row: {
+          category_id: string
+          content: string
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          tags: string[] | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          category_id: string
+          content: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          tags?: string[] | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          category_id?: string
+          content?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          tags?: string[] | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_articles_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      knowledge_categories: {
+        Row: {
+          always_inject: boolean
+          color: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          name: string
+          position: number
+          updated_at: string
+        }
+        Insert: {
+          always_inject?: boolean
+          color?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          position?: number
+          updated_at?: string
+        }
+        Update: {
+          always_inject?: boolean
+          color?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          position?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       messages: {
         Row: {
           campaign_id: string | null

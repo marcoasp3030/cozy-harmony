@@ -6,6 +6,7 @@ import BusinessHoursSettings from "@/components/settings/BusinessHoursSettings";
 import InactivitySettings from "@/components/settings/InactivitySettings";
 import ElevenLabsSettings from "@/components/settings/ElevenLabsSettings";
 import ProductCatalog from "@/components/settings/ProductCatalog";
+import KnowledgeBase from "@/components/settings/KnowledgeBase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -869,6 +870,7 @@ const SettingsPage = () => {
           <TabsTrigger value="elevenlabs" className="text-xs md:text-sm">ElevenLabs</TabsTrigger>
           <TabsTrigger value="company" className="text-xs md:text-sm">Empresa</TabsTrigger>
           <TabsTrigger value="products" className="text-xs md:text-sm">Produtos</TabsTrigger>
+          <TabsTrigger value="knowledge" className="text-xs md:text-sm">Base de Conhecimento</TabsTrigger>
           <TabsTrigger value="users" className="text-xs md:text-sm">Usuários</TabsTrigger>
           <TabsTrigger value="webhooks" className="text-xs md:text-sm">Webhooks</TabsTrigger>
         </TabsList>
@@ -914,6 +916,10 @@ const SettingsPage = () => {
 
         <TabsContent value="products">
           <ProductCatalog />
+        </TabsContent>
+
+        <TabsContent value="knowledge">
+          <KnowledgeBase />
         </TabsContent>
 
         <TabsContent value="users">
