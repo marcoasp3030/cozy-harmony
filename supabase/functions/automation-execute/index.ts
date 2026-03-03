@@ -1597,7 +1597,37 @@ REGRAS PARA "ready":
         ? `\n\n👤 PERFIL DO CONTATO (dados já conhecidos — NÃO pergunte novamente o que já sabe):\n${profileParts.join("\n")}`
         : "";
 
-      // ── 6. RESPONSE VARIATION INSTRUCTION ──
+      // ── 6. LANGUAGE DETECTION: adapt tone/language to client ──
+      let languageHint = "";
+      const langSample = (groupedMessages || transcription || ctx.messageContent || "").trim();
+      if (langSample.length > 10) {
+        // Simple heuristic: check character patterns and common words
+        const spanishWords = /\b(hola|gracias|por favor|quiero|necesito|puede|tiene|buenas|buenos|cómo|como está|señor|señora|estoy|tengo)\b/i;
+        const englishWords = /\b(hello|hi|thanks|please|need|want|could|would|should|have|this|that|with|from|about|help|price|how much)\b/i;
+        const frenchWords = /\b(bonjour|merci|s'il vous|comment|besoin|voudrais|combien|monsieur|madame)\b/i;
+        const italianWords = /\b(ciao|grazie|per favore|buongiorno|vorrei|quanto|signore|signora)\b/i;
+        
+        const spanishCount = (langSample.match(spanishWords) || []).length;
+        const englishCount = (langSample.match(englishWords) || []).length;
+        const frenchCount = (langSample.match(frenchWords) || []).length;
+        const italianCount = (langSample.match(italianWords) || []).length;
+        
+        if (englishCount >= 2 || (englishCount >= 1 && !/[áàâãéèêíïóôõöúüçñ]/i.test(langSample))) {
+          languageHint = `\n\n🌍 IDIOMA DETECTADO: INGLÊS. O cliente está escrevendo em inglês. Responda INTEIRAMENTE em inglês, mantendo o mesmo tom amigável e profissional. Use contractions naturally (I'm, we'll, you're).`;
+          console.log("[LANG] Detected: English");
+        } else if (spanishCount >= 2) {
+          languageHint = `\n\n🌍 IDIOMA DETECTADO: ESPANHOL. O cliente está escrevendo em espanhol. Responda INTEIRAMENTE em espanhol, com tom amigável. Use "tú" (informal) a menos que o cliente use "usted".`;
+          console.log("[LANG] Detected: Spanish");
+        } else if (frenchCount >= 1) {
+          languageHint = `\n\n🌍 IDIOMA DETECTADO: FRANCÊS. Responda INTEIRAMENTE em francês com tom cordial e profissional.`;
+          console.log("[LANG] Detected: French");
+        } else if (italianCount >= 1) {
+          languageHint = `\n\n🌍 IDIOMA DETECTADO: ITALIANO. Responda INTEIRAMENTE em italiano com tom cordial e profissional.`;
+          console.log("[LANG] Detected: Italian");
+        }
+      }
+
+      // ── 7. RESPONSE VARIATION INSTRUCTION ──
       const variationHint = `\n\n🎭 VARIAÇÃO DE RESPOSTAS:
 - NÃO repita a mesma saudação. Varie entre: "Oi", "Olá", "Ei", usar só o nome, ou ir direto ao ponto.
 - Se já cumprimentou antes nesta conversa, NÃO cumprimente de novo.
@@ -1605,7 +1635,7 @@ REGRAS PARA "ready":
 - Seja natural como uma pessoa real conversando, não como um bot.`;
 
       // ── Compose final enriched system prompt ──
-      const enrichedSystemPrompt = systemPrompt + profileContext + productContext + sentimentHint + variationHint;
+      const enrichedSystemPrompt = systemPrompt + profileContext + productContext + sentimentHint + languageHint + variationHint;
 
       // Merge and sort by created_at
       const allRecent = [
