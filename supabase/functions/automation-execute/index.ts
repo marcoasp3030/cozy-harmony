@@ -741,17 +741,25 @@ ${qualConversation}
 MENSAGEM ATUAL DO CLIENTE: "${ctx.messageContent}"
 
 REGRAS:
-- Demonstre empatia pelo problema
+- Demonstre empatia genuína pelo problema com tom acolhedor
 - NÃO envie chave PIX ainda
 - Pergunte SOMENTE os detalhes que AINDA NÃO foram informados na conversa
-- Se o cliente JÁ disse a loja/unidade (ex: "Alpha Vita"), NÃO pergunte novamente — use o nome da loja na sua resposta
+- Se o cliente JÁ disse a loja/unidade, NÃO pergunte novamente — use o nome na resposta
 - Se o cliente JÁ disse o produto, NÃO pergunte novamente
-- SEMPRE peça ao cliente para enviar uma *foto do código de barras* do produto (use negrito com asteriscos: *código de barras*)
-- Deixe BEM CLARO que precisa do CÓDIGO DE BARRAS (não do produto em si, não de uma foto qualquer)
-- Explique que com o código de barras conseguimos verificar o preço exato no sistema e enviar a chave PIX
-- Máximo 3-4 frases. Seja direta e empática.
-- Use emojis com moderação (1-2). Use tom natural de WhatsApp.
-- Termine com: _Nutricar Brasil - Mini Mercado 24h_
+
+FORMATAÇÃO (WhatsApp — OBRIGATÓRIO):
+- Use *negrito* para destacar informações importantes
+- Use _itálico_ para tom empático ou assinaturas
+- Use emojis variados e expressivos (3-5 por mensagem): 😔💚📸🔍✨💰 etc.
+- Separe cada ideia com quebra de linha para facilitar leitura no celular
+- Use listas com emojis numerados (1️⃣ 2️⃣) quando pedir mais de uma informação
+
+INSTRUÇÃO PRINCIPAL:
+- SEMPRE peça ao cliente para enviar uma 📸 *foto do código de barras* do produto
+- Destaque *código de barras* em negrito SEMPRE
+- Explique de forma amigável que com o código de barras conseguimos buscar o preço certinho 🔍 e enviar a *chave PIX* 💰
+- Máximo 4-5 frases curtas e bem espaçadas
+- Termine com: _Nutricar Brasil - Mini Mercado 24h_ 💚
 
 Responda APENAS com o texto da mensagem.`;
 
@@ -778,9 +786,9 @@ Responda APENAS com o texto da mensagem.`;
         if (!qualificationMsg) {
           const knownStore = qualConversation.match(/(?:unidade|loja)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)*)/i)?.[1] || "";
           if (knownStore) {
-            qualificationMsg = `Sinto muito pelo transtorno na unidade ${knownStore}! 😔 Vou te ajudar a resolver.\n\nPor favor, envie uma *foto do código de barras* do produto para eu consultar o valor e te enviar a chave PIX para pagamento. 📸\n\n_Nutricar Brasil - Mini Mercado 24h_`;
+            qualificationMsg = `😔 _Poxa, que chato isso na unidade ${knownStore}!_\n\nFica tranquilo(a) que vou te ajudar! ✨\n\nEnvie uma 📸 *foto do código de barras* do produto pra eu buscar o preço certinho no sistema 🔍\n\nAssim já te passo a *chave PIX* pra pagamento! 💰\n\n_Nutricar Brasil - Mini Mercado 24h_ 💚`;
           } else {
-            qualificationMsg = `Sinto muito pelo transtorno! 😔 Vou te ajudar a resolver isso.\n\nPara seguir, preciso de:\n1️⃣ Em qual unidade aconteceu?\n2️⃣ Uma *foto do código de barras* do produto 📸\n\nAssim consigo consultar o valor e te enviar a chave PIX! 💚\n\n_Nutricar Brasil - Mini Mercado 24h_`;
+            qualificationMsg = `😔 _Poxa, sinto muito pelo transtorno!_\n\nVou te ajudar a resolver isso rapidinho! ✨\n\nPreciso só de duas coisinhas:\n\n1️⃣ Em qual *unidade* aconteceu?\n2️⃣ Uma 📸 *foto do código de barras* do produto\n\nCom isso consigo buscar o preço 🔍 e te enviar a *chave PIX*! 💰\n\n_Nutricar Brasil - Mini Mercado 24h_ 💚`;
           }
         }
         
