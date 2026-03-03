@@ -1653,16 +1653,18 @@ REGRAS PARA "ready":
 - Seja natural como uma pessoa real conversando, não como um bot.`;
 
       // ── 8. PIX QUALIFICATION INSTRUCTIONS ──
-      const pixQualificationHint = `\n\n💳 REGRAS DE PIX/PAGAMENTO (OBRIGATÓRIO):
+      const pixQualificationHint = `\n\n💳 REGRAS DE PIX/PAGAMENTO (OBRIGATÓRIO — SEGUIR À RISCA):
 - NUNCA envie a chave PIX proativamente. O sistema faz isso automaticamente SOMENTE quando o cliente pedir explicitamente.
-- Se o cliente mencionar PROBLEMA com pagamento (totem, cartão, erro), PRIMEIRO entenda:
-  1. Qual foi o problema exato? (totem travou, cartão recusado, cobrança errada, etc.)
-  2. Qual produto/loja está envolvido?
-  3. Qual o valor?
-- Só DEPOIS de entender o problema, ofereça alternativas (ex: "Posso te enviar a chave PIX se preferir pagar por lá").
+- NUNCA inclua o email "financeiro@nutricarbrasil.com.br" na sua resposta. O sistema injeta isso automaticamente.
+- Se o cliente mencionar PROBLEMA com pagamento (totem travou, cartão recusado, erro, não conseguiu pagar, cobrança errada), siga OBRIGATORIAMENTE esta sequência:
+  1. Demonstre empatia pelo problema
+  2. Pergunte detalhes: qual foi o problema exato, qual produto, qual loja
+  3. NÃO ofereça PIX imediatamente — primeiro entenda a situação
+  4. Só DEPOIS de entender o problema, SE for o caso, pergunte: "Deseja que eu envie a chave PIX para pagamento?"
+  5. AGUARDE a confirmação do cliente antes de qualquer ação de pagamento
 - NUNCA assuma que "problema com pagamento" = "quer pagar via PIX". O cliente pode querer estorno, reclamação, ou ajuda técnica.
-- Se o cliente EXPLICITAMENTE pedir a chave PIX, o sistema enviará automaticamente. Você NÃO precisa enviar a chave no texto.
-- PROIBIDO: Enviar "financeiro@nutricarbrasil.com.br" no corpo da resposta. O sistema injeta isso automaticamente.`;
+- Se o cliente EXPLICITAMENTE pedir a chave PIX (ex: "me envia a chave PIX"), o sistema enviará automaticamente. NÃO envie no texto.
+- CONFIRMAÇÃO OBRIGATÓRIA: Sempre que for oferecer PIX como alternativa, use formato de PERGUNTA (ex: "Gostaria que eu envie a chave PIX?"), NUNCA como afirmação.`;
 
       // ── Compose final enriched system prompt ──
       const enrichedSystemPrompt = systemPrompt + profileContext + productContext + sentimentHint + languageHint + variationHint + pixQualificationHint;
@@ -1965,6 +1967,38 @@ REGRAS PARA "ready":
           } else {
             reply = reply.replace(/\b(qr\s*code|qrcode)\b/gi, "chave PIX");
           }
+        }
+
+        // ── SANITIZE: Strip PIX key from LLM reply (system sends it separately) ──
+        const pixKeyPattern = /financeiro@nutricarbrasil\.com\.br/gi;
+        if (pixKeyPattern.test(reply)) {
+          reply = reply.replace(pixKeyPattern, "[chave PIX]");
+          console.log(`[SANITIZE] Removed PIX key from LLM reply`);
+          ctx.variables["_audit_guard_block"] = (ctx.variables["_audit_guard_block"] || "") + " | LLM incluiu chave PIX no texto — removida.";
+        }
+
+        // ── DOUBLE PROTECTION: Difficulty report → force confirmation before PIX ──
+        const customerContextForGuard = [
+          ctx.messageContent,
+          ctx.variables["mensagens_agrupadas"] || "",
+          ctx.variables["transcricao"] || "",
+        ].join(" ");
+        const isDifficultyContext = PIX_DIFFICULTY_KEYWORDS.test(customerContextForGuard);
+        const replyOffersPix = /\b(enviar?\s*(a\s*)?chave|chave\s*pix|pagar?\s*(via|por|com)\s*pix|pagamento\s*(via|por|com)\s*pix)\b/i.test(reply);
+
+        if (isDifficultyContext && replyOffersPix && ctx.variables["_pix_key_sent"] !== "true") {
+          // Replace proactive PIX offer with a confirmation question
+          reply = reply.replace(
+            /(?:se\s*(?:quiser|preferir|desejar),?\s*)?(?:j[aá]\s*)?(?:te\s*)?(?:posso\s*)?(?:enviar?|mand[ao]r?)\s*(?:a\s*)?chave\s*pix[^.!?\n]*/gi,
+            "Se preferir pagar via PIX, me avise que envio a chave para você"
+          );
+          // Also catch patterns like "vou te enviar a chave PIX"
+          reply = reply.replace(
+            /vou\s*(?:te\s*)?enviar?\s*(?:a\s*)?chave\s*pix[^.!?\n]*/gi,
+            "caso queira pagar via PIX, é só me pedir que envio a chave"
+          );
+          console.log(`[PIX GUARD] Difficulty context detected — replaced proactive PIX offer with confirmation question`);
+          ctx.variables["_audit_reply_suppressed"] = `Oferta proativa de PIX convertida em confirmação — relato de dificuldade: "${ctx.messageContent?.slice(0, 100)}"`;
         }
 
         // ── POST-REPLY: decide if we should resolve product from image before sending text ──
