@@ -698,7 +698,8 @@ REGRAS:
 - Pergunte SOMENTE os detalhes que AINDA NÃO foram informados na conversa
 - Se o cliente JÁ disse a loja/unidade (ex: "Alpha Vita"), NÃO pergunte novamente — use o nome da loja na sua resposta
 - Se o cliente JÁ disse o produto, NÃO pergunte novamente
-- Pergunte apenas o que falta: qual o problema exato, qual produto pegou (se não disse), qual valor apareceu
+- SEMPRE peça ao cliente para enviar uma FOTO DO CÓDIGO DE BARRAS do produto para que possamos consultar o valor correto no sistema
+- Explique que com o código de barras conseguimos verificar o preço e enviar a chave PIX para pagamento
 - Máximo 3-4 frases. Seja direta e empática.
 - Use emojis com moderação (1-2). Use tom natural de WhatsApp.
 - Termine com: _Nutricar Brasil - Mini Mercado 24h_
@@ -728,9 +729,9 @@ Responda APENAS com o texto da mensagem.`;
         if (!qualificationMsg) {
           const knownStore = qualConversation.match(/(?:unidade|loja)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)*)/i)?.[1] || "";
           if (knownStore) {
-            qualificationMsg = `Sinto muito pelo transtorno na unidade ${knownStore}! 😔 Vou te ajudar a resolver.\n\nPoderia me dizer qual produto você pegou e qual valor apareceu no totem?\n\n_Nutricar Brasil - Mini Mercado 24h_`;
+            qualificationMsg = `Sinto muito pelo transtorno na unidade ${knownStore}! 😔 Vou te ajudar a resolver.\n\nPor favor, envie uma *foto do código de barras* do produto para eu consultar o valor e te enviar a chave PIX para pagamento. 📸\n\n_Nutricar Brasil - Mini Mercado 24h_`;
           } else {
-            qualificationMsg = `Sinto muito pelo transtorno! 😔 Vou te ajudar a resolver isso.\n\nPara entender melhor, poderia me dizer:\n1️⃣ Em qual unidade aconteceu?\n2️⃣ Qual produto você pegou?\n3️⃣ Qual o valor que apareceu?\n\n_Nutricar Brasil - Mini Mercado 24h_`;
+            qualificationMsg = `Sinto muito pelo transtorno! 😔 Vou te ajudar a resolver isso.\n\nPara seguir, preciso de:\n1️⃣ Em qual unidade aconteceu?\n2️⃣ Uma *foto do código de barras* do produto 📸\n\nAssim consigo consultar o valor e te enviar a chave PIX! 💚\n\n_Nutricar Brasil - Mini Mercado 24h_`;
           }
         }
         
@@ -809,8 +810,8 @@ Responda APENAS com o texto da mensagem.`;
 
             if (isOnlyPixRequest) {
               // Customer just said "envia a chave pix" — don't search with garbage, ask nicely
-              bodyText = `⚠️ Para seguir com o pagamento, preciso confirmar qual produto você pegou. Poderia me informar o nome ou enviar uma foto?\n\n${bodyText}`;
-              console.log(`[PIX] Explicit PIX request but no product context — asking client to identify`);
+              bodyText = `⚠️ Para seguir com o pagamento, preciso confirmar qual produto você pegou. Por favor, envie uma *foto do código de barras* do produto para eu consultar o valor. 📸\n\n${bodyText}`;
+              console.log(`[PIX] Explicit PIX request but no product context — asking client to send barcode`);
             } else if (searchText.length > 2) {
               try {
                 const stopWords = new Set(["para", "como", "quero", "saber", "qual", "esse", "essa", "favor", "pode", "aqui", "mais", "muito", "obrigado", "obrigada", "sobre", "tenho", "estou", "esta", "isso", "peguei", "produto", "valor", "preco", "pagar", "pagamento", "chave", "paguei", "pago", "transferi", "enviar", "envie", "envia", "mandar", "manda", "mande", "quiser", "quer"]);
@@ -835,19 +836,19 @@ Responda APENAS com o texto da mensagem.`;
                     bodyText = `🛒 Produto: *${first.name}*\n💰 Valor: *${prodPrice}*\n\n${bodyText}`;
                     console.log(`[PIX] Auto-searched product: ${first.name} = ${prodPrice} (query: "${query}")`);
                   } else {
-                    bodyText = `⚠️ Não consegui identificar o produto. Poderia enviar uma foto do produto ou código de barras para eu verificar o valor?\n\n${bodyText}`;
-                    console.log(`[PIX] No product found for query: "${query}" — asking client to identify`);
+                    bodyText = `⚠️ Não consegui identificar o produto no sistema. Por favor, envie uma *foto do código de barras* do produto para eu consultar o valor correto e te enviar a chave PIX. 📸\n\n${bodyText}`;
+                    console.log(`[PIX] No product found for query: "${query}" — asking client to send barcode`);
                   }
                 } else {
-                  bodyText = `⚠️ Para seguir com o pagamento, preciso saber qual produto você pegou. Poderia me informar o nome ou enviar uma foto?\n\n${bodyText}`;
-                  console.log(`[PIX] No search query available — asking client to identify product`);
+                  bodyText = `⚠️ Para seguir com o pagamento, envie uma *foto do código de barras* do produto para eu consultar o valor e te enviar a chave PIX. 📸\n\n${bodyText}`;
+                  console.log(`[PIX] No search query available — asking client to send barcode`);
                 }
               } catch (e) {
                 console.error("[PIX] Product search error:", e);
               }
             } else {
-              bodyText = `⚠️ Para seguir com o pagamento, preciso saber qual produto você pegou. Poderia me informar o nome ou enviar uma foto?\n\n${bodyText}`;
-              console.log(`[PIX] No context for product search — asking client`);
+              bodyText = `⚠️ Para seguir com o pagamento, envie uma *foto do código de barras* do produto para eu consultar o valor e te enviar a chave PIX. 📸\n\n${bodyText}`;
+              console.log(`[PIX] No context for product search — asking client to send barcode`);
             }
           }
         }
