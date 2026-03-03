@@ -108,6 +108,7 @@ const InboxPage = () => {
   const [replySuggestions, setReplySuggestions] = useState<{ label: string; text: string }[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const smartFunnelConfigRef = useRef<{ enabled: boolean; provider: string; model: string; min_confidence: number } | null>(null);
+  const aiTimeoutRef = useRef<number>(30);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pendingTempIdsRef = useRef<Set<string>>(new Set());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -122,18 +123,29 @@ const InboxPage = () => {
   useSlaNotifications(conversations);
   const { notifyNewMessage } = usePushNotifications();
 
-  // Load smart funnel config
+  // Load smart funnel config + AI timeout
   useEffect(() => {
     if (!user) return;
     supabase
       .from("settings")
-      .select("value")
+      .select("key, value")
       .eq("user_id", user.id)
-      .eq("key", "smart_funnel")
-      .single()
+      .in("key", ["smart_funnel", "ai_timeout"])
       .then(({ data }) => {
-        if (data?.value) smartFunnelConfigRef.current = data.value as any;
-        else smartFunnelConfigRef.current = { enabled: true, provider: "openai", model: "gpt-4o-mini", min_confidence: 0.7 };
+        if (data) {
+          for (const row of data) {
+            if (row.key === "smart_funnel") {
+              smartFunnelConfigRef.current = row.value as any;
+            }
+            if (row.key === "ai_timeout") {
+              const val = row.value as { seconds?: number };
+              if (val?.seconds) aiTimeoutRef.current = val.seconds;
+            }
+          }
+        }
+        if (!smartFunnelConfigRef.current) {
+          smartFunnelConfigRef.current = { enabled: true, provider: "openai", model: "gpt-4o-mini", min_confidence: 0.7 };
+        }
       });
   }, [user]);
 
@@ -649,6 +661,8 @@ const InboxPage = () => {
       return;
     }
     setAiLoading(true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), aiTimeoutRef.current * 1000);
     try {
       const lastMessages = messages.slice(-20).map((m) => ({
         direction: m.direction,
@@ -658,7 +672,9 @@ const InboxPage = () => {
 
       const { data, error } = await supabase.functions.invoke("llm-reply", {
         body: { messages: lastMessages, mode },
+        signal: controller.signal as any,
       });
+      clearTimeout(timeoutId);
 
       if (error) throw error;
       if (data?.error) {
@@ -674,7 +690,9 @@ const InboxPage = () => {
         toast.success(`Sugestão gerada via ${data.provider === "openai" ? "OpenAI" : "Gemini"} (${data.model})`);
       }
     } catch (err: any) {
-      toast.error("Erro ao gerar resposta IA: " + (err.message || "Tente novamente"));
+      clearTimeout(timeoutId);
+      const msg = err.name === "AbortError" ? `Timeout: IA não respondeu em ${aiTimeoutRef.current}s. Aumente em Configurações → API LLM.` : (err.message || "Tente novamente");
+      toast.error("Erro ao gerar resposta IA: " + msg);
     } finally {
       setAiLoading(false);
     }
@@ -689,10 +707,14 @@ const InboxPage = () => {
     
     setSuggestionsLoading(true);
     setReplySuggestions([]);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), aiTimeoutRef.current * 1000);
     try {
       const { data, error } = await supabase.functions.invoke("ai-suggestions", {
         body: { conversation_id: selectedConvId, contact_id: contact.id },
+        signal: controller.signal as any,
       });
+      clearTimeout(timeoutId);
       if (error) throw error;
       if (data?.error) {
         toast.error(data.error);
@@ -700,7 +722,12 @@ const InboxPage = () => {
       }
       setReplySuggestions(data?.suggestions || []);
     } catch (err: any) {
-      console.error("AI suggestions error:", err);
+      clearTimeout(timeoutId);
+      if (err.name === "AbortError") {
+        toast.error(`Timeout: sugestões não responderam em ${aiTimeoutRef.current}s`);
+      } else {
+        console.error("AI suggestions error:", err);
+      }
     } finally {
       setSuggestionsLoading(false);
     }

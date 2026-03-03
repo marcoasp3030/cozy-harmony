@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Wifi, WifiOff, CheckCircle2, Loader2, QrCode, Unplug, Save, Plus, Link2, ExternalLink, Copy, Check, Volume2, VolumeX, Brain, Eye, EyeOff, Sparkles, FileText, Image, Mic, Video, MessageSquare, Wrench, Bell, BellOff, Package } from "lucide-react";
+import { Wifi, WifiOff, CheckCircle2, Loader2, QrCode, Unplug, Save, Plus, Link2, ExternalLink, Copy, Check, Volume2, VolumeX, Brain, Eye, EyeOff, Sparkles, FileText, Image, Mic, Video, MessageSquare, Wrench, Bell, BellOff, Package, Clock } from "lucide-react";
 import InstanceManager from "@/components/settings/InstanceManager";
 import UserManagement from "@/components/settings/UserManagement";
 import BusinessHoursSettings from "@/components/settings/BusinessHoursSettings";
@@ -382,6 +382,8 @@ const LlmApiConfig = () => {
   const [saving, setSaving] = useState(false);
   const [openaiSaved, setOpenaiSaved] = useState(false);
   const [geminiSaved, setGeminiSaved] = useState(false);
+  const [aiTimeout, setAiTimeout] = useState(30);
+  const [savingTimeout, setSavingTimeout] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -403,6 +405,17 @@ const LlmApiConfig = () => {
             setGeminiSaved(true);
           }
         }
+      }
+      // Load timeout config
+      const { data: timeoutData } = await supabase
+        .from("settings")
+        .select("value")
+        .eq("user_id", user.id)
+        .eq("key", "ai_timeout")
+        .single();
+      if (timeoutData?.value) {
+        const val = timeoutData.value as { seconds?: number };
+        if (val?.seconds) setAiTimeout(val.seconds);
       }
     };
     load();
@@ -441,6 +454,24 @@ const LlmApiConfig = () => {
       toast.success("API Key removida.");
     } catch {
       toast.error("Erro ao remover.");
+    }
+  };
+
+  const saveTimeout = async () => {
+    if (!user) return;
+    setSavingTimeout(true);
+    try {
+      await supabase
+        .from("settings")
+        .upsert(
+          { user_id: user.id, key: "ai_timeout", value: { seconds: aiTimeout } as any },
+          { onConflict: "user_id,key" }
+        );
+      toast.success(`Timeout da IA configurado para ${aiTimeout}s`);
+    } catch {
+      toast.error("Erro ao salvar timeout");
+    } finally {
+      setSavingTimeout(false);
     }
   };
 
@@ -587,6 +618,48 @@ const LlmApiConfig = () => {
             <p className="text-sm font-medium mb-1">Modelos disponíveis ({GEMINI_MODELS.length})</p>
             {renderModels(GEMINI_MODELS, geminiSaved)}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Timeout Config */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Clock className="h-5 w-5 text-primary" />
+            <div>
+              <CardTitle className="font-heading">Tempo de Resposta da IA</CardTitle>
+              <CardDescription>Configure o tempo máximo de espera para respostas da IA</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm">Timeout</Label>
+              <span className="text-sm font-mono font-semibold text-primary">{aiTimeout}s</span>
+            </div>
+            <input
+              type="range"
+              min={10}
+              max={120}
+              step={5}
+              value={aiTimeout}
+              onChange={(e) => setAiTimeout(Number(e.target.value))}
+              className="w-full accent-primary"
+            />
+            <div className="flex justify-between text-[10px] text-muted-foreground">
+              <span>10s (rápido)</span>
+              <span>60s (padrão)</span>
+              <span>120s (lento)</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Se a IA não responder dentro desse tempo, a requisição será cancelada. Modelos mais potentes podem precisar de mais tempo.
+            </p>
+          </div>
+          <Button onClick={saveTimeout} disabled={savingTimeout} size="sm" className="w-full">
+            {savingTimeout ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            Salvar Timeout
+          </Button>
         </CardContent>
       </Card>
 
