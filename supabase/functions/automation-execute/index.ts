@@ -1819,6 +1819,49 @@ REGRAS PARA "ready":
       }
 
       if (reply) {
+        const hasCatalogProduct =
+          ctx.variables["produto_encontrado"] === "true" &&
+          !!ctx.variables["produto_nome"] &&
+          !!ctx.variables["produto_preco"];
+
+        const catalogProductName = String(ctx.variables["produto_nome"] || "").trim();
+        const catalogPriceValue = Number(ctx.variables["produto_preco"] || 0);
+        const catalogPriceFormatted = Number.isFinite(catalogPriceValue)
+          ? catalogPriceValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+          : "";
+
+        const extractReplyPrices = (text: string): number[] => {
+          const matches = text.match(/R\$\s*\d{1,3}(?:\.\d{3})*,\d{2}|R\$\s*\d+(?:[.,]\d{2})/gi) || [];
+          return matches
+            .map((raw) => Number(raw.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".")))
+            .filter((n) => Number.isFinite(n));
+        };
+
+        const pricesInReply = extractReplyPrices(reply);
+        const isPriceTopic = /\b(valor|preço|preco|pix|pagamento|pagar)\b/i.test(reply);
+
+        // Hard guard: never allow price in LLM reply without catalog-confirmed product
+        if (pricesInReply.length > 0 && !hasCatalogProduct) {
+          console.warn(`[LLM GUARD] Blocking unverified price in reply: "${reply.slice(0, 120)}"`);
+          reply = "Para te passar o valor exato, preciso identificar o produto no catálogo. Pode me enviar o nome do produto ou uma foto nítida do código de barras?";
+        } else if (hasCatalogProduct && pricesInReply.length > 0) {
+          const hasCatalogPriceInReply = pricesInReply.some((p) => Math.abs(p - catalogPriceValue) < 0.01);
+          if (!hasCatalogPriceInReply) {
+            console.warn(`[LLM GUARD] Correcting mismatched price. catalog=${catalogPriceValue}, reply="${reply.slice(0, 120)}"`);
+            reply = `Perfeito! Encontrei no catálogo:\n\n🛒 Produto: *${catalogProductName}*\n💰 Valor: *${catalogPriceFormatted}*\n\nSe quiser, já te envio a chave PIX para pagamento.`;
+          }
+        }
+
+        // If talking about price/payment, enforce explicit product name + exact catalog price
+        if (hasCatalogProduct && isPriceTopic) {
+          const normalizedReply = reply.toLowerCase();
+          const hasName = catalogProductName ? normalizedReply.includes(catalogProductName.toLowerCase()) : false;
+          const hasPrice = catalogPriceFormatted ? normalizedReply.includes(catalogPriceFormatted.toLowerCase()) : false;
+          if (!hasName || !hasPrice) {
+            reply = `🛒 Produto: *${catalogProductName}*\n💰 Valor: *${catalogPriceFormatted}*\n\n${reply}`;
+          }
+        }
+
         // Store IA reply as variable for downstream nodes (e.g. TTS with {{ia_reply}})
         ctx.variables["ia_reply"] = reply;
 
@@ -2652,18 +2695,12 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
 
   if (!PIX_DIFFICULTY_KEYWORDS.test(allContext)) return false;
 
-  // ── GUARD: Only send PIX if product/value has been identified ──
-  // If the search_product node ran and found a product, we know what they want
+  // ── GUARD: PIX only after catalog-confirmed product (no LLM-only prices) ──
   const productIdentified = ctx.variables["produto_encontrado"] === "true";
-  // Also check if the IA reply already mentions a confirmed value (e.g. "R$ 11,35")
-  const iaReply = ctx.variables["ia_reply"] || "";
-  const replyHasPrice = /R\$\s*\d+[.,]\d{2}/.test(iaReply);
-  // Check if the client already confirmed the product/value in their messages
-  const clientConfirmed = /confirm|isso|correto|certo|sim|exato|esse mesmo/i.test(ctx.messageContent || "");
 
-  if (!productIdentified && !replyHasPrice && !clientConfirmed) {
-    // Product not yet identified — let the IA ask first, don't send PIX yet
-    console.log(`[PIX] Payment difficulty detected but product NOT identified yet — holding PIX key`);
+  if (!productIdentified) {
+    // Product not yet identified in catalog — do not send PIX key yet
+    console.log(`[PIX] Payment difficulty detected but product NOT identified in catalog — holding PIX key`);
     return false;
   }
 
