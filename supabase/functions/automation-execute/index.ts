@@ -332,6 +332,7 @@ async function executeFromNode(
       action_extract_pdf: "Extrair Texto PDF", action_send_interactive: "Mensagem Interativa",
       action_send_media: "Enviar Mídia", action_register_occurrence: "Registrar Ocorrência",
       action_analyze_image: "Analisar Imagem", action_search_product: "Buscar Produto",
+      action_verify_payment: "Verificar Comprovante PIX",
     };
 
     // Build result object for logging
@@ -2369,6 +2370,246 @@ Responda com JSON: {"quality": "boa"|"ruim"|"parcial", "quality_issue": "...", "
         barcode: analysisResult.barcode,
         confidence: analysisResult.confidence,
         catalogFound: !!catalogMatch,
+      };
+    }
+
+    // ── VERIFY PAYMENT RECEIPT NODE ──
+    if (type === "action_verify_payment") {
+      const expectedPixKey = d.expected_pix_key || "financeiro@nutricarbrasil.com.br";
+      const expectedRecipient = (d.expected_recipient || "Nutricar Brasil").toLowerCase();
+      const checkValue = d.check_value !== false;
+      const maxHoursAgo = parseInt(d.max_hours_ago) || 24;
+      const sendResult = d.send_result !== false;
+      const autoTagFraud = d.auto_tag_fraud !== false;
+      const fraudTag = d.fraud_tag || "comprovante-suspeito";
+
+      // Find last image from contact
+      let imageUrl = ctx.variables["imagem_url"] || "";
+      if (!imageUrl) {
+        const { data: imgMsgs } = await supabase
+          .from("messages")
+          .select("media_url")
+          .eq("contact_id", ctx.contactId)
+          .eq("direction", "inbound")
+          .eq("type", "image")
+          .order("created_at", { ascending: false })
+          .limit(1);
+        imageUrl = imgMsgs?.[0]?.media_url || "";
+      }
+
+      if (!imageUrl) {
+        const noImg = "Para confirmar o pagamento, preciso que envie uma *foto ou print do comprovante PIX*. 📸";
+        if (sendResult) await sendWhatsAppMessage(supabase, ctx, noImg);
+        ctx.variables["comprovante_status"] = "sem_imagem";
+        return { verified: false, reason: "no_image" };
+      }
+
+      // Download image → base64
+      let imgBase64 = "";
+      try {
+        const imgResp = await fetch(imageUrl);
+        if (!imgResp.ok) throw new Error(`Download failed: ${imgResp.status}`);
+        const imgBuffer = await imgResp.arrayBuffer();
+        const { encode: base64Encode } = await import("https://deno.land/std@0.168.0/encoding/base64.ts");
+        imgBase64 = base64Encode(imgBuffer);
+      } catch (e) {
+        console.error("[VERIFY PAYMENT] Failed to download image:", e);
+        if (sendResult) await sendWhatsAppMessage(supabase, ctx, "Não consegui processar a imagem do comprovante. Pode enviar novamente? 📸");
+        ctx.variables["comprovante_status"] = "erro_download";
+        return { verified: false, reason: "download_failed" };
+      }
+
+      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+      if (!LOVABLE_API_KEY) {
+        console.error("[VERIFY PAYMENT] No LOVABLE_API_KEY");
+        return { verified: false, reason: "no_ai_key" };
+      }
+
+      const expectedProductPrice = ctx.variables["produto_preco"] || "";
+      const expectedProductName = ctx.variables["produto_nome"] || ctx.variables["produto_nome_catalogo"] || "";
+
+      const visionPrompt = `Você é um analista antifraude especializado em comprovantes de pagamento PIX.
+
+Analise esta imagem de comprovante PIX e extraia TODAS as informações visíveis.
+
+DADOS ESPERADOS PARA VALIDAÇÃO:
+- Chave PIX do recebedor: ${expectedPixKey}
+- Nome do recebedor esperado: ${d.expected_recipient || "Nutricar Brasil"}
+${checkValue && expectedProductPrice ? `- Valor esperado: R$ ${Number(expectedProductPrice).toFixed(2)}` : "- Valor esperado: não informado"}
+${expectedProductName ? `- Produto: ${expectedProductName}` : ""}
+- O pagamento deve ter sido realizado nas últimas ${maxHoursAgo} horas
+
+CRITÉRIOS DE FRAUDE — marque como SUSPEITO se:
+1. A chave PIX do destinatário NÃO corresponde à esperada
+2. O nome do recebedor NÃO contém "${d.expected_recipient || "Nutricar Brasil"}" (ou variações próximas)
+3. O valor pago é significativamente diferente do esperado (tolerância de R$ 0.50)
+4. A data/hora do pagamento é muito antiga (mais de ${maxHoursAgo}h)
+5. A imagem parece editada, com artefatos visuais, fontes inconsistentes ou elementos sobrepostos
+6. O comprovante não é de uma instituição bancária reconhecida
+7. Campos essenciais estão ilegíveis ou ausentes (valor, destinatário, data)
+8. A imagem NÃO é um comprovante de pagamento (é outra coisa)
+
+Responda APENAS com JSON válido:
+{
+  "is_payment_receipt": true/false,
+  "recipient_name": "nome do recebedor visível ou null",
+  "recipient_key": "chave PIX do recebedor visível ou null",
+  "amount": "valor numérico (ex: 99.00) ou null",
+  "payment_date": "data/hora do pagamento (ISO) ou null",
+  "bank_name": "nome do banco/instituição ou null",
+  "transaction_id": "ID da transação se visível ou null",
+  "payer_name": "nome do pagador se visível ou null",
+  "key_matches": true/false,
+  "recipient_matches": true/false,
+  "amount_matches": true/false/null,
+  "date_valid": true/false/null,
+  "visual_integrity": "ok" | "suspeito" | "editado",
+  "visual_issues": "descrição de problemas visuais ou null",
+  "fraud_score": 0-100,
+  "fraud_reasons": ["lista de motivos de suspeita"],
+  "verdict": "aprovado" | "suspeito" | "reprovado",
+  "confidence": 0-100,
+  "notes": "observações adicionais"
+}`;
+
+      let analysisResult: any = null;
+      try {
+        const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [{
+              role: "user",
+              content: [
+                { type: "text", text: visionPrompt },
+                { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imgBase64}` } },
+              ],
+            }],
+            max_tokens: 800,
+            temperature: 0.1,
+          }),
+        });
+
+        if (!resp.ok) throw new Error(`Vision API error (${resp.status})`);
+        const data = await resp.json();
+        const reply = data.choices?.[0]?.message?.content?.trim() || "";
+        const jsonMatch = reply.match(/\{[\s\S]*\}/);
+        if (jsonMatch) analysisResult = JSON.parse(jsonMatch[0]);
+      } catch (e) {
+        console.error("[VERIFY PAYMENT] Vision error:", e);
+        if (sendResult) await sendWhatsAppMessage(supabase, ctx, "Tive dificuldade para analisar o comprovante. Pode enviar novamente com mais nitidez? 📸");
+        ctx.variables["comprovante_status"] = "erro_analise";
+        return { verified: false, reason: "vision_error" };
+      }
+
+      if (!analysisResult) {
+        if (sendResult) await sendWhatsAppMessage(supabase, ctx, "Não consegui interpretar o comprovante. Tente enviar uma foto mais nítida. 📸");
+        ctx.variables["comprovante_status"] = "erro_parse";
+        return { verified: false, reason: "parse_error" };
+      }
+
+      // Store all results
+      ctx.variables["comprovante_status"] = analysisResult.verdict || "desconhecido";
+      ctx.variables["comprovante_valor"] = analysisResult.amount ? String(analysisResult.amount) : "";
+      ctx.variables["comprovante_destinatario"] = analysisResult.recipient_name || "";
+      ctx.variables["comprovante_chave"] = analysisResult.recipient_key || "";
+      ctx.variables["comprovante_banco"] = analysisResult.bank_name || "";
+      ctx.variables["comprovante_data"] = analysisResult.payment_date || "";
+      ctx.variables["comprovante_pagador"] = analysisResult.payer_name || "";
+      ctx.variables["comprovante_transacao_id"] = analysisResult.transaction_id || "";
+      ctx.variables["comprovante_fraud_score"] = String(analysisResult.fraud_score || 0);
+      ctx.variables["comprovante_integridade"] = analysisResult.visual_integrity || "";
+
+      // Audit log
+      ctx.variables["_audit_payment_verify"] = JSON.stringify({
+        ts: new Date().toISOString(),
+        verdict: analysisResult.verdict,
+        fraud_score: analysisResult.fraud_score,
+        key_matches: analysisResult.key_matches,
+        recipient_matches: analysisResult.recipient_matches,
+        amount_matches: analysisResult.amount_matches,
+        amount_found: analysisResult.amount,
+        expected_amount: expectedProductPrice || "N/A",
+        visual_integrity: analysisResult.visual_integrity,
+        fraud_reasons: analysisResult.fraud_reasons,
+      });
+      console.log(`[AUDIT] Payment verification at ${new Date().toISOString()} — verdict: ${analysisResult.verdict}, fraud_score: ${analysisResult.fraud_score}, key_matches: ${analysisResult.key_matches}`);
+
+      // Not a payment receipt at all
+      if (!analysisResult.is_payment_receipt) {
+        if (sendResult) await sendWhatsAppMessage(supabase, ctx, "Esta imagem não parece ser um comprovante de pagamento. 🤔\n\nPor favor, envie o *print ou foto do comprovante PIX* após realizar o pagamento. 💳");
+        ctx.variables["comprovante_status"] = "nao_e_comprovante";
+        return { verified: false, reason: "not_receipt", ...analysisResult };
+      }
+
+      // Build response based on verdict
+      if (sendResult) {
+        if (analysisResult.verdict === "aprovado") {
+          let msg = "✅ *Comprovante verificado com sucesso!*\n\n";
+          msg += `💰 Valor: R$ ${Number(analysisResult.amount || 0).toFixed(2)}\n`;
+          if (analysisResult.payer_name) msg += `👤 Pagador: ${analysisResult.payer_name}\n`;
+          if (analysisResult.bank_name) msg += `🏦 Banco: ${analysisResult.bank_name}\n`;
+          if (analysisResult.transaction_id) msg += `🔑 ID: ${analysisResult.transaction_id}\n`;
+          msg += `\nObrigado pelo pagamento! 💚\nNutricar Brasil - Mini Mercado 24h`;
+          await sendWhatsAppMessage(supabase, ctx, msg);
+        } else if (analysisResult.verdict === "suspeito") {
+          let msg = "⚠️ *Comprovante requer verificação manual*\n\n";
+          msg += "Identificamos algumas inconsistências no comprovante enviado. ";
+          msg += "Nossa equipe irá analisar e confirmar o pagamento em breve.\n\n";
+          msg += "Se preferir, envie um novo comprovante ou entre em contato com o suporte. 📞\n";
+          msg += "\nNutricar Brasil - Mini Mercado 24h";
+          await sendWhatsAppMessage(supabase, ctx, msg);
+        } else {
+          let msg = "❌ *Não foi possível validar o comprovante*\n\n";
+          msg += "O comprovante enviado apresenta divergências com os dados do pagamento esperado.\n\n";
+          msg += "Por favor, verifique:\n";
+          msg += `• A chave PIX utilizada: *${expectedPixKey}*\n`;
+          if (checkValue && expectedProductPrice) msg += `• O valor correto: *R$ ${Number(expectedProductPrice).toFixed(2)}*\n`;
+          msg += "\nSe o problema persistir, entre em contato com o suporte. 📞\n";
+          msg += "\nNutricar Brasil - Mini Mercado 24h";
+          await sendWhatsAppMessage(supabase, ctx, msg);
+        }
+      }
+
+      // Auto-tag suspicious payments
+      if (autoTagFraud && (analysisResult.verdict === "suspeito" || analysisResult.verdict === "reprovado") && ctx.userId) {
+        try {
+          // Find or create the fraud tag
+          let { data: existingTag } = await supabase
+            .from("tags")
+            .select("id")
+            .eq("name", fraudTag)
+            .eq("created_by", ctx.userId)
+            .maybeSingle();
+
+          if (!existingTag) {
+            const { data: newTag } = await supabase
+              .from("tags")
+              .insert({ name: fraudTag, color: "#ef4444", created_by: ctx.userId })
+              .select("id")
+              .single();
+            existingTag = newTag;
+          }
+
+          if (existingTag) {
+            await supabase
+              .from("contact_tags")
+              .upsert({ contact_id: ctx.contactId, tag_id: existingTag.id }, { onConflict: "contact_id,tag_id" });
+            console.log(`[VERIFY PAYMENT] Tagged contact ${ctx.contactId} with "${fraudTag}"`);
+          }
+        } catch (e) {
+          console.error("[VERIFY PAYMENT] Failed to tag:", e);
+        }
+      }
+
+      return {
+        verified: analysisResult.verdict === "aprovado",
+        verdict: analysisResult.verdict,
+        fraud_score: analysisResult.fraud_score,
+        amount: analysisResult.amount,
+        key_matches: analysisResult.key_matches,
+        recipient_matches: analysisResult.recipient_matches,
       };
     }
 
