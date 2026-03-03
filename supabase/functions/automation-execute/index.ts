@@ -38,6 +38,7 @@ interface ExecutionContext {
   variables: Record<string, string>;
   isFirstContact: boolean;
   nodeLog: NodeLogEntry[];
+  sessionStartedAt: string | null; // ISO timestamp — only messages AFTER this are included in AI context
 }
 
 interface NodeLogEntry {
@@ -217,6 +218,19 @@ serve(async (req) => {
       console.log(`Automation "${automation.name}" (${automation.id}) triggered, log=${logEntry.id}`);
 
       const startTime = Date.now();
+      // Fetch conversation created_at to use as session boundary
+      let sessionStartedAt: string | null = null;
+      if (conversationId) {
+        const { data: convData } = await supabase
+          .from("conversations")
+          .select("created_at")
+          .eq("id", conversationId)
+          .single();
+        if (convData?.created_at) {
+          sessionStartedAt = convData.created_at;
+        }
+      }
+
       const ctx: ExecutionContext = {
         contactId,
         contactPhone,
@@ -229,6 +243,7 @@ serve(async (req) => {
         variables: {},
         isFirstContact: !!isFirstContact,
         nodeLog: [],
+        sessionStartedAt,
       };
 
       let execError: string | null = null;
@@ -673,13 +688,15 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
           // ── STEP 1: Check recent OUTBOUND messages for previously identified product ──
           let productRecovered = false;
           try {
-            const { data: recentMsgs } = await supabase
+            let prodRecoveryQuery = supabase
               .from("messages")
               .select("content")
               .eq("contact_id", ctx.contactId)
               .eq("direction", "outbound")
               .order("created_at", { ascending: false })
               .limit(10);
+            if (ctx.sessionStartedAt) prodRecoveryQuery = prodRecoveryQuery.gte("created_at", ctx.sessionStartedAt);
+            const { data: recentMsgs } = await prodRecoveryQuery;
 
             if (recentMsgs && recentMsgs.length > 0) {
               // Look for "🛒 Encontrei no catálogo: *PRODUCT*\n💰 Valor: *R$ XX,XX*" or similar patterns
@@ -1033,12 +1050,15 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
       if (iaReply) contextParts.push(`[Resposta da IA] ${iaReply}`);
 
       // Also fetch recent conversation messages (inbound + outbound) for fuller context
-      const { data: recentMsgs } = await supabase
+      // Filter by session boundary to avoid mixing resolved occurrences
+      let occMsgQuery = supabase
         .from("messages")
         .select("direction, content, type, created_at")
         .eq("contact_id", ctx.contactId)
         .order("created_at", { ascending: false })
         .limit(10);
+      if (ctx.sessionStartedAt) occMsgQuery = occMsgQuery.gte("created_at", ctx.sessionStartedAt);
+      const { data: recentMsgs } = await occMsgQuery;
       
       if (recentMsgs && recentMsgs.length > 0) {
         const msgHistory = recentMsgs
@@ -1512,21 +1532,26 @@ REGRAS PARA "ready":
       // ══════════════════════════════════════════════════════════
 
       // ── 1. CONVERSATION MEMORY: load broader history (15 msgs) ──
-      const { data: recentInbound } = await supabase
+      // Filter by session boundary to avoid mixing resolved conversations
+      let inboundQuery = supabase
         .from("messages")
         .select("direction, content, type, media_url, created_at")
         .eq("contact_id", ctx.contactId)
         .eq("direction", "inbound")
         .order("created_at", { ascending: false })
         .limit(10);
+      if (ctx.sessionStartedAt) inboundQuery = inboundQuery.gte("created_at", ctx.sessionStartedAt);
+      const { data: recentInbound } = await inboundQuery;
 
-      const { data: recentOutbound } = await supabase
+      let outboundQuery = supabase
         .from("messages")
         .select("direction, content, type, created_at")
         .eq("contact_id", ctx.contactId)
         .eq("direction", "outbound")
         .order("created_at", { ascending: false })
         .limit(5);
+      if (ctx.sessionStartedAt) outboundQuery = outboundQuery.gte("created_at", ctx.sessionStartedAt);
+      const { data: recentOutbound } = await outboundQuery;
 
       const transcription = ctx.variables["transcricao"] || "";
       const pdfContent = ctx.variables["pdf_conteudo"] || "";
@@ -2845,14 +2870,16 @@ Responda APENAS com JSON válido:
         .order("created_at", { ascending: true })
         .limit(maxMessages);
 
-      // Also fetch the last 5 messages overall for broader context (regardless of time window)
-      const { data: recentContextMsgs } = await supabase
+      // Also fetch the last 5 messages overall for broader context (session-scoped)
+      let batchContextQuery = supabase
         .from("messages")
         .select("content, type, media_url, created_at, direction")
         .eq("contact_id", ctx.contactId)
         .eq("direction", "inbound")
         .order("created_at", { ascending: false })
         .limit(5);
+      if (ctx.sessionStartedAt) batchContextQuery = batchContextQuery.gte("created_at", ctx.sessionStartedAt);
+      const { data: recentContextMsgs } = await batchContextQuery;
 
       // Merge: use time-windowed batch if available, otherwise recent messages
       const msgsToAggregate = (batchMsgs && batchMsgs.length > 0) 
