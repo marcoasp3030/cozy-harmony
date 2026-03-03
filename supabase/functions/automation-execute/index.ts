@@ -1185,13 +1185,15 @@ REGRAS PARA "ready":
         .from("settings")
         .select("key, value")
         .eq("user_id", ownerAutomation.created_by)
-        .in("key", ["llm_openai", "llm_gemini"]);
+        .in("key", ["llm_openai", "llm_gemini", "ai_timeout"]);
 
       const keys: Record<string, string> = {};
+      let aiTimeoutSeconds = 15; // default 15s for automations (fast fallback)
       for (const s of (settings || [])) {
-        const val = s.value as { apiKey?: string };
+        const val = s.value as any;
         if (s.key === "llm_openai" && val?.apiKey) keys.openai = val.apiKey;
         if (s.key === "llm_gemini" && val?.apiKey) keys.gemini = val.apiKey;
+        if (s.key === "ai_timeout" && val?.seconds) aiTimeoutSeconds = val.seconds;
       }
 
       // ── Whisper: transcribe last inbound audio ──
@@ -1775,11 +1777,15 @@ REGRAS PARA "ready":
       if (hasUserKey) {
         try {
           if (selectedProvider === "openai") {
+            const controller = new AbortController();
+            const tid = setTimeout(() => controller.abort(), aiTimeoutSeconds * 1000);
             const resp = await fetch("https://api.openai.com/v1/chat/completions", {
               method: "POST",
               headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
               body: JSON.stringify({ model, messages: chatMessages, max_tokens: maxTokens, temperature: 0.7 }),
+              signal: controller.signal,
             });
+            clearTimeout(tid);
             if (resp.ok) {
               const data = await resp.json();
               reply = data.choices?.[0]?.message?.content?.trim() || "";
@@ -1807,6 +1813,8 @@ REGRAS PARA "ready":
               }
               return { role: m.role === "assistant" ? "model" : "user", parts };
             });
+            const controller2 = new AbortController();
+            const tid2 = setTimeout(() => controller2.abort(), aiTimeoutSeconds * 1000);
             const resp = await fetch(
               `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${keys.gemini}`,
               {
@@ -1817,8 +1825,10 @@ REGRAS PARA "ready":
                   contents: geminiContents,
                   generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 },
                 }),
+                signal: controller2.signal,
               }
             );
+            clearTimeout(tid2);
             if (resp.ok) {
               const data = await resp.json();
               reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
