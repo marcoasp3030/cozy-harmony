@@ -2186,7 +2186,7 @@ REGRAS PARA "ready":
           const hasCatalogPriceInReply = pricesInReply.some((p) => Math.abs(p - catalogPriceValue) < 0.01);
           if (!hasCatalogPriceInReply) {
             console.warn(`[LLM GUARD] Correcting mismatched price. catalog=${catalogPriceValue}, reply="${reply.slice(0, 120)}"`);
-            reply = `Perfeito! Encontrei no catálogo:\n\n🛒 Produto: *${catalogProductName}*\n💰 Valor: *${catalogPriceFormatted}*\n\nSe quiser, já te envio a chave PIX para pagamento.`;
+            reply = `Perfeito! Encontrei no catálogo:\n\n🛒 Produto: *${catalogProductName}*\n💰 Valor: *${catalogPriceFormatted}*`;
           }
         }
 
@@ -2228,19 +2228,27 @@ REGRAS PARA "ready":
         const isDifficultyContext = PIX_DIFFICULTY_KEYWORDS.test(customerContextForGuard);
         const replyOffersPix = /\b(enviar?\s*(a\s*)?chave|chave\s*pix|pagar?\s*(via|por|com)\s*pix|pagamento\s*(via|por|com)\s*pix)\b/i.test(reply);
 
-        if (isDifficultyContext && replyOffersPix && ctx.variables["_pix_key_sent"] !== "true") {
-          // Replace proactive PIX offer with a confirmation question
+        if (replyOffersPix && ctx.variables["_pix_key_sent"] !== "true") {
+          // Strip PIX text offers — interactive buttons will handle this instead
           reply = reply.replace(
             /(?:se\s*(?:quiser|preferir|desejar),?\s*)?(?:j[aá]\s*)?(?:te\s*)?(?:posso\s*)?(?:enviar?|mand[ao]r?)\s*(?:a\s*)?chave\s*pix[^.!?\n]*/gi,
-            "Se preferir pagar via PIX, me avise que envio a chave para você"
+            ""
           );
-          // Also catch patterns like "vou te enviar a chave PIX"
           reply = reply.replace(
             /vou\s*(?:te\s*)?enviar?\s*(?:a\s*)?chave\s*pix[^.!?\n]*/gi,
-            "caso queira pagar via PIX, é só me pedir que envio a chave"
+            ""
           );
-          console.log(`[PIX GUARD] Difficulty context detected — replaced proactive PIX offer with confirmation question`);
-          ctx.variables["_audit_reply_suppressed"] = `Oferta proativa de PIX convertida em confirmação — relato de dificuldade: "${ctx.messageContent?.slice(0, 100)}"`;
+          reply = reply.replace(
+            /gostaria\s*que\s*eu\s*envi[ae]\s*(?:a\s*)?chave\s*pix[^.!?\n]*/gi,
+            ""
+          );
+          reply = reply.replace(
+            /(?:deseja|quer)\s*(?:receber|que\s*eu\s*envi[ae])\s*(?:a\s*)?chave\s*pix[^.!?\n]*/gi,
+            ""
+          );
+          // Clean up leftover whitespace/newlines
+          reply = reply.replace(/\n{3,}/g, "\n\n").trim();
+          console.log(`[PIX GUARD] Stripped PIX text offer from AI reply — interactive buttons will handle PIX offer`);
         }
 
         // ── POST-REPLY: decide if we should resolve product from image before sending text ──
@@ -2343,9 +2351,23 @@ REGRAS PARA "ready":
                         await sendWhatsAppMessage(supabase, ctx, followUp);
                         console.log(`[AUDIT] PIX key auto-sent (explicit request) at ${new Date().toISOString()} — product: ${first.name}, price: ${prodPrice}`);
                       } else {
-                        const qualificationMsg = `🛒 Encontrei no catálogo: *${first.name}*\n💰 Valor: *${prodPrice}*\n\nSe vc quiser pagar via PIX, me pede a chave que eu te envio na hora 😊`;
-                        await sendWhatsAppMessage(supabase, ctx, qualificationMsg);
-                        console.log(`[PIX] Product found via barcode lookup, but no explicit PIX request — sent qualification message only`);
+                        // Send interactive buttons for PIX confirmation instead of plain text
+                        const qualificationMsg = `🛒 Encontrei no catálogo: *${first.name}*\n💰 Valor: *${prodPrice}*`;
+                        const buttonsSent = await sendInteractiveButtons(
+                          supabase,
+                          ctx,
+                          qualificationMsg,
+                          [
+                            { label: "✅ Enviar chave PIX", id: "pix_enviar" },
+                            { label: "❌ Não quero", id: "pix_cancelar" },
+                          ],
+                          "Nutricar Brasil - Mini Mercado 24h"
+                        );
+                        if (!buttonsSent) {
+                          // Fallback to text if buttons fail
+                          await sendWhatsAppMessage(supabase, ctx, `${qualificationMsg}\n\nDeseja receber a chave PIX para pagamento? 😊`);
+                        }
+                        console.log(`[PIX] Product found via barcode lookup — sent interactive PIX buttons`);
                       }
                     } else {
                       // Product not in catalog
@@ -3336,6 +3358,9 @@ Responda APENAS com JSON válido:
 // ── Auto-send PIX key ONLY when customer EXPLICITLY requests to pay via PIX ──
 // Matches EXPLICIT PIX payment requests, NOT difficulty reports or general payment mentions
 const PIX_EXPLICIT_REQUEST = /\b(me\s*envi[ae]\s*(a\s*)?chave|manda\s*(a\s*)?chave|quero\s*pagar\s*(via\s*)?pix|pode\s*enviar\s*(a\s*)?chave|qual\s*(a\s*)?chave\s*pix|chave\s*pix\s*por\s*favor|vou\s*pagar\s*(via\s*)?pix|quero\s*fazer\s*(o\s*)?pix|como\s*fa[cç]o\s*(o\s*)?pix|quer\s*pagar\s*por\s*pix)\b/i;
+// Matches SHORT confirmations like "pode enviar", "sim", "quero", "manda" — only valid when product already identified
+// Also matches interactive button responses like "Enviar chave PIX" or "pix_enviar"
+const PIX_CONFIRMATION = /^(pode\s*(enviar|mandar)|sim|quero|manda|envia|pode\s*sim|bora|vamos|isso|ok|blz|beleza|fechou|fecho|pode\s*ser|por\s*favor|pfv|pfvr|claro|com\s*certeza|pode|manda\s*a[ií]|envia\s*a[ií]|pode\s*ser\s*sim|quero\s*sim|sim\s*quero|sim\s*pode|pode\s*s[ií]|manda\s*pra\s*mim|pix_enviar|enviar\s*chave\s*pix|✅\s*enviar\s*chave\s*pix)[\s!.]*$/i;
 // Matches problems/failures with payment — used to INVESTIGATE, not to send PIX immediately
 const PIX_DIFFICULTY_KEYWORDS = /\b(n[aã]o.*consig[ou].*pagar|n[aã]o.*conseg.*pagar|n[aã]o.*passou|n[aã]o.*aceito[ua]?|n[aã]o.*funciono[ua]|problema.*pag|erro.*pag|pag.*erro|pag.*n[aã]o.*foi|cobran[cç]a.*indevid|valor.*cobrado.*errado|cobrou.*errado|cobrou.*mais|cobrou.*a\s*mais|cobrou.*diferente|estorno|reembolso|devolu[cç][aã]o|totem.*n[aã]o|totem.*com.*defeito|totem.*erro|totem.*travou|totem.*desligad|cart[aã]o.*recus|cart[aã]o.*n[aã]o|pix.*n[aã]o.*funciono|pix.*erro|pix.*problema|dificuldade.*pag|n[aã]o.*conseg.*pix|n[aã]o.*conseg.*fazer.*pag|n[aã]o.*estou.*conseguindo|n[aã]o.*t[aá].*conseguindo)\b/i;
 const PIX_KEY_MESSAGE = `💳 *Segue as opções de pagamento via PIX da Nutricar Brasil:*\n\n📧 *Chave PIX:* financeiro@nutricarbrasil.com.br\n\nApós o pagamento, envie o comprovante aqui pra gente confirmar! 😊\n_Nutricar Brasil - Mini Mercado 24h_`;
@@ -3352,6 +3377,72 @@ function buildPixPaymentMessage(productName?: string, productPrice?: string | nu
   }
 
   return PIX_KEY_MESSAGE;
+}
+
+// ── Helper: Send interactive buttons via WhatsApp (UazAPI /send/menu) ──
+async function sendInteractiveButtons(
+  supabase: any,
+  ctx: ExecutionContext,
+  bodyText: string,
+  buttons: Array<{ label: string; id: string }>,
+  footer?: string
+): Promise<boolean> {
+  try {
+    const instance = await getCachedInstance(supabase, ctx.userId, ctx.instanceId);
+    if (!instance) return false;
+
+    const cleanNumber = String(ctx.contactPhone || "").replace(/\D/g, "");
+    const baseUrl = String(instance.base_url).replace(/\/+$/, "");
+
+    const choices = buttons.map(b => `${b.label}|${b.id}`);
+
+    const payload: Record<string, any> = {
+      number: cleanNumber,
+      text: bodyText,
+      choices,
+      type: "button",
+    };
+    if (footer) payload.footerText = footer;
+
+    const resp = await fetch(`${baseUrl}/send/menu`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        token: instance.instance_token,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const rawResponse = await resp.text();
+    console.log(`[Interactive Buttons] Sent to ${cleanNumber}: ${resp.status} — ${rawResponse.slice(0, 200)}`);
+    
+    // Save to messages table
+    const normalizeMsgId = (value: unknown): string | null => {
+      if (!value) return null;
+      const raw = String(value).trim();
+      if (!raw) return null;
+      const parts = raw.split(":").filter(Boolean);
+      return parts.length > 1 ? parts[parts.length - 1] : raw;
+    };
+    let result: any = {};
+    try { result = rawResponse ? JSON.parse(rawResponse) : {}; } catch {}
+    const externalId = normalizeMsgId(result?.messageid || result?.messageId || result?.key?.id || result?.message?.key?.id || result?.data?.key?.id || null);
+    
+    await supabase.from("messages").insert({
+      contact_id: ctx.contactId,
+      direction: "outbound",
+      type: "interactive",
+      content: bodyText,
+      external_id: externalId,
+      user_id: ctx.userId,
+      metadata: { buttons: buttons.map(b => b.label), footer },
+    });
+
+    return resp.ok;
+  } catch (e) {
+    console.error("[Interactive Buttons] Error:", e);
+    return false;
+  }
 }
 
 async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext): Promise<boolean> {
@@ -3375,25 +3466,80 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
     ctx.variables["transcricao"] || "",
   ].join(" ");
 
-  // ── NEW LOGIC: Only auto-send PIX if customer EXPLICITLY requests it ──
+  // ── NEW: Check if this is a SHORT CONFIRMATION (e.g. "pode enviar", "sim", "quero") ──
+  // Only treat as PIX confirmation if product was already identified in a previous interaction
+  const isConfirmation = PIX_CONFIRMATION.test((ctx.messageContent || "").trim());
+  const productAlreadyIdentified = ctx.variables["produto_encontrado"] === "true";
+  
+  // Check if we recently offered PIX (check outbound messages for PIX offer)
+  let recentPixOffer = false;
+  if (isConfirmation && productAlreadyIdentified) {
+    try {
+      let pixOfferQuery = supabase
+        .from("messages")
+        .select("content")
+        .eq("contact_id", ctx.contactId)
+        .eq("direction", "outbound")
+        .order("created_at", { ascending: false })
+        .limit(5);
+      if (ctx.sessionStartedAt) pixOfferQuery = pixOfferQuery.gte("created_at", ctx.sessionStartedAt);
+      const { data: recentOutbound } = await pixOfferQuery;
+      recentPixOffer = (recentOutbound || []).some((m: any) => 
+        /pix|chave|pagamento via/i.test(m.content || "")
+      );
+    } catch {}
+  }
+
+  if (isConfirmation && productAlreadyIdentified && recentPixOffer) {
+    console.log(`[PIX] Confirmation detected ("${ctx.messageContent}") + product already identified — auto-sending PIX key`);
+    ctx.variables["_pix_key_sent"] = "true";
+    const pixMessage = buildPixPaymentMessage(ctx.variables["produto_nome"], ctx.variables["produto_preco"]);
+    ctx.variables["_audit_pix_auto_sent"] = `PIX enviado via confirmação curta ("${ctx.messageContent}"): produto=${ctx.variables["produto_nome"] || "N/A"}, valor=${ctx.variables["produto_preco"] || "N/A"}`;
+    console.log(`[AUDIT] PIX key auto-sent (confirmation) at ${new Date().toISOString()} — ${ctx.contactPhone}`);
+    await sendWhatsAppMessage(supabase, ctx, pixMessage);
+    return true;
+  }
+
+  // ── EXPLICIT PIX REQUEST (e.g. "me envia a chave pix") ──
   const isExplicitPixRequest = PIX_EXPLICIT_REQUEST.test(customerContext);
   const isDifficultyReport = PIX_DIFFICULTY_KEYWORDS.test(customerContext);
 
   // If it's a difficulty report (NOT an explicit PIX request), do NOT send PIX
-  // Let the IA handle it by asking clarifying questions first
   if (isDifficultyReport && !isExplicitPixRequest) {
     console.log(`[PIX] Payment DIFFICULTY detected but NO explicit PIX request — letting IA qualify first`);
     return false;
   }
 
-  // Only proceed if explicit PIX request
-  if (!isExplicitPixRequest) return false;
+  // If no explicit PIX request, check if we should offer PIX via interactive buttons
+  if (!isExplicitPixRequest) {
+    // If product is identified and PIX not yet offered via buttons, send interactive buttons
+    const productIdentifiedForOffer = ctx.variables["produto_encontrado"] === "true";
+    const pixButtonsAlreadySent = ctx.variables["_pix_buttons_sent"] === "true";
+    
+    if (productIdentifiedForOffer && !pixButtonsAlreadySent && !isDifficultyReport) {
+      const prodName = ctx.variables["produto_nome"] || "";
+      const prodPriceRaw = Number(ctx.variables["produto_preco"]);
+      if (prodName && Number.isFinite(prodPriceRaw) && prodPriceRaw > 0) {
+        const prodPriceFormatted = prodPriceRaw.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        const offerMsg = `🛒 Produto: *${prodName}*\n💰 Valor: *${prodPriceFormatted}*\n\nDeseja pagar via PIX? 😊`;
+        
+        const sent = await sendInteractiveButtons(supabase, ctx, offerMsg, [
+          { label: "✅ Enviar chave PIX", id: "pix_enviar" },
+          { label: "❌ Não, obrigado", id: "pix_cancelar" },
+        ], "Nutricar Brasil - Mini Mercado 24h");
+        
+        ctx.variables["_pix_buttons_sent"] = "true";
+        console.log(`[PIX] Product identified (${prodName}) — sent interactive PIX buttons (sent=${sent})`);
+        return sent;
+      }
+    }
+    return false;
+  }
 
   // ── GUARD: PIX only after catalog-confirmed product (no LLM-only prices) ──
   const productIdentified = ctx.variables["produto_encontrado"] === "true";
 
   if (!productIdentified) {
-    // Product not yet identified in catalog — do not send PIX key yet
     console.log(`[PIX] Explicit PIX request but product NOT identified in catalog — holding PIX key`);
     return false;
   }
