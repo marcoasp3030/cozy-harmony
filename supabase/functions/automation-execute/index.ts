@@ -2572,6 +2572,7 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
                           ],
                           "Nutricar Brasil - Mini Mercado 24h"
                         );
+                        ctx.variables["_pix_buttons_sent"] = "true";
                         if (!buttonsSent) {
                           // Fallback to text if buttons fail
                           await sendWhatsAppMessage(supabase, ctx, `${qualificationMsg}\n\nDeseja receber a chave PIX para pagamento? 😊`);
@@ -3657,8 +3658,12 @@ async function sendInteractiveButtons(
 }
 
 async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext): Promise<boolean> {
-  // Check if PIX was already sent in this execution
+  // Check if PIX was already sent or buttons already offered in this execution
   if (ctx.variables["_pix_key_sent"] === "true") return false;
+  if (ctx.variables["_pix_buttons_sent"] === "true") {
+    console.log(`[PIX] Skipping sendPixKeyIfPaymentRelated — PIX buttons already sent this execution`);
+    return false;
+  }
   // Check if difficulty was detected earlier in the flow — never auto-send PIX during problem reports
   if (ctx.variables["_difficulty_detected"] === "true") {
     console.log(`[PIX] Skipping sendPixKeyIfPaymentRelated — _difficulty_detected flag is set`);
