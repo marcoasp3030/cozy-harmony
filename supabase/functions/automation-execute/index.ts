@@ -276,7 +276,11 @@ serve(async (req) => {
         conversationId,
         userId: automation.created_by || null,
         instanceId: automation.instance_id || null,
-        variables: {},
+        variables: {
+          _audit_session_boundary: sessionStartedAt
+            ? `${sessionStartedAt} (${new Date(sessionStartedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })})`
+            : "Sem fronteira — contexto completo",
+        },
         isFirstContact: !!isFirstContact,
         nodeLog: [],
         sessionStartedAt,
