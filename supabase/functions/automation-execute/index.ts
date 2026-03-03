@@ -1750,8 +1750,81 @@ REGRAS PARA "ready":
 - Se o cliente EXPLICITAMENTE pedir a chave PIX (ex: "me envia a chave PIX"), o sistema enviará automaticamente. NÃO envie no texto.
 - CONFIRMAÇÃO OBRIGATÓRIA: Sempre que for oferecer PIX como alternativa, use formato de PERGUNTA (ex: "Gostaria que eu envie a chave PIX?"), NUNCA como afirmação.`;
 
+      // ── 9. KNOWLEDGE BASE: inject relevant articles ──
+      let knowledgeContext = "";
+      try {
+        // Load always_inject categories + their active articles
+        const { data: alwaysCats } = await supabase
+          .from("knowledge_categories")
+          .select("id, name")
+          .eq("created_by", ctx.userId)
+          .eq("always_inject", true);
+
+        const alwaysCatIds = (alwaysCats || []).map((c: any) => c.id);
+
+        // Load on-demand categories for keyword matching
+        const { data: demandCats } = await supabase
+          .from("knowledge_categories")
+          .select("id, name")
+          .eq("created_by", ctx.userId)
+          .eq("always_inject", false);
+
+        // Determine which on-demand categories match the client's message
+        const clientText = (groupedMessages || transcription || ctx.messageContent || "").toLowerCase();
+        const matchedDemandIds: string[] = [];
+
+        if (clientText.length > 2 && demandCats?.length) {
+          // Load articles from demand categories to check tags
+          const demandIds = demandCats.map((c: any) => c.id);
+          const { data: demandArts } = await supabase
+            .from("knowledge_articles")
+            .select("id, category_id, title, tags")
+            .eq("is_active", true)
+            .in("category_id", demandIds);
+
+          for (const art of demandArts || []) {
+            const titleMatch = clientText.includes(art.title.toLowerCase());
+            const tagMatch = (art.tags || []).some((tag: string) => clientText.includes(tag.toLowerCase()));
+            if (titleMatch || tagMatch) {
+              if (!matchedDemandIds.includes(art.category_id)) {
+                matchedDemandIds.push(art.category_id);
+              }
+            }
+          }
+        }
+
+        const allRelevantCatIds = [...alwaysCatIds, ...matchedDemandIds];
+
+        if (allRelevantCatIds.length > 0) {
+          const { data: kbArticles } = await supabase
+            .from("knowledge_articles")
+            .select("title, content, category_id")
+            .eq("is_active", true)
+            .in("category_id", allRelevantCatIds);
+
+          if (kbArticles?.length) {
+            const allCats = [...(alwaysCats || []), ...(demandCats || [])];
+            const catMap = Object.fromEntries(allCats.map((c: any) => [c.id, c.name]));
+
+            knowledgeContext = "\n\n📚 BASE DE CONHECIMENTO DA EMPRESA (use estas informações para responder com precisão):";
+            const grouped: Record<string, string[]> = {};
+            for (const art of kbArticles) {
+              const catName = catMap[art.category_id] || "Geral";
+              if (!grouped[catName]) grouped[catName] = [];
+              grouped[catName].push(`• ${art.title}: ${art.content}`);
+            }
+            for (const [cat, items] of Object.entries(grouped)) {
+              knowledgeContext += `\n\n[${cat}]\n${items.join("\n")}`;
+            }
+            console.log(`[KB] Injected ${kbArticles.length} articles from ${allRelevantCatIds.length} categories`);
+          }
+        }
+      } catch (kbErr) {
+        console.error("[KB] Error loading knowledge base:", kbErr);
+      }
+
       // ── Compose final enriched system prompt ──
-      const enrichedSystemPrompt = systemPrompt + profileContext + productContext + sentimentHint + languageHint + variationHint + pixQualificationHint;
+      const enrichedSystemPrompt = systemPrompt + profileContext + productContext + knowledgeContext + sentimentHint + languageHint + variationHint + pixQualificationHint;
 
       // Merge and sort by created_at
       const allRecent = [
