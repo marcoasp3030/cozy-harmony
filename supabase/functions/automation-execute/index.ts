@@ -1862,6 +1862,29 @@ REGRAS PARA "ready":
           }
         }
 
+        // Never promise QR Code (this flow sends PIX key text only)
+        const mentionsQrCode = /\b(qr\s*code|qrcode)\b/i.test(reply);
+        if (mentionsQrCode) {
+          if (hasCatalogProduct) {
+            reply = buildPixPaymentMessage(catalogProductName, catalogPriceValue);
+            ctx.variables["_pix_key_sent"] = "true";
+          } else {
+            reply = reply.replace(/\b(qr\s*code|qrcode)\b/gi, "chave PIX");
+          }
+        }
+
+        // ── POST-REPLY: decide if we should resolve product from image before sending text ──
+        const promisedToCheck = /verificar|vou checar|já te informo|vou consultar|deixa eu ver|momento.*valor/i.test(reply);
+        const hasBarcodeMention = /código de barras|barcode|código.*barras|EAN|GTIN/i.test(reply) || /código de barras|barcode|EAN|GTIN/i.test(ctx.messageContent || "");
+        const replyRequestsCatalogCheck = /preciso identificar o produto no cat[aá]logo/i.test(reply);
+        const paymentContext = /\b(valor|preço|preco|pix|pagamento|pagar)\b/i.test(`${reply} ${ctx.messageContent} ${ctx.variables["mensagens_agrupadas"] || ""}`);
+        const shouldRunPostReplyLookup =
+          !!imageBase64 &&
+          !!ctx.userId &&
+          ctx.variables["produto_encontrado"] !== "true" &&
+          (promisedToCheck || hasBarcodeMention || replyRequestsCatalogCheck || (ctx.messageType === "image" && paymentContext));
+        const shouldHoldPrimaryReply = shouldRunPostReplyLookup && replyRequestsCatalogCheck;
+
         // Store IA reply as variable for downstream nodes (e.g. TTS with {{ia_reply}})
         ctx.variables["ia_reply"] = reply;
 
@@ -1877,21 +1900,12 @@ REGRAS PARA "ready":
           console.log(`Audio reply fallback to text: ${audioResult.reason || "unknown_reason"}`);
         }
 
-        // Only send as text message if suppress_send is not set
-        if (!d.suppress_send) {
+        // Only send as text if not suppressed and not waiting for image lookup follow-up
+        if (!d.suppress_send && !shouldHoldPrimaryReply) {
           await sendWhatsAppMessage(supabase, ctx, reply);
+        } else if (!d.suppress_send && shouldHoldPrimaryReply) {
+          console.log("[POST-LLM] Holding primary reply to avoid contradictory message before barcode lookup");
         }
-
-        // ── POST-REPLY: Auto-fulfill price checks from image context ──
-        const promisedToCheck = /verificar|vou checar|já te informo|vou consultar|deixa eu ver|momento.*valor/i.test(reply);
-        const hasBarcodeMention = /código de barras|barcode|código.*barras|EAN|GTIN/i.test(reply) || /código de barras|barcode|EAN|GTIN/i.test(ctx.messageContent || "");
-        const replyRequestsCatalogCheck = /preciso identificar o produto no cat[aá]logo/i.test(reply);
-        const paymentContext = /\b(valor|preço|preco|pix|pagamento|pagar)\b/i.test(`${reply} ${ctx.messageContent} ${ctx.variables["mensagens_agrupadas"] || ""}`);
-        const shouldRunPostReplyLookup =
-          !!imageBase64 &&
-          !!ctx.userId &&
-          ctx.variables["produto_encontrado"] !== "true" &&
-          (promisedToCheck || hasBarcodeMention || replyRequestsCatalogCheck || (ctx.messageType === "image" && paymentContext));
 
         if (shouldRunPostReplyLookup) {
           console.log("[POST-LLM] Triggered image product lookup after reply");
@@ -1943,10 +1957,11 @@ REGRAS PARA "ready":
                       ctx.variables["produto_nome"] = first.name || "";
                       ctx.variables["produto_preco"] = String(first.price || 0);
                       const prodPrice = Number(first.price).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-                      
-                      const followUp = `✅ Encontrei o produto!\n\n🛒 *${first.name}*\n💰 Valor: *${prodPrice}*${first.barcode ? `\n📊 Código: ${first.barcode}` : ""}\n\nDeseja seguir com o pagamento via PIX? 😊`;
+
+                      const followUp = buildPixPaymentMessage(first.name || "", first.price);
+                      ctx.variables["_pix_key_sent"] = "true";
                       await sendWhatsAppMessage(supabase, ctx, followUp);
-                      console.log(`[POST-LLM] Found product: ${first.name} = ${prodPrice}`);
+                      console.log(`[POST-LLM] Found product: ${first.name} = ${prodPrice} (PIX key sent)`);
                     } else {
                       // Product not in catalog
                       const notFound = `❌ Não encontrei esse produto no nosso catálogo${barcodeNum ? ` (código: ${barcodeNum})` : ""}. Poderia enviar outra foto mais nítida do código de barras ou me dizer o nome do produto?`;
@@ -2693,7 +2708,21 @@ Responda com JSON: {"quality": "boa"|"ruim"|"parcial", "quality_issue": "...", "
 // ── Auto-send PIX key ONLY when customer reports DIFFICULTY paying ──
 // Matches problems/failures with payment, NOT general payment mentions or inquiries
 const PIX_DIFFICULTY_KEYWORDS = /\b(n[aã]o.*consig[ou].*pagar|n[aã]o.*passou|n[aã]o.*aceito[ua]?|n[aã]o.*funciono[ua]|problema.*pag|erro.*pag|pag.*erro|pag.*n[aã]o.*foi|cobran[cç]a.*indevid|valor.*cobrado.*errado|cobrou.*errado|cobrou.*mais|cobrou.*a\s*mais|cobrou.*diferente|estorno|reembolso|devolu[cç][aã]o|totem.*n[aã]o|totem.*com.*defeito|totem.*erro|totem.*travou|cart[aã]o.*recus|cart[aã]o.*n[aã]o|pix.*n[aã]o.*funciono|pix.*erro|pix.*problema|dificuldade.*pag|n[aã]o.*conseg.*pix)\b/i;
-const PIX_KEY_MESSAGE = `💳 *Chave PIX para pagamento:*\n\n📧 financeiro@nutricarbrasil.com.br\n\n_Após efetuar o pagamento, por favor envie o comprovante aqui para darmos seguimento._`;
+const PIX_KEY_MESSAGE = `💳 *Segue as opções de pagamento via PIX da Nutricar Brasil:*\n\n📧 *Chave PIX:* financeiro@nutricarbrasil.com.br\n\nApós o pagamento, envie o comprovante aqui pra gente confirmar! 😊\n_Nutricar Brasil - Mini Mercado 24h_`;
+
+function buildPixPaymentMessage(productName?: string, productPrice?: string | number): string {
+  const safeName = String(productName || "").trim();
+  const numericPrice = Number(productPrice);
+  const hasProduct = !!safeName;
+  const hasPrice = Number.isFinite(numericPrice) && numericPrice > 0;
+
+  if (hasProduct && hasPrice) {
+    const priceFormatted = numericPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    return `🛒 *Produto:* ${safeName}\n💰 *Valor:* ${priceFormatted}\n\n${PIX_KEY_MESSAGE}`;
+  }
+
+  return PIX_KEY_MESSAGE;
+}
 
 async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext): Promise<boolean> {
   // Check if PIX was already sent in this execution
@@ -2722,12 +2751,7 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
   // Mark as sent to avoid duplicates
   ctx.variables["_pix_key_sent"] = "true";
 
-  // Include the product/value in the PIX message if available
-  let pixMessage = PIX_KEY_MESSAGE;
-  if (productIdentified && ctx.variables["produto_nome"] && ctx.variables["produto_preco"]) {
-    const priceFormatted = Number(ctx.variables["produto_preco"]).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-    pixMessage = `🛒 *Produto:* ${ctx.variables["produto_nome"]}\n💰 *Valor:* ${priceFormatted}\n\n${PIX_KEY_MESSAGE}`;
-  }
+  const pixMessage = buildPixPaymentMessage(ctx.variables["produto_nome"], ctx.variables["produto_preco"]);
 
   console.log(`[PIX] Payment difficulty detected + product identified, sending PIX key to ${ctx.contactPhone}`);
   await sendWhatsAppMessage(supabase, ctx, pixMessage);
