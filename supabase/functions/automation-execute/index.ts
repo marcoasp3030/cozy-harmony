@@ -626,8 +626,26 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
 
       if (!bodyText || !optionsRaw) return { sent: false, reason: "empty_body_or_options" };
 
-      // ── AUTO-INJECT PRODUCT INFO for payment-related interactive messages ──
+      // ── DIFFICULTY GUARD: If customer reports a PROBLEM, don't send PIX interactive — send empathy + qualification ──
+      const customerContextInteractive = [
+        ctx.messageContent,
+        ctx.variables["mensagens_agrupadas"] || "",
+        ctx.variables["transcricao"] || "",
+      ].join(" ");
+      const isDifficultyInteractive = PIX_DIFFICULTY_KEYWORDS.test(customerContextInteractive);
+      const isExplicitPixInteractive = PIX_EXPLICIT_REQUEST.test(customerContextInteractive);
       const isPaymentMsg = /pix|pagamento|pagar|valor|chave/i.test(bodyText);
+
+      if (isDifficultyInteractive && !isExplicitPixInteractive && isPaymentMsg) {
+        // Customer has a PROBLEM — don't offer PIX, ask for details instead
+        console.log(`[PIX GUARD] Difficulty detected in interactive node — converting to qualification message`);
+        ctx.variables["_audit_reply_suppressed"] = `Mensagem interativa PIX bloqueada — relato de dificuldade: "${ctx.messageContent?.slice(0, 100)}"`;
+        
+        // Send a plain text qualification message instead of PIX interactive
+        const qualificationMsg = `Sinto muito pelo transtorno! 😔 Vou te ajudar a resolver isso.\n\nPara entender melhor a situação, preciso de algumas informações:\n1️⃣ Em qual loja/unidade aconteceu?\n2️⃣ Qual produto você pegou?\n3️⃣ Qual o valor que apareceu?\n\nAssim consigo te ajudar da melhor forma! 💚\n\n_Nutricar Brasil - Mini Mercado 24h_`;
+        await sendWhatsAppMessage(supabase, ctx, qualificationMsg);
+        return { sent: true, difficulty_guard: true, reason: "difficulty_report_detected" };
+      }
 
       // ── CHECK: Did the customer say they ALREADY PAID? ──
       const alreadyPaidPattern = /j[aá]\s*(fiz|paguei|pago|transferi|enviei)|fiz\s*o\s*pi[x]|fiz\s*o\s*pagamento|t[aá]\s*pago|realizei\s*o\s*pagamento|fiz\s*a\s*transfer[eê]ncia/i;
