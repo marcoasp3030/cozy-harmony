@@ -1596,7 +1596,7 @@ REGRAS PARA "ready":
       if ((convMeta?.score ?? 0) > 0) profileParts.push(`Score: ${convMeta.score}`);
 
       const profileContext = profileParts.length > 0
-        ? `\n\n👤 PERFIL DO CONTATO (dados já conhecidos — NÃO pergunte novamente o que já sabe):\n${profileParts.join("\n")}`
+        ? `\n\n👤 PERFIL DO CONTATO (dados já conhecidos — PROIBIDO perguntar novamente):\n${profileParts.join("\n")}\n\n🚫 REGRA ABSOLUTA: Se o nome do contato já está listado acima, NUNCA peça "nome completo", "seu nome" ou "como posso te chamar". Use o nome que já temos. Se a unidade/loja já foi mencionada no histórico ou notas, NÃO pergunte novamente. Só peça informações que ainda NÃO temos.`
         : "";
 
       // ── 6. LANGUAGE DETECTION: adapt tone/language to client ──
