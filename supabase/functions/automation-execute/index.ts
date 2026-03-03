@@ -1409,9 +1409,11 @@ REGRAS PARA "ready":
         .eq("id", ctx.conversationId)
         .single();
 
-      // ── 3. PRODUCT CATALOG: use pre-fetched data from search_product node OR search dynamically ──
+      // ── 3. PRODUCT CATALOG: use pre-fetched data OR search dynamically ──
       const msgForProductSearch = groupedMessages || transcription || ctx.messageContent || "";
       let productContext = "";
+      const imageDesc = ctx.variables["descricao_imagem"] || "";
+      const imageProductId = ctx.variables["produto_identificado"] || "";
       
       // Check if a previous search_product node already populated catalog data
       if (ctx.variables["produto_encontrado"] === "true" && ctx.variables["produtos_lista"]) {
@@ -1420,35 +1422,71 @@ REGRAS PARA "ready":
           "\n\n⚠️ OBRIGATÓRIO: Use EXATAMENTE os preços listados acima. NÃO invente, arredonde ou altere valores. Se o cliente perguntar sobre um produto que NÃO está na lista acima, diga que vai verificar.";
         console.log("[LLM CONTEXT] Using pre-fetched product data from search_product node");
       } else {
-        // Dynamic search only if no prior search_product node ran
-        const productKeywords = /produ|preço|preco|valor|quanto|custa|comprar|item|estoque|barcode|código|codigo/i;
-        if (productKeywords.test(msgForProductSearch) && ctx.userId) {
-          try {
-            const stopWords = new Set(["para", "como", "quero", "saber", "qual", "esse", "essa", "favor", "pode", "aqui", "mais", "muito", "obrigado", "obrigada", "vocês", "voces", "sobre", "tenho", "estou", "esta", "isso"]);
+        // Determine search query: prioritize image identification, then message text
+        let searchQuery = "";
+        
+        // If image was analyzed and product identified, search by that
+        if (imageProductId) {
+          searchQuery = imageProductId;
+          console.log(`[LLM CONTEXT] Searching catalog by image-identified product: "${imageProductId}"`);
+        } else if (imageDesc) {
+          // Extract product name from image description
+          searchQuery = imageDesc.replace(/[^\p{L}\p{N}\s]/gu, " ").trim().split(/\s+/).slice(0, 5).join(" ");
+          console.log(`[LLM CONTEXT] Searching catalog by image description: "${searchQuery}"`);
+        }
+        
+        // Also check message text for product keywords
+        if (!searchQuery) {
+          const productKeywords = /produ|preço|preco|valor|quanto|custa|comprar|item|estoque|barcode|código|codigo|peguei|levei|comprei/i;
+          if (productKeywords.test(msgForProductSearch) && ctx.userId) {
+            const stopWords = new Set(["para", "como", "quero", "saber", "qual", "esse", "essa", "favor", "pode", "aqui", "mais", "muito", "obrigado", "obrigada", "vocês", "voces", "sobre", "tenho", "estou", "esta", "isso", "peguei", "esse", "produto"]);
             const words = msgForProductSearch
               .replace(/[^\p{L}\p{N}\s]/gu, " ")
               .split(/\s+/)
               .filter((w: string) => w.length > 3 && !stopWords.has(w.toLowerCase()));
-            
-            const searchTerms = words.slice(0, 5).join(" ");
-            if (searchTerms.length > 3) {
-              const { data: products } = await supabase.rpc("search_products", {
-                _user_id: ctx.userId,
-                _query: searchTerms,
-                _limit: 5,
-              });
-              if (products && products.length > 0) {
-                productContext = "\n\n📦 PRODUTOS ENCONTRADOS NO CATÁLOGO (dados reais — USE ESTES PREÇOS, não invente valores):\n" +
-                  products.map((p: any) => 
-                    `- ${p.name}${p.barcode ? ` (cód: ${p.barcode})` : ""}: R$ ${Number(p.price).toFixed(2)}${p.category ? ` [${p.category}]` : ""}`
-                  ).join("\n") +
-                  "\n\n⚠️ OBRIGATÓRIO: Use EXATAMENTE os preços listados acima. NÃO invente, arredonde ou altere valores. Se o cliente perguntar sobre um produto que NÃO está na lista acima, diga que vai verificar e peça para ele enviar foto do código de barras.";
-              }
+            searchQuery = words.slice(0, 5).join(" ");
+          }
+        }
+        
+        // Execute catalog search if we have a query
+        if (searchQuery && searchQuery.length > 2 && ctx.userId) {
+          try {
+            const { data: products } = await supabase.rpc("search_products", {
+              _user_id: ctx.userId,
+              _query: searchQuery,
+              _limit: 5,
+            });
+            if (products && products.length > 0) {
+              // Also set ctx variables so downstream nodes (PIX, etc.) can use them
+              const first = products[0];
+              ctx.variables["produto_encontrado"] = "true";
+              ctx.variables["produto_nome"] = first.name || "";
+              ctx.variables["produto_preco"] = String(first.price || 0);
+              ctx.variables["produto_categoria"] = first.category || "";
+              ctx.variables["produto_barcode"] = first.barcode || "";
+              ctx.variables["produtos_lista"] = products.map((p: any, i: number) => {
+                const pf = Number(p.price || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                return `${i + 1}. *${p.name}* — ${pf}${p.category ? ` (${p.category})` : ""}${p.barcode ? ` | Cód: ${p.barcode}` : ""}`;
+              }).join("\n");
+              
+              productContext = "\n\n📦 PRODUTOS ENCONTRADOS NO CATÁLOGO (dados reais — USE ESTES PREÇOS, não invente valores):\n" +
+                products.map((p: any) => 
+                  `- ${p.name}${p.barcode ? ` (cód: ${p.barcode})` : ""}: R$ ${Number(p.price).toFixed(2)}${p.category ? ` [${p.category}]` : ""}`
+                ).join("\n") +
+                "\n\n⚠️ OBRIGATÓRIO: Use EXATAMENTE os preços listados acima. NÃO invente, arredonde ou altere valores.";
+              console.log(`[LLM CONTEXT] Dynamic search found ${products.length} products for "${searchQuery}"`);
+            } else {
+              console.log(`[LLM CONTEXT] No products found for "${searchQuery}"`);
             }
           } catch (e) {
             console.error("[PRODUCT SEARCH] Error:", e);
           }
         }
+      }
+      
+      // Always add anti-hallucination instruction for prices
+      if (!productContext) {
+        productContext = "\n\n🚫 PREÇOS: Você NÃO tem acesso ao catálogo de produtos neste momento. Se o cliente perguntar sobre preço ou valor de qualquer produto, NUNCA invente um valor. Diga: 'Vou verificar o valor para você' ou peça para enviar uma foto do código de barras. JAMAIS cite valores como R$ 2,50, R$ 7,99 ou qualquer outro número sem dados reais.";
       }
 
       // ── 4. SENTIMENT ANALYSIS: detect emotional tone from message ──
