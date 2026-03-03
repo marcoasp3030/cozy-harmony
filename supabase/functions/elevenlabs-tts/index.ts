@@ -70,15 +70,14 @@ serve(async (req) => {
       model_id: selectedModel,
     };
 
-    if (voiceSettings) {
-      body.voice_settings = {
-        stability: voiceSettings.stability ?? 0.5,
-        similarity_boost: voiceSettings.similarity_boost ?? 0.75,
-        style: voiceSettings.style ?? 0,
-        use_speaker_boost: voiceSettings.use_speaker_boost ?? true,
-        speed: voiceSettings.speed ?? 1.0,
-      };
-    }
+    // Default voice settings optimized for natural, humanized speech in Portuguese
+    body.voice_settings = {
+      stability: voiceSettings?.stability ?? 0.4,
+      similarity_boost: voiceSettings?.similarity_boost ?? 0.75,
+      style: voiceSettings?.style ?? 0.5,
+      use_speaker_boost: voiceSettings?.use_speaker_boost ?? true,
+      speed: voiceSettings?.speed ?? 0.95,
+    };
 
     const resp = await fetch(
       `https://api.elevenlabs.io/v1/text-to-speech/${selectedVoice}?output_format=${format}`,
