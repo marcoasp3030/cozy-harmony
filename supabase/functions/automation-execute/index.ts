@@ -2037,11 +2037,24 @@ REGRAS PARA "ready":
                       ctx.variables["produto_preco"] = String(first.price || 0);
                       const prodPrice = Number(first.price).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-                      const followUp = buildPixPaymentMessage(first.name || "", first.price);
-                      ctx.variables["_pix_key_sent"] = "true";
-                      ctx.variables["_audit_pix_auto_sent"] = `PIX enviado automaticamente via barcode lookup: ${first.name} = ${prodPrice} (código: ${searchQuery})`;
-                      await sendWhatsAppMessage(supabase, ctx, followUp);
-                      console.log(`[AUDIT] PIX key auto-sent at ${new Date().toISOString()} — product: ${first.name}, price: ${prodPrice}`);
+                      const customerContext = [
+                        ctx.messageContent,
+                        ctx.variables["mensagens_agrupadas"] || "",
+                        ctx.variables["transcricao"] || "",
+                      ].join(" ");
+                      const customerAskedPix = PIX_EXPLICIT_REQUEST.test(customerContext);
+
+                      if (customerAskedPix) {
+                        const followUp = buildPixPaymentMessage(first.name || "", first.price);
+                        ctx.variables["_pix_key_sent"] = "true";
+                        ctx.variables["_audit_pix_auto_sent"] = `PIX enviado via solicitação explícita (barcode lookup): ${first.name} = ${prodPrice} (código: ${searchQuery})`;
+                        await sendWhatsAppMessage(supabase, ctx, followUp);
+                        console.log(`[AUDIT] PIX key auto-sent (explicit request) at ${new Date().toISOString()} — product: ${first.name}, price: ${prodPrice}`);
+                      } else {
+                        const qualificationMsg = `🛒 Encontrei no catálogo: *${first.name}*\n💰 Valor: *${prodPrice}*\n\nSe vc quiser pagar via PIX, me pede a chave que eu te envio na hora 😊`;
+                        await sendWhatsAppMessage(supabase, ctx, qualificationMsg);
+                        console.log(`[PIX] Product found via barcode lookup, but no explicit PIX request — sent qualification message only`);
+                      }
                     } else {
                       // Product not in catalog
                       const notFound = `❌ Não encontrei esse produto no nosso catálogo${barcodeNum ? ` (código: ${barcodeNum})` : ""}. Poderia enviar outra foto mais nítida do código de barras ou me dizer o nome do produto?`;
@@ -3061,18 +3074,16 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
     return true;
   }
 
-  // Check all available context
-  const allContext = [
+  // Check CUSTOMER context only (never use internal AI output to trigger PIX)
+  const customerContext = [
     ctx.messageContent,
     ctx.variables["mensagens_agrupadas"] || "",
     ctx.variables["transcricao"] || "",
-    ctx.variables["ia_reply"] || "",
-    ctx.variables["intencao"] || "",
   ].join(" ");
 
   // ── NEW LOGIC: Only auto-send PIX if customer EXPLICITLY requests it ──
-  const isExplicitPixRequest = PIX_EXPLICIT_REQUEST.test(allContext);
-  const isDifficultyReport = PIX_DIFFICULTY_KEYWORDS.test(allContext);
+  const isExplicitPixRequest = PIX_EXPLICIT_REQUEST.test(customerContext);
+  const isDifficultyReport = PIX_DIFFICULTY_KEYWORDS.test(customerContext);
 
   // If it's a difficulty report (NOT an explicit PIX request), do NOT send PIX
   // Let the IA handle it by asking clarifying questions first
