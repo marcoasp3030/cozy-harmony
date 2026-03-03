@@ -692,11 +692,15 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
       // Check BOTH the template body AND the customer context for payment-related content
       const isPaymentMsg = /pix|pagamento|pagar|valor|chave/i.test(bodyText) || /pix|pagamento|pagar|valor|chave/i.test(customerContextInteractive);
 
+      // ── CHECK: Did the customer state a specific value? If so, skip difficulty guard and let PIX buttons flow ──
+      const valuePatternInteractive = /(?:R\$\s*|valor\s*(?:é|de|:)?\s*(?:R\$\s*)?|pagar\s*(?:R\$\s*)?|total\s*(?:é|de|:)?\s*(?:R\$\s*)?)([\d]+[.,][\d]{2}|[\d]+)/i;
+      const valueMatchInteractive = customerContextInteractive.match(valuePatternInteractive);
+      const customerValueInteractive = valueMatchInteractive ? parseFloat(valueMatchInteractive[1].replace(",", ".")) : null;
+      const hasCustomerValueInteractive = customerValueInteractive !== null && Number.isFinite(customerValueInteractive) && customerValueInteractive > 0;
 
-
-      if (isDifficultyInteractive && !isExplicitPixInteractive && isPaymentMsg) {
-        // Customer has a PROBLEM — don't offer PIX, ask for details instead
-        console.log(`[PIX GUARD] Difficulty detected in interactive node — converting to AI qualification message`);
+      if (isDifficultyInteractive && !isExplicitPixInteractive && isPaymentMsg && !hasCustomerValueInteractive) {
+        // Customer has a PROBLEM and did NOT state a value — ask for details
+        console.log(`[PIX GUARD] Difficulty detected WITHOUT value — converting to AI qualification message`);
         ctx.variables["_difficulty_detected"] = "true";
         ctx.variables["_audit_reply_suppressed"] = `Mensagem interativa PIX bloqueada — relato de dificuldade: "${ctx.messageContent?.slice(0, 100)}"`;
         
@@ -781,6 +785,21 @@ Responda APENAS com o texto da mensagem.`;
         
         await sendWhatsAppMessage(supabase, ctx, qualificationMsg);
         return { sent: true, difficulty_guard: true, reason: "difficulty_report_detected" };
+      }
+
+      // ── DIFFICULTY + VALUE STATED: Customer has a problem BUT already told us the value — send PIX buttons directly ──
+      if (isDifficultyInteractive && hasCustomerValueInteractive && isPaymentMsg) {
+        const valueFmt = customerValueInteractive!.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        console.log(`[PIX GUARD] Difficulty detected WITH value ${valueFmt} — sending PIX buttons with customer-stated value`);
+        
+        const offerMsg = `💰 Valor informado: *${valueFmt}*\n\nDeseja receber a chave PIX para pagamento desse valor? 😊`;
+        const sent = await sendInteractiveButtons(supabase, ctx, offerMsg, [
+          { label: "✅ Enviar chave PIX", id: "pix_enviar" },
+          { label: "❌ Não, obrigado", id: "pix_cancelar" },
+        ], "Nutricar Brasil - Mini Mercado 24h");
+        
+        ctx.variables["_pix_buttons_sent"] = "true";
+        return { sent, difficulty_with_value: true, value: valueFmt };
       }
 
       // ── CHECK: Did the customer say they ALREADY PAID? ──
