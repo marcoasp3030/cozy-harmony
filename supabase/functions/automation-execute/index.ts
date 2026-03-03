@@ -653,11 +653,87 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
 
       if (isDifficultyInteractive && !isExplicitPixInteractive && isPaymentMsg) {
         // Customer has a PROBLEM — don't offer PIX, ask for details instead
-        console.log(`[PIX GUARD] Difficulty detected in interactive node — converting to qualification message`);
+        console.log(`[PIX GUARD] Difficulty detected in interactive node — converting to AI qualification message`);
         ctx.variables["_audit_reply_suppressed"] = `Mensagem interativa PIX bloqueada — relato de dificuldade: "${ctx.messageContent?.slice(0, 100)}"`;
         
-        // Send a plain text qualification message instead of PIX interactive
-        const qualificationMsg = `Sinto muito pelo transtorno! 😔 Vou te ajudar a resolver isso.\n\nPara entender melhor a situação, preciso de algumas informações:\n1️⃣ Em qual loja/unidade aconteceu?\n2️⃣ Qual produto você pegou?\n3️⃣ Qual o valor que apareceu?\n\nAssim consigo te ajudar da melhor forma! 💚\n\n_Nutricar Brasil - Mini Mercado 24h_`;
+        // Use AI to generate a context-aware qualification message instead of hardcoded text
+        const LOVABLE_API_KEY_GUARD = Deno.env.get("LOVABLE_API_KEY");
+        
+        // Build conversation context for qualification
+        let qualConversation = "";
+        try {
+          let qualQuery = supabase
+            .from("messages")
+            .select("direction, content, type, created_at")
+            .eq("contact_id", ctx.contactId)
+            .order("created_at", { ascending: false })
+            .limit(10);
+          if (ctx.sessionStartedAt) qualQuery = qualQuery.gte("created_at", ctx.sessionStartedAt);
+          const { data: qualMsgs } = await qualQuery;
+          if (qualMsgs?.length) {
+            qualConversation = qualMsgs
+              .reverse()
+              .filter((m: any) => m.content?.trim())
+              .map((m: any) => `[${m.direction === "inbound" ? "Cliente" : "Atendente"}]: ${m.content}`)
+              .join("\n");
+          }
+        } catch {}
+
+        let qualificationMsg = "";
+        
+        if (LOVABLE_API_KEY_GUARD && qualConversation) {
+          try {
+            const qualPrompt = `Você é uma atendente simpática da Nutricar Brasil (mini mercados autônomos 24h).
+
+O cliente está relatando um PROBLEMA com pagamento. Você precisa entender melhor a situação ANTES de oferecer a chave PIX.
+
+HISTÓRICO DA CONVERSA:
+${qualConversation}
+
+MENSAGEM ATUAL DO CLIENTE: "${ctx.messageContent}"
+
+REGRAS:
+- Demonstre empatia pelo problema
+- NÃO envie chave PIX ainda
+- Pergunte SOMENTE os detalhes que AINDA NÃO foram informados na conversa
+- Se o cliente JÁ disse a loja/unidade (ex: "Alpha Vita"), NÃO pergunte novamente — use o nome da loja na sua resposta
+- Se o cliente JÁ disse o produto, NÃO pergunte novamente
+- Pergunte apenas o que falta: qual o problema exato, qual produto pegou (se não disse), qual valor apareceu
+- Máximo 3-4 frases. Seja direta e empática.
+- Use emojis com moderação (1-2). Use tom natural de WhatsApp.
+- Termine com: _Nutricar Brasil - Mini Mercado 24h_
+
+Responda APENAS com o texto da mensagem.`;
+
+            const guardResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${LOVABLE_API_KEY_GUARD}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: "google/gemini-2.5-flash-lite",
+                messages: [{ role: "user", content: qualPrompt }],
+                max_tokens: 300,
+                temperature: 0.7,
+              }),
+            });
+            if (guardResp.ok) {
+              const guardData = await guardResp.json();
+              qualificationMsg = guardData.choices?.[0]?.message?.content?.trim() || "";
+            }
+          } catch (e) {
+            console.error("[PIX GUARD] AI qualification error:", e);
+          }
+        }
+        
+        // Fallback if AI fails — try to detect store from conversation to avoid re-asking
+        if (!qualificationMsg) {
+          const knownStore = qualConversation.match(/(?:unidade|loja)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)*)/i)?.[1] || "";
+          if (knownStore) {
+            qualificationMsg = `Sinto muito pelo transtorno na unidade ${knownStore}! 😔 Vou te ajudar a resolver.\n\nPoderia me dizer qual produto você pegou e qual valor apareceu no totem?\n\n_Nutricar Brasil - Mini Mercado 24h_`;
+          } else {
+            qualificationMsg = `Sinto muito pelo transtorno! 😔 Vou te ajudar a resolver isso.\n\nPara entender melhor, poderia me dizer:\n1️⃣ Em qual unidade aconteceu?\n2️⃣ Qual produto você pegou?\n3️⃣ Qual o valor que apareceu?\n\n_Nutricar Brasil - Mini Mercado 24h_`;
+          }
+        }
+        
         await sendWhatsAppMessage(supabase, ctx, qualificationMsg);
         return { sent: true, difficulty_guard: true, reason: "difficulty_report_detected" };
       }
