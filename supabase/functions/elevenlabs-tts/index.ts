@@ -180,6 +180,16 @@ function normalizeSymbols(text: string): string {
     .replace(/\s{2,}/g, ' ');
 }
 
+function insertBreathingPauses(text: string): string {
+  // Add pauses after long clauses (8+ words before a comma or semicolon)
+  let result = text.replace(/([^.!?\n]{60,}?)(,|;)\s/g, '$1$2... ');
+  // Add subtle pause between sentences longer than 80 chars
+  result = result.replace(/([.!?])\s+(?=[A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ])/g, '$1 ... ');
+  // Add pause after colons introducing explanations
+  result = result.replace(/:\s+/g, ':... ');
+  return result;
+}
+
 function normalizeTextForTTS(text: string): string {
   let normalized = text;
   normalized = normalizeCurrency(normalized);
@@ -189,6 +199,7 @@ function normalizeTextForTTS(text: string): string {
   normalized = normalizePhoneNumbers(normalized);
   normalized = normalizeNumbers(normalized);
   normalized = normalizeSymbols(normalized);
+  normalized = insertBreathingPauses(normalized);
   return normalized.trim();
 }
 

@@ -3208,19 +3208,26 @@ function normalizeSymbolsTTS(text: string): string {
     .replace(/\n+/g, '... ').replace(/\s{2,}/g, ' ');
 }
 
+function insertBreathingPausesTTS(text: string): string {
+  let result = text.replace(/([^.!?\n]{60,}?)(,|;)\s/g, '$1$2... ');
+  result = result.replace(/([.!?])\s+(?=[A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ])/g, '$1 ... ');
+  result = result.replace(/:\s+/g, ':... ');
+  return result;
+}
+
 function normalizeNumbersForTTS(text: string): string {
   let normalized = text;
   normalized = normalizeCurrencyTTS(normalized);
   normalized = normalizePercentagesTTS(normalized);
   normalized = normalizeOrdinalsTTS(normalized);
   normalized = normalizeAcronymsTTS(normalized);
-  // Standalone numbers
   normalized = normalized.replace(/\b(\d{1,7})\b/g, (_m, num) => {
     const n = parseInt(num, 10);
     if (n > 9999999) return num;
     return numberToWordsFull(n);
   });
   normalized = normalizeSymbolsTTS(normalized);
+  normalized = insertBreathingPausesTTS(normalized);
   return normalized.trim();
 }
 
