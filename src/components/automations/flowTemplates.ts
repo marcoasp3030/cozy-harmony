@@ -672,11 +672,38 @@ Se {{produto_encontrado}} = "true", confirme o valor do catálogo ao invés de p
       position: { x: X + 350, y: 420 },
       data: {
         nodeType: "condition_contains",
-        text: "pix,pagamento,pagar,cobrou,cobrança,cobranca,cartão,cartao,débito,debito,crédito,credito,maquininha,não passou,nao passou,dinheiro,troco,totem,desligado,não funciona,nao funciona,sem funcionar",
+        text: "pix,pagamento,pagar,cobrou,cobrança,cobranca,cartão,cartao,débito,debito,crédito,credito,maquininha,não passou,nao passou,dinheiro,troco,totem,desligado,não funciona,nao funciona,sem funcionar,já paguei,ja paguei,já fiz,ja fiz,fiz o pix,fiz o pagamento",
         case_sensitive: false,
       },
     },
-    // Texto COM pagamento → Buscar Produto no catálogo
+    // Verificar se o cliente JÁ PAGOU (para não reenviar chave PIX)
+    {
+      id: "multi_text_already_paid",
+      type: "flowNode",
+      position: { x: X + 600, y: 420 },
+      data: {
+        nodeType: "condition_contains",
+        text: "já paguei,ja paguei,já fiz o pagamento,ja fiz o pagamento,fiz o pix,já fiz o pix,ja fiz o pix,já pago,ja pago,tá pago,ta pago,paguei,realizei o pagamento,fiz a transferência,fiz a transferencia,já transferi,ja transferi",
+        case_sensitive: false,
+      },
+    },
+    // Resposta para quem já pagou: pedir comprovante
+    {
+      id: "multi_text_ask_receipt",
+      type: "flowNode",
+      position: { x: X + 600, y: 560 },
+      data: {
+        nodeType: "action_send_message",
+        message: "Ótimo! 😊 Para confirmar seu pagamento, por favor envie o comprovante do PIX aqui. Assim que recebermos, vamos validar rapidinho! 💚\n\n_Nutricar Brasil - Mini Mercado 24h_",
+      },
+    },
+    {
+      id: "multi_text_ask_receipt_tag",
+      type: "flowNode",
+      position: { x: X + 600, y: 700 },
+      data: { nodeType: "action_add_tag", tag_name: "aguardando-comprovante" },
+    },
+    // Texto COM pagamento (mas NÃO já pagou) → Buscar Produto no catálogo
     {
       id: "multi_text_search_product",
       type: "flowNode",
@@ -854,8 +881,14 @@ FRASE INSTITUCIONAL: A Nutricar Brasil utiliza tecnologia, controle de acesso e 
     makeEdge("multi_image_tag", "multi_occ_final"),
     // Imagem NÃO → rota texto (pagamento ou IA)
     makeEdge("multi_check_image", "multi_text_pix_check", "no"),
-    // Texto com pagamento → buscar produto → IA qualifica → tag
-    makeEdge("multi_text_pix_check", "multi_text_search_product", "yes"),
+    // Texto com pagamento → verificar se JÁ PAGOU
+    makeEdge("multi_text_pix_check", "multi_text_already_paid", "yes"),
+    // Já pagou SIM → pedir comprovante → tag → ocorrência final
+    makeEdge("multi_text_already_paid", "multi_text_ask_receipt", "yes"),
+    makeEdge("multi_text_ask_receipt", "multi_text_ask_receipt_tag"),
+    makeEdge("multi_text_ask_receipt_tag", "multi_occ_final"),
+    // Já pagou NÃO → buscar produto → IA qualifica → tag (fluxo normal)
+    makeEdge("multi_text_already_paid", "multi_text_search_product", "no"),
     makeEdge("multi_text_search_product", "multi_text_pix_qualify"),
     makeEdge("multi_text_pix_qualify", "multi_text_pix_tag"),
     // Texto sem pagamento → IA → tag → classificar intenção → ocorrência final
