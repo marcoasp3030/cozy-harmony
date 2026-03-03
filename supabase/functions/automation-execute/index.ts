@@ -1882,12 +1882,19 @@ REGRAS PARA "ready":
           await sendWhatsAppMessage(supabase, ctx, reply);
         }
 
-        // ── POST-REPLY: Auto-fulfill "I'll check the price" promises ──
+        // ── POST-REPLY: Auto-fulfill price checks from image context ──
         const promisedToCheck = /verificar|vou checar|já te informo|vou consultar|deixa eu ver|momento.*valor/i.test(reply);
-        const hasBarcodeMention = /código de barras|barcode|código.*barras|EAN|GTIN/i.test(reply) || /código de barras|barcode/i.test(ctx.messageContent || "");
-        
-        if (promisedToCheck && imageBase64 && ctx.userId && ctx.variables["produto_encontrado"] !== "true") {
-          console.log("[POST-LLM] AI promised to check price — extracting barcode from image");
+        const hasBarcodeMention = /código de barras|barcode|código.*barras|EAN|GTIN/i.test(reply) || /código de barras|barcode|EAN|GTIN/i.test(ctx.messageContent || "");
+        const replyRequestsCatalogCheck = /preciso identificar o produto no cat[aá]logo/i.test(reply);
+        const paymentContext = /\b(valor|preço|preco|pix|pagamento|pagar)\b/i.test(`${reply} ${ctx.messageContent} ${ctx.variables["mensagens_agrupadas"] || ""}`);
+        const shouldRunPostReplyLookup =
+          !!imageBase64 &&
+          !!ctx.userId &&
+          ctx.variables["produto_encontrado"] !== "true" &&
+          (promisedToCheck || hasBarcodeMention || replyRequestsCatalogCheck || (ctx.messageType === "image" && paymentContext));
+
+        if (shouldRunPostReplyLookup) {
+          console.log("[POST-LLM] Triggered image product lookup after reply");
           try {
             // Quick AI call to extract barcode number from the image
             const extractPrompt = `Analise esta imagem e extraia APENAS o número do código de barras visível. Responda SOMENTE com o número (dígitos), nada mais. Se não houver código de barras visível, responda "NENHUM". Se houver texto descrevendo um produto, inclua o nome do produto após o código separado por |. Formato: CODIGO|NOME_PRODUTO ou apenas CODIGO ou NENHUM`;
@@ -1946,7 +1953,15 @@ REGRAS PARA "ready":
                       await sendWhatsAppMessage(supabase, ctx, notFound);
                       console.log(`[POST-LLM] Product not found for: "${searchQuery}"`);
                     }
+                  } else {
+                    const notReadable = "⚠️ Não consegui ler o código de barras completo da foto. Pode enviar uma foto mais nítida, focando no código?";
+                    await sendWhatsAppMessage(supabase, ctx, notReadable);
+                    console.log(`[POST-LLM] Extracted content not usable for search: "${extracted}"`);
                   }
+                } else {
+                  const noBarcode = "⚠️ Não consegui identificar o código de barras nesta imagem. Pode reenviar com mais foco e iluminação?";
+                  await sendWhatsAppMessage(supabase, ctx, noBarcode);
+                  console.log("[POST-LLM] No readable barcode detected in image");
                 }
               }
             }
