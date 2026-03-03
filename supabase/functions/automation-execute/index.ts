@@ -246,6 +246,14 @@ serve(async (req) => {
 
       const durationMs = Date.now() - startTime;
 
+      // Collect audit variables for the log entry
+      const auditTrail: Record<string, string> = {};
+      for (const [key, value] of Object.entries(ctx.variables)) {
+        if (key.startsWith("_audit_") || key === "_pix_key_sent") {
+          auditTrail[key] = value;
+        }
+      }
+
       // Update log entry with results
       if (logEntry) {
         await supabase
@@ -254,7 +262,15 @@ serve(async (req) => {
             status: execError ? "error" : "completed",
             completed_at: new Date().toISOString(),
             duration_ms: durationMs,
-            nodes_executed: ctx.nodeLog,
+            nodes_executed: [...ctx.nodeLog, ...(Object.keys(auditTrail).length > 0 ? [{
+              nodeId: "_audit",
+              nodeType: "audit_trail",
+              nodeLabel: "Auditoria PIX & Segurança",
+              status: "success",
+              result: auditTrail,
+              startedAt: new Date().toISOString(),
+              durationMs: 0,
+            }] : [])],
             error: execError,
           })
           .eq("id", logEntry.id);
