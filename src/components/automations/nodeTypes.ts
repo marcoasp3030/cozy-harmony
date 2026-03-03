@@ -377,9 +377,9 @@ export const NODE_TYPES: NodeTypeConfig[] = [
     category: "action",
     icon: Layers,
     color: "#8b5cf6",
-    description: "Aguarda um intervalo e agrupa todas as mensagens recebidas antes de responder",
+    description: "Aguarda um intervalo e agrupa todas as mensagens recebidas antes de responder. ⚡ Use 3-5s para respostas rápidas.",
     fields: [
-      { key: "wait_seconds", label: "Tempo de espera (segundos)", type: "number", placeholder: "15", defaultValue: 15, required: true },
+      { key: "wait_seconds", label: "Tempo de espera (segundos) — mín: 3, máx: 25", type: "number", placeholder: "5", defaultValue: 5, required: true },
       { key: "max_messages", label: "Máx. mensagens para agrupar", type: "number", placeholder: "10", defaultValue: 10 },
     ],
   },
