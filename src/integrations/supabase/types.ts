@@ -994,6 +994,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      increment_kb_hit_count: {
+        Args: { _article_id: string }
+        Returns: undefined
+      }
       search_products: {
         Args: { _limit?: number; _query: string; _user_id: string }
         Returns: {
