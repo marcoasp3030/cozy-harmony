@@ -116,6 +116,13 @@ serve(async (req) => {
       
       console.log(`Phone extraction: rawJid="${String(rawJid).slice(0,60)}", msg keys=${Object.keys(msg).join(',')}, chat keys=${Object.keys(body.chat || {}).join(',')}`);
       
+      // Debug: log content structure when it's an object (helps debug button responses)
+      if (typeof msg.content === 'object' && msg.content !== null) {
+        console.log(`[DEBUG] msg.content is OBJECT: ${JSON.stringify(msg.content).slice(0, 500)}`);
+      }
+      if (msg.buttonOrListid) {
+        console.log(`[DEBUG] msg.buttonOrListid: "${msg.buttonOrListid}"`);
+      }
       const phone = String(rawJid).replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '');
 
       if (!phone || msg.isGroup === true || String(rawJid).includes('@g.us')) {
@@ -126,7 +133,10 @@ serve(async (req) => {
       // ── Extract interactive button/list responses ──
       // When a user clicks a button or selects from a list, UazAPI sends
       // the response in special fields instead of plain text.
-      const buttonResponse = msg.buttonsResponseMessage?.selectedButtonId
+      // Also check inside msg.content when it's an object (common UazAPI pattern)
+      const contentObj2 = typeof msg.content === 'object' && msg.content !== null ? msg.content as Record<string, any> : null;
+      const buttonResponse = msg.buttonOrListid
+        || msg.buttonsResponseMessage?.selectedButtonId
         || msg.buttonsResponseMessage?.selectedDisplayText
         || msg.selectedButtonId
         || msg.selectedButtonText
@@ -134,20 +144,47 @@ serve(async (req) => {
         || msg.listResponseMessage?.title
         || msg.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson
         || msg.interactiveResponseMessage?.body?.text
+        // Deep-search inside content object for button/interactive responses
+        || contentObj2?.buttonsResponseMessage?.selectedButtonId
+        || contentObj2?.buttonsResponseMessage?.selectedDisplayText
+        || contentObj2?.listResponseMessage?.singleSelectReply?.selectedRowId
+        || contentObj2?.listResponseMessage?.title
+        || contentObj2?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson
+        || contentObj2?.interactiveResponseMessage?.body?.text
+        // UazAPI sometimes puts button text directly in content fields
+        || contentObj2?.selectedButtonId
+        || contentObj2?.selectedDisplayText
+        || contentObj2?.selectedRowId
+        || contentObj2?.title
+        || contentObj2?.body?.text
+        || contentObj2?.body
         || null;
 
+      // Ensure buttonResponse is a string
+      const buttonResponseStr = buttonResponse && typeof buttonResponse === 'object'
+        ? (buttonResponse.text || buttonResponse.body || JSON.stringify(buttonResponse))
+        : buttonResponse ? String(buttonResponse) : null;
+
       // content can be object for media/interactive payloads — always coerce to string
-      const rawContent = msg.text || msg.caption || msg.Text || msg.Body || msg.content || buttonResponse || '';
+      const rawContent = msg.text || msg.caption || msg.Text || msg.Body || buttonResponseStr || '';
       let messageContent = typeof rawContent === 'string'
         ? rawContent
         : (rawContent?.text || rawContent?.caption || '');
 
-      // If we still have no content but have a button response, use it
-      if (!messageContent && buttonResponse) {
-        messageContent = String(buttonResponse);
+      // If rawContent is an object and we couldn't extract text, try JSON keys
+      if (!messageContent && typeof msg.content === 'object' && msg.content !== null) {
+        // Try common text fields in the content object
+        const co = msg.content as Record<string, any>;
+        messageContent = co.text || co.caption || co.Text || co.Body || co.message || '';
+        if (typeof messageContent !== 'string') messageContent = '';
       }
 
-      console.log(`Content extraction: rawContent="${String(rawContent).slice(0,60)}", buttonResponse="${buttonResponse || 'NULL'}", final="${messageContent.slice(0,60)}"`);
+      // If we still have no content but have a button response, use it
+      if (!messageContent && buttonResponseStr) {
+        messageContent = buttonResponseStr;
+      }
+
+      console.log(`Content extraction: rawContent="${String(rawContent).slice(0,60)}", buttonResponse="${buttonResponseStr || 'NULL'}", final="${messageContent.slice(0,60)}"`);
 
       // Prefer mediaType/messageType over generic `type` (which often comes as "chat")
       const rawMsgType = String(msg.mediaType || msg.messageType || msg.type || 'text').toLowerCase();
