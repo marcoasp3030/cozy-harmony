@@ -261,7 +261,7 @@ serve(async (req) => {
 
     // Default voice settings optimized for natural, humanized speech in Portuguese
     body.voice_settings = {
-      stability: voiceSettings?.stability ?? 0.4,
+      stability: voiceSettings?.stability ?? 0.3,
       similarity_boost: voiceSettings?.similarity_boost ?? 0.75,
       style: voiceSettings?.style ?? 0.5,
       use_speaker_boost: voiceSettings?.use_speaker_boost ?? true,

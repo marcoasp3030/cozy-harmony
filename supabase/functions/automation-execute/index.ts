@@ -3258,7 +3258,7 @@ async function sendElevenLabsAudioFromText(
       // Apply user's voice settings
       if (elConfig.stability !== undefined) {
         voiceSettings = {
-          stability: elConfig.stability ?? 0.5,
+          stability: elConfig.stability ?? 0.3,
           similarity_boost: elConfig.similarityBoost ?? 0.75,
           style: elConfig.style ?? 0,
           use_speaker_boost: elConfig.useSpeakerBoost ?? true,
