@@ -1688,8 +1688,14 @@ REGRAS PARA "ready":
           } else {
             content = "[Imagem enviada pelo cliente]";
           }
+          // Only use image for vision analysis if it's RECENT (within last 2 minutes)
+          // This prevents old images from being analyzed when the current message is just text
           if (m.direction === "inbound") {
-            (ctx as any)._lastImageUrl = m.media_url;
+            const msgAge = Date.now() - new Date(m.created_at).getTime();
+            const twoMinutesMs = 2 * 60 * 1000;
+            if (msgAge < twoMinutesMs) {
+              (ctx as any)._lastImageUrl = m.media_url;
+            }
           }
         } else if (!content && m.type === "document") {
           if (isLastInbound && pdfContent) {
