@@ -218,18 +218,54 @@ serve(async (req) => {
       console.log(`Automation "${automation.name}" (${automation.id}) triggered, log=${logEntry.id}`);
 
       const startTime = Date.now();
-      // Fetch conversation created_at to use as session boundary
+      // Fetch conversation/session boundary to avoid leaking context from resolved issues
       let sessionStartedAt: string | null = null;
+      let sessionBoundaryTs = 0;
+
       if (conversationId) {
         const { data: convData } = await supabase
           .from("conversations")
           .select("created_at")
           .eq("id", conversationId)
-          .single();
+          .maybeSingle();
         if (convData?.created_at) {
-          sessionStartedAt = convData.created_at;
+          sessionBoundaryTs = new Date(convData.created_at).getTime();
         }
       }
+
+      // If there is a RESOLVED occurrence for this contact, start a fresh session from that timestamp
+      // (prevents old solved problems from contaminating the new atendimento)
+      try {
+        let resolvedOccQuery = supabase
+          .from("occurrences")
+          .select("resolved_at, updated_at, created_at")
+          .eq("contact_phone", contactPhone)
+          .eq("status", "resolvido")
+          .order("resolved_at", { ascending: false, nullsFirst: false })
+          .order("updated_at", { ascending: false })
+          .limit(1);
+
+        if (automation.created_by) {
+          resolvedOccQuery = resolvedOccQuery.eq("created_by", automation.created_by);
+        }
+
+        const { data: resolvedOcc } = await resolvedOccQuery;
+        if (resolvedOcc && resolvedOcc.length > 0) {
+          const occ = resolvedOcc[0] as any;
+          const resolvedTs = new Date(occ.resolved_at || occ.updated_at || occ.created_at).getTime();
+          if (Number.isFinite(resolvedTs) && resolvedTs > sessionBoundaryTs) {
+            sessionBoundaryTs = resolvedTs;
+          }
+        }
+      } catch (boundaryErr) {
+        console.error("[SESSION] Failed to load resolved occurrence boundary:", boundaryErr);
+      }
+
+      if (sessionBoundaryTs > 0) {
+        sessionStartedAt = new Date(sessionBoundaryTs).toISOString();
+      }
+
+      console.log(`[SESSION] Using session boundary for ${contactPhone}: ${sessionStartedAt || "none"}`);
 
       const ctx: ExecutionContext = {
         contactId,
@@ -1687,7 +1723,7 @@ REGRAS PARA "ready":
       // Load conversation metadata (score, priority, notes)
       const { data: convMeta } = await supabase
         .from("conversations")
-        .select("score, priority, notes, status")
+        .select("score, priority, notes, status, created_at, unread_count")
         .eq("id", ctx.conversationId)
         .single();
 
@@ -1803,11 +1839,11 @@ REGRAS PARA "ready":
       if ((convMeta?.score ?? 0) > 0) profileParts.push(`Score: ${convMeta.score}`);
 
       // ── NEW SESSION AWARENESS ──
-      // Determine if this is a fresh session (conversation was just created / few messages)
-      // Note: allRecent is built later, so we use convMeta timestamps + unread_count as proxy
-      const convCreatedAt = convMeta?.created_at ? new Date(convMeta.created_at).getTime() : 0;
+      // Determine if this is a fresh session based on boundary + unread volume
+      const boundaryTs = ctx.sessionStartedAt ? new Date(ctx.sessionStartedAt).getTime() : (convMeta?.created_at ? new Date(convMeta.created_at).getTime() : 0);
       const now = Date.now();
-      const isNewSession = (now - convCreatedAt) < 120_000 || (convMeta?.unread_count ?? 0) <= 1;
+      const isBoundaryRecent = boundaryTs > 0 && (now - boundaryTs) < (12 * 60 * 60 * 1000);
+      const isNewSession = isBoundaryRecent || (convMeta?.unread_count ?? 0) <= 2;
       const newSessionHint = isNewSession
         ? `\n\n🆕 SESSÃO NOVA: Este é um NOVO atendimento deste cliente. Ele pode ter tido problemas anteriores, mas esta é uma conversa NOVA.
 - Cumprimente o cliente usando o nome que já conhecemos (se disponível).
