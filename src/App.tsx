@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,21 +8,31 @@ import { useAuth } from "@/hooks/useAuth";
 import { useUserRole } from "@/hooks/useUserRole";
 import AppLayout from "@/components/layout/AppLayout";
 import Auth from "@/pages/Auth";
-import Dashboard from "@/pages/Dashboard";
-import Contacts from "@/pages/Contacts";
-import Campaigns from "@/pages/Campaigns";
-import Automations from "@/pages/Automations";
-import InboxPage from "@/pages/InboxPage";
-import Templates from "@/pages/Templates";
-import Reports from "@/pages/Reports";
-import SettingsPage from "@/pages/SettingsPage";
-import FunnelsPage from "@/pages/FunnelsPage";
-import OccurrencesPage from "@/pages/OccurrencesPage";
-import AttendantsPage from "@/pages/AttendantsPage";
-import QueuePage from "@/pages/QueuePage";
-import NotFound from "@/pages/NotFound";
+
+// Lazy load all pages for code splitting
+const Dashboard = lazy(() => import("@/pages/Dashboard"));
+const Contacts = lazy(() => import("@/pages/Contacts"));
+const Campaigns = lazy(() => import("@/pages/Campaigns"));
+const Automations = lazy(() => import("@/pages/Automations"));
+const InboxPage = lazy(() => import("@/pages/InboxPage"));
+const Templates = lazy(() => import("@/pages/Templates"));
+const Reports = lazy(() => import("@/pages/Reports"));
+const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
+const FunnelsPage = lazy(() => import("@/pages/FunnelsPage"));
+const OccurrencesPage = lazy(() => import("@/pages/OccurrencesPage"));
+const AttendantsPage = lazy(() => import("@/pages/AttendantsPage"));
+const QueuePage = lazy(() => import("@/pages/QueuePage"));
+const NotFound = lazy(() => import("@/pages/NotFound"));
 
 const queryClient = new QueryClient();
+
+function PageLoader() {
+  return (
+    <div className="flex min-h-[400px] items-center justify-center">
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+    </div>
+  );
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -42,11 +53,7 @@ function RoleGuard({ children, requiredRole }: { children: React.ReactNode; requ
   const { isAdmin, isAdminOrSupervisor, isLoading } = useUserRole();
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
-    );
+    return <PageLoader />;
   }
 
   const hasAccess = requiredRole === "admin" ? isAdmin : isAdminOrSupervisor;
@@ -67,31 +74,33 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Routes>
-          <Route path="/auth" element={<AuthRedirect />} />
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route
-            element={
-              <ProtectedRoute>
-                <AppLayout />
-              </ProtectedRoute>
-            }
-          >
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/contacts" element={<Contacts />} />
-            <Route path="/campaigns" element={<Campaigns />} />
-            <Route path="/automations" element={<Automations />} />
-            <Route path="/inbox" element={<InboxPage />} />
-            <Route path="/funnels" element={<FunnelsPage />} />
-            <Route path="/occurrences" element={<OccurrencesPage />} />
-            <Route path="/attendants" element={<RoleGuard requiredRole="admin_or_supervisor"><AttendantsPage /></RoleGuard>} />
-            <Route path="/queue" element={<QueuePage />} />
-            <Route path="/templates" element={<Templates />} />
-            <Route path="/reports" element={<Reports />} />
-            <Route path="/settings" element={<SettingsPage />} />
-          </Route>
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/auth" element={<AuthRedirect />} />
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route
+              element={
+                <ProtectedRoute>
+                  <AppLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/contacts" element={<Contacts />} />
+              <Route path="/campaigns" element={<Campaigns />} />
+              <Route path="/automations" element={<Automations />} />
+              <Route path="/inbox" element={<InboxPage />} />
+              <Route path="/funnels" element={<FunnelsPage />} />
+              <Route path="/occurrences" element={<OccurrencesPage />} />
+              <Route path="/attendants" element={<RoleGuard requiredRole="admin_or_supervisor"><AttendantsPage /></RoleGuard>} />
+              <Route path="/queue" element={<QueuePage />} />
+              <Route path="/templates" element={<Templates />} />
+              <Route path="/reports" element={<Reports />} />
+              <Route path="/settings" element={<SettingsPage />} />
+            </Route>
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </Suspense>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
