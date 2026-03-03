@@ -1803,7 +1803,10 @@ REGRAS PARA "ready":
 
       // ── NEW SESSION AWARENESS ──
       // Determine if this is a fresh session (conversation was just created / few messages)
-      const isNewSession = !allRecent || allRecent.length <= 2;
+      // Note: allRecent is built later, so we use convMeta timestamps + unread_count as proxy
+      const convCreatedAt = convMeta?.created_at ? new Date(convMeta.created_at).getTime() : 0;
+      const now = Date.now();
+      const isNewSession = (now - convCreatedAt) < 120_000 || (convMeta?.unread_count ?? 0) <= 1;
       const newSessionHint = isNewSession
         ? `\n\n🆕 SESSÃO NOVA: Este é um NOVO atendimento deste cliente. Ele pode ter tido problemas anteriores, mas esta é uma conversa NOVA.
 - Cumprimente o cliente usando o nome que já conhecemos (se disponível).
