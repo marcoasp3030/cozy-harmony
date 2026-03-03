@@ -470,6 +470,23 @@ export const NODE_TYPES: NodeTypeConfig[] = [
     ],
   },
   {
+    type: "action_verify_payment",
+    label: "Verificar Comprovante PIX",
+    category: "action",
+    icon: ScanSearch,
+    color: "#10b981",
+    description: "Analisa imagem do comprovante PIX via IA para validar destinatário, valor e detectar fraude",
+    fields: [
+      { key: "expected_pix_key", label: "Chave PIX esperada", type: "text", placeholder: "financeiro@nutricarbrasil.com.br", required: true, defaultValue: "financeiro@nutricarbrasil.com.br" },
+      { key: "expected_recipient", label: "Nome do recebedor esperado", type: "text", placeholder: "Nutricar Brasil", defaultValue: "Nutricar Brasil" },
+      { key: "check_value", label: "Validar valor do produto", type: "switch", defaultValue: true },
+      { key: "max_hours_ago", label: "Máx. horas desde o pagamento", type: "number", placeholder: "24", defaultValue: 24 },
+      { key: "send_result", label: "Enviar resultado ao cliente", type: "switch", defaultValue: true },
+      { key: "auto_tag_fraud", label: "Adicionar tag se suspeito", type: "switch", defaultValue: true },
+      { key: "fraud_tag", label: "Nome da tag de fraude", type: "text", placeholder: "comprovante-suspeito", defaultValue: "comprovante-suspeito" },
+    ],
+  },
+  {
     type: "action_register_occurrence",
     label: "Registrar Ocorrência",
     category: "action",
