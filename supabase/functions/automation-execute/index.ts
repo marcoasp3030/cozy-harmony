@@ -1970,13 +1970,15 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
   - Pergunte SOMENTE os detalhes que ainda NÃO foram informados (loja, o que aconteceu)
   - NÃO ofereça PIX nesta etapa
 
-  📸 ETAPA 2 — SOLICITAR CÓDIGO DE BARRAS:
+  📸 ETAPA 2 — IDENTIFICAR PRODUTOS E VALORES:
   - Peça ao cliente para enviar uma FOTO DO CÓDIGO DE BARRAS de TODOS os produtos que pegou
   - Explique: "Com o código de barras consigo consultar o valor exato no sistema"
   - Se o cliente enviar o nome do produto em vez do código, tente consultar, mas INCENTIVE o envio do código de barras para precisão
+  - ⚡ ATALHO: Se o cliente JÁ SABE o valor (ex: "preciso pagar R$ 15", "o total é 12,50", "cartão não passou, eram R$ 20"), NÃO peça código de barras. Aceite o valor informado pelo cliente e prossiga direto para a confirmação.
+  - DICA: Clientes cujo cartão foi recusado geralmente já viram o valor no totem — nesse caso NÃO é necessário pedir código de barras.
 
   🛒 ETAPA 3 — CONFIRMAR VALORES:
-  - Após identificar os produtos e valores no catálogo, liste todos com nome e preço
+  - Após identificar os produtos/valores (via catálogo OU informados pelo cliente), confirme
   - O SISTEMA enviará automaticamente um botão interativo perguntando se o cliente deseja receber a chave PIX
   - NÃO tente enviar a chave PIX no texto — o sistema faz isso via botão
 
@@ -1985,7 +1987,7 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
   - Você NÃO precisa (e NÃO deve) enviar a chave no texto
 
 - NUNCA assuma que "problema com pagamento" = "quer pagar via PIX". O cliente pode querer estorno, reclamação, ou ajuda técnica.
-- NUNCA pule etapas. Mesmo que o cliente peça "me envia a chave PIX", primeiro confirme qual produto e valor.
+- Se o cliente NÃO informou valor E NÃO enviou código de barras, peça um dos dois antes de oferecer PIX.
 - Se o cliente disser "já paguei" ou "tá pago", NÃO envie chave PIX — peça o comprovante.`;
 
       // ── 9. KNOWLEDGE BASE: inject relevant articles ──
@@ -3696,37 +3698,54 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
     return false;
   }
 
-  // ── UNIVERSAL RULE: PIX is ONLY sent via interactive buttons after product confirmation ──
+  // ── UNIVERSAL RULE: PIX is ONLY sent via interactive buttons after product/value confirmation ──
   const productIdentified = ctx.variables["produto_encontrado"] === "true";
   const pixButtonsAlreadySent = ctx.variables["_pix_buttons_sent"] === "true";
 
-  if (!productIdentified) {
-    // No product confirmed yet — AI must ask for barcode first
+  // ── CHECK: Did the customer mention a specific value? (e.g. "preciso pagar R$ 15", "o valor é 12,50") ──
+  const valuePattern = /(?:R\$\s*|valor\s*(?:é|de|:)?\s*(?:R\$\s*)?|pagar\s*(?:R\$\s*)?|total\s*(?:é|de|:)?\s*(?:R\$\s*)?)([\d]+[.,][\d]{2}|[\d]+)/i;
+  const valueMatch = customerContext.match(valuePattern);
+  const customerStatedValue = valueMatch ? parseFloat(valueMatch[1].replace(",", ".")) : null;
+  const hasCustomerValue = customerStatedValue !== null && Number.isFinite(customerStatedValue) && customerStatedValue > 0;
+
+  if (!productIdentified && !hasCustomerValue) {
+    // No product confirmed and no value stated — ask for barcode
     if (isExplicitPixRequest) {
-      console.log(`[PIX] Explicit PIX request but product NOT identified — AI must ask for barcode first`);
-      // Send a message asking for barcode
-      const barcodeMsg = `Para enviar a chave PIX, preciso primeiro confirmar o produto e valor. 📸\n\nPor favor, envie uma *foto do código de barras* do produto que você pegou para eu consultar o valor no sistema! 😊\n\n_Nutricar Brasil - Mini Mercado 24h_`;
+      console.log(`[PIX] Explicit PIX request but no product/value — asking for barcode`);
+      const barcodeMsg = `Para enviar a chave PIX, preciso primeiro confirmar o produto e valor. 📸\n\nPor favor, envie uma *foto do código de barras* do produto que você pegou para eu consultar o valor no sistema! 😊\n\nSe você já sabe o valor total, pode me informar também. 💬\n\n_Nutricar Brasil - Mini Mercado 24h_`;
       await sendWhatsAppMessage(supabase, ctx, barcodeMsg);
       return true;
     }
     return false;
   }
 
-  // Product IS identified — send interactive buttons (never direct PIX key)
+  // ── Send interactive buttons with confirmed value ──
   if (!pixButtonsAlreadySent) {
-    const prodName = ctx.variables["produto_nome"] || "";
-    const prodPriceRaw = Number(ctx.variables["produto_preco"]);
-    if (prodName && Number.isFinite(prodPriceRaw) && prodPriceRaw > 0) {
-      const prodPriceFormatted = prodPriceRaw.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-      const offerMsg = `🛒 Produto: *${prodName}*\n💰 Valor: *${prodPriceFormatted}*\n\nDeseja receber a chave PIX para pagamento? 😊`;
-      
+    let offerMsg = "";
+
+    if (productIdentified) {
+      // Product found in catalog — use catalog values
+      const prodName = ctx.variables["produto_nome"] || "";
+      const prodPriceRaw = Number(ctx.variables["produto_preco"]);
+      if (prodName && Number.isFinite(prodPriceRaw) && prodPriceRaw > 0) {
+        const prodPriceFormatted = prodPriceRaw.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        offerMsg = `🛒 Produto: *${prodName}*\n💰 Valor: *${prodPriceFormatted}*\n\nDeseja receber a chave PIX para pagamento? 😊`;
+        console.log(`[PIX] Product confirmed (${prodName} = ${prodPriceFormatted}) — sending interactive PIX buttons`);
+      }
+    } else if (hasCustomerValue) {
+      // Customer stated the value directly — use their value
+      const valueFmt = customerStatedValue!.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+      offerMsg = `💰 Valor informado: *${valueFmt}*\n\nDeseja receber a chave PIX para pagamento desse valor? 😊`;
+      console.log(`[PIX] Customer stated value (${valueFmt}) — sending interactive PIX buttons`);
+    }
+
+    if (offerMsg) {
       const sent = await sendInteractiveButtons(supabase, ctx, offerMsg, [
         { label: "✅ Enviar chave PIX", id: "pix_enviar" },
         { label: "❌ Não, obrigado", id: "pix_cancelar" },
       ], "Nutricar Brasil - Mini Mercado 24h");
       
       ctx.variables["_pix_buttons_sent"] = "true";
-      console.log(`[PIX] Product confirmed (${prodName} = ${prodPriceFormatted}) — sent interactive PIX buttons`);
       return sent;
     }
   }
