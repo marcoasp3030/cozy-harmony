@@ -2602,6 +2602,184 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
           }
         }
 
+        // ── AUTO-VERIFY RECEIPT: If client sends an image after PIX key was sent, auto-verify ──
+        const pixKeySentRecently = ctx.variables["_pix_key_sent"] === "true";
+        // Also check if PIX was sent in a PREVIOUS execution by looking at recent outbound messages
+        let pixSentInPreviousExec = false;
+        if (!pixKeySentRecently && imageBase64 && ctx.userId) {
+          try {
+            let recentPixQuery = supabase
+              .from("messages")
+              .select("content")
+              .eq("contact_id", ctx.contactId)
+              .eq("direction", "outbound")
+              .order("created_at", { ascending: false })
+              .limit(15);
+            if (ctx.sessionStartedAt) recentPixQuery = recentPixQuery.gte("created_at", ctx.sessionStartedAt);
+            const { data: recentPixMsgs } = await recentPixQuery;
+            pixSentInPreviousExec = !!recentPixMsgs?.some((m: any) =>
+              /financeiro@nutricarbrasil\.com\.br|chave\s*pix.*enviada|comprovante.*pix/i.test(m.content || "")
+            );
+          } catch {}
+        }
+        
+        const shouldAutoVerifyReceipt = !!imageBase64 && !!ctx.userId && 
+          (pixKeySentRecently || pixSentInPreviousExec) && 
+          ctx.variables["comprovante_status"] !== "verificado";
+
+        if (shouldAutoVerifyReceipt) {
+          console.log(`[AUTO-VERIFY] PIX key was sent (current=${pixKeySentRecently}, previous=${pixSentInPreviousExec}) and client sent image — running receipt verification`);
+          
+          const expectedPixKey = "financeiro@nutricarbrasil.com.br";
+          const expectedRecipient = "Nutricar Brasil";
+          const expectedProductPrice = ctx.variables["produto_preco"] || "";
+          const expectedProductName = ctx.variables["produto_nome"] || "";
+          const maxHoursAgo = 24;
+          
+          const LOVABLE_API_KEY_VERIFY = Deno.env.get("LOVABLE_API_KEY");
+          if (LOVABLE_API_KEY_VERIFY) {
+            try {
+              const verifyPrompt = `Você é um analista antifraude. Analise esta imagem:
+
+PRIMEIRO: Determine se é um COMPROVANTE DE PAGAMENTO PIX. Se for código de barras, foto de produto, ou qualquer outra coisa que NÃO seja comprovante, retorne {"is_payment_receipt": false}.
+
+Se FOR comprovante, valide contra estes dados:
+- Chave PIX esperada: ${expectedPixKey}
+- Favorecido esperado: ${expectedRecipient}
+${expectedProductPrice ? `- Valor esperado: R$ ${Number(expectedProductPrice).toFixed(2)}` : "- Valor esperado: não informado"}
+- Pagamento deve ser das últimas ${maxHoursAgo}h
+
+CRITÉRIOS DE FRAUDE:
+1. Chave PIX do destinatário diferente da esperada
+2. Nome do favorecido NÃO contém "${expectedRecipient}"
+3. Valor diferente do esperado (tolerância R$ 0.50)
+4. Data/hora muito antiga
+5. Imagem parece editada (fontes inconsistentes, artefatos, sobreposições)
+6. Banco não reconhecido
+7. Campos essenciais ilegíveis
+
+Responda APENAS JSON:
+{
+  "is_payment_receipt": true/false,
+  "recipient_name": "nome ou null",
+  "recipient_key": "chave ou null",
+  "amount": "valor numérico ou null",
+  "payment_date": "ISO ou null",
+  "bank_name": "banco ou null",
+  "transaction_id": "ID ou null",
+  "payer_name": "pagador ou null",
+  "key_matches": true/false,
+  "recipient_matches": true/false,
+  "amount_matches": true/false/null,
+  "date_valid": true/false/null,
+  "visual_integrity": "ok"|"suspeito"|"editado",
+  "visual_issues": "descrição ou null",
+  "fraud_score": 0-100,
+  "fraud_reasons": [],
+  "verdict": "aprovado"|"suspeito"|"reprovado",
+  "confidence": 0-100,
+  "notes": "observações"
+}`;
+
+              const verifyResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+                method: "POST",
+                headers: { Authorization: `Bearer ${LOVABLE_API_KEY_VERIFY}`, "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  model: "google/gemini-2.5-flash",
+                  messages: [{ role: "user", content: [
+                    { type: "text", text: verifyPrompt },
+                    { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+                  ]}],
+                  max_tokens: 800,
+                  temperature: 0.1,
+                }),
+              });
+
+              if (verifyResp.ok) {
+                const verifyData = await verifyResp.json();
+                const verifyReply = verifyData.choices?.[0]?.message?.content?.trim() || "";
+                const jsonMatch = verifyReply.match(/\{[\s\S]*\}/);
+                
+                if (jsonMatch) {
+                  const result = JSON.parse(jsonMatch[0]);
+                  
+                  if (result.is_payment_receipt) {
+                    console.log(`[AUTO-VERIFY] Receipt verified! verdict=${result.verdict}, fraud_score=${result.fraud_score}, recipient="${result.recipient_name}", key_matches=${result.key_matches}`);
+                    
+                    // Store all results
+                    ctx.variables["comprovante_status"] = "verificado";
+                    ctx.variables["comprovante_valor"] = result.amount ? String(result.amount) : "";
+                    ctx.variables["comprovante_destinatario"] = result.recipient_name || "";
+                    ctx.variables["comprovante_chave"] = result.recipient_key || "";
+                    ctx.variables["comprovante_fraud_score"] = String(result.fraud_score || 0);
+                    ctx.variables["comprovante_integridade"] = result.visual_integrity || "";
+                    
+                    ctx.variables["_audit_payment_verify"] = JSON.stringify({
+                      ts: new Date().toISOString(), auto_triggered: true,
+                      verdict: result.verdict, fraud_score: result.fraud_score,
+                      key_matches: result.key_matches, recipient_matches: result.recipient_matches,
+                      amount_matches: result.amount_matches, amount_found: result.amount,
+                      expected_amount: expectedProductPrice || "N/A",
+                      visual_integrity: result.visual_integrity, fraud_reasons: result.fraud_reasons,
+                    });
+                    
+                    // Send verdict to customer
+                    if (result.verdict === "aprovado") {
+                      let msg = "✅ *Pagamento confirmado com sucesso!*\n\n";
+                      msg += `💰 Valor: *R$ ${Number(result.amount || 0).toFixed(2)}*\n`;
+                      if (result.payer_name) msg += `👤 Pagador: ${result.payer_name}\n`;
+                      if (result.bank_name) msg += `🏦 Banco: ${result.bank_name}\n`;
+                      if (result.transaction_id) msg += `🔑 ID: ${result.transaction_id}\n`;
+                      msg += `\nMuito obrigado pelo pagamento! Qualquer dúvida, estou por aqui 💚\n\n_Nutricar Brasil - Mini Mercado 24h_`;
+                      await sendWhatsAppMessage(supabase, ctx, msg);
+                    } else if (result.verdict === "suspeito") {
+                      let msg = "⚠️ *Comprovante em verificação*\n\n";
+                      msg += "Identificamos algumas inconsistências:\n\n";
+                      if (!result.recipient_matches) msg += "• O *nome do favorecido* não corresponde à Nutricar Brasil\n";
+                      if (!result.key_matches) msg += "• A *chave PIX* utilizada é diferente da esperada\n";
+                      if (result.amount_matches === false) msg += "• O *valor* não confere com o produto\n";
+                      if (result.visual_integrity !== "ok") msg += "• A imagem apresenta *possíveis sinais de edição*\n";
+                      msg += "\nNossa equipe vai analisar e retornar em breve 📋\n\n_Nutricar Brasil - Mini Mercado 24h_";
+                      await sendWhatsAppMessage(supabase, ctx, msg);
+                    } else {
+                      let msg = "❌ *Comprovante não validado*\n\n";
+                      msg += "O comprovante não corresponde ao pagamento esperado.\n\n";
+                      msg += "Por favor, verifique:\n";
+                      msg += `• Chave PIX correta: *${expectedPixKey}*\n`;
+                      msg += `• Favorecido: *${expectedRecipient}*\n`;
+                      if (expectedProductPrice) msg += `• Valor: *R$ ${Number(expectedProductPrice).toFixed(2)}*\n`;
+                      msg += "\nSe tiver dúvidas, estou aqui pra ajudar! 😊\n\n_Nutricar Brasil - Mini Mercado 24h_";
+                      await sendWhatsAppMessage(supabase, ctx, msg);
+                    }
+                    
+                    // Auto-tag suspicious
+                    if ((result.verdict === "suspeito" || result.verdict === "reprovado") && ctx.contactId) {
+                      try {
+                        const fraudTagName = "comprovante-suspeito";
+                        let { data: eTag } = await supabase.from("tags").select("id").eq("name", fraudTagName).eq("created_by", ctx.userId).maybeSingle();
+                        if (!eTag) {
+                          const { data: nTag } = await supabase.from("tags").insert({ name: fraudTagName, color: "#ef4444", created_by: ctx.userId }).select("id").single();
+                          eTag = nTag;
+                        }
+                        if (eTag) {
+                          await supabase.from("contact_tags").upsert({ contact_id: ctx.contactId, tag_id: eTag.id }, { onConflict: "contact_id,tag_id" });
+                          console.log(`[AUTO-VERIFY] Tagged contact as "${fraudTagName}"`);
+                        }
+                      } catch (e) { console.error("[AUTO-VERIFY] Tag error:", e); }
+                    }
+                    
+                    return { sent: true, model, reply: `[auto-verify: ${result.verdict}]`, auto_verify: true, verdict: result.verdict };
+                  } else {
+                    console.log("[AUTO-VERIFY] Image is NOT a payment receipt — continuing normal flow");
+                  }
+                }
+              }
+            } catch (e) {
+              console.error("[AUTO-VERIFY] Receipt verification error:", e);
+            }
+          }
+        }
+
         // After replying, automatically send PIX key if the conversation is about payment
         await sendPixKeyIfPaymentRelated(supabase, ctx);
       }
