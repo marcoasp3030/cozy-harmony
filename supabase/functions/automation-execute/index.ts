@@ -612,7 +612,23 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
 
       // ── AUTO-INJECT PRODUCT INFO for payment-related interactive messages ──
       const isPaymentMsg = /pix|pagamento|pagar|valor|chave/i.test(bodyText);
-      if (isPaymentMsg && ctx.userId) {
+
+      // ── CHECK: Did the customer say they ALREADY PAID? ──
+      const alreadyPaidPattern = /j[aá]\s*(fiz|paguei|pago|transferi|enviei)|fiz\s*o\s*pi[x]|fiz\s*o\s*pagamento|t[aá]\s*pago|realizei\s*o\s*pagamento|fiz\s*a\s*transfer[eê]ncia/i;
+      const customerAlreadyPaid = alreadyPaidPattern.test(ctx.messageContent);
+      const pixAlreadySent = ctx.variables["_pix_key_sent"] === "true";
+
+      if (customerAlreadyPaid && pixAlreadySent) {
+        // Customer says they already paid AND we already sent the PIX key — ask for receipt
+        bodyText = "Ótimo! 😊 Para confirmar seu pagamento, por favor envie o comprovante do PIX aqui. Assim que recebermos, vamos validar rapidinho! 💚\n\n_Nutricar Brasil - Mini Mercado 24h_";
+        console.log(`[PIX] Customer says already paid & PIX key was already sent — asking for receipt instead of resending`);
+        ctx.variables["_audit_reply_suppressed"] = `PIX key NOT resent — customer said "${ctx.messageContent}", asking for comprovante`;
+      } else if (customerAlreadyPaid && !pixAlreadySent) {
+        // Customer says paid but we haven't sent PIX yet — still ask for receipt (they may have paid via another channel)
+        bodyText = "Entendi que você já realizou o pagamento! 😊 Por favor, envie o comprovante do PIX aqui para confirmarmos. 💚\n\n_Nutricar Brasil - Mini Mercado 24h_";
+        console.log(`[PIX] Customer says already paid (no prior PIX sent) — asking for receipt`);
+        ctx.variables["_audit_reply_suppressed"] = `Customer said "${ctx.messageContent}" — asking for comprovante (no prior PIX sent)`;
+      } else if (isPaymentMsg && ctx.userId) {
         // Check if we already have product info from a previous node
         if (ctx.variables["produto_encontrado"] === "true" && ctx.variables["produto_nome"] && ctx.variables["produto_preco"]) {
           const prodName = ctx.variables["produto_nome"];
@@ -629,7 +645,7 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
           if (searchText.length > 2) {
             try {
               // Extract meaningful words for search
-              const stopWords = new Set(["para", "como", "quero", "saber", "qual", "esse", "essa", "favor", "pode", "aqui", "mais", "muito", "obrigado", "obrigada", "sobre", "tenho", "estou", "esta", "isso", "peguei", "produto", "valor", "preco", "pagar", "pagamento", "chave"]);
+              const stopWords = new Set(["para", "como", "quero", "saber", "qual", "esse", "essa", "favor", "pode", "aqui", "mais", "muito", "obrigado", "obrigada", "sobre", "tenho", "estou", "esta", "isso", "peguei", "produto", "valor", "preco", "pagar", "pagamento", "chave", "paguei", "pago", "transferi"]);
               const words = searchText
                 .replace(/[^\p{L}\p{N}\s]/gu, " ")
                 .split(/\s+/)
@@ -2973,6 +2989,16 @@ function buildPixPaymentMessage(productName?: string, productPrice?: string | nu
 async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext): Promise<boolean> {
   // Check if PIX was already sent in this execution
   if (ctx.variables["_pix_key_sent"] === "true") return false;
+
+  // ── GUARD: If customer says they ALREADY PAID, don't resend PIX — ask for receipt ──
+  const alreadyPaidPattern = /j[aá]\s*(fiz|paguei|pago|transferi|enviei)|fiz\s*o\s*pi[x]|fiz\s*o\s*pagamento|t[aá]\s*pago|realizei\s*o\s*pagamento|fiz\s*a\s*transfer[eê]ncia/i;
+  if (alreadyPaidPattern.test(ctx.messageContent)) {
+    console.log(`[PIX] Customer says already paid ("${ctx.messageContent}") — NOT sending PIX key, asking for receipt`);
+    const receiptMsg = "Ótimo! 😊 Para confirmar seu pagamento, por favor envie o comprovante do PIX aqui. Assim que recebermos, vamos validar rapidinho! 💚\n\n_Nutricar Brasil - Mini Mercado 24h_";
+    await sendWhatsAppMessage(supabase, ctx, receiptMsg);
+    ctx.variables["_audit_reply_suppressed"] = `PIX NOT resent — customer said already paid: "${ctx.messageContent}"`;
+    return true;
+  }
 
   // Check all available context for payment DIFFICULTY keywords (not general payment mentions)
   const allContext = [
