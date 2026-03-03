@@ -174,7 +174,7 @@ serve(async (req) => {
 
       // ── Debounce: use insert-first pattern to prevent race conditions ──
       const collectNode = flow.nodes.find((n: FlowNode) => n.data?.nodeType === "action_collect_messages");
-      const debounceSeconds = collectNode ? (parseInt(collectNode.data.wait_seconds) || 15) + 10 : 12;
+      const debounceSeconds = collectNode ? (parseInt(collectNode.data.wait_seconds) || 15) + 3 : 12;
 
       // Create log entry FIRST to claim the slot (atomic insert)
       const { data: logEntry, error: logInsertErr } = await supabase
@@ -2687,10 +2687,11 @@ Responda APENAS com JSON válido:
     }
 
     if (type === "action_collect_messages") {
-      const waitSeconds = parseInt(d.wait_seconds) || 15;
+      const waitSeconds = Math.max(parseInt(d.wait_seconds) || 15, 3);
       const maxMessages = parseInt(d.max_messages) || 10;
       // Wait for the specified interval (capped at 25s for edge function limit)
       const waitMs = Math.min(waitSeconds * 1000, 25000);
+      console.log(`[Collect] Waiting ${waitMs}ms for batched messages (configured: ${waitSeconds}s)`);
       await new Promise((r) => setTimeout(r, waitMs));
 
       // Fetch recent messages from this contact during the wait window
