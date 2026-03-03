@@ -663,58 +663,99 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
         console.log(`[PIX] Customer says already paid (no prior PIX sent) — asking for receipt`);
         ctx.variables["_audit_reply_suppressed"] = `Customer said "${ctx.messageContent}" — asking for comprovante (no prior PIX sent)`;
       } else if (isPaymentMsg && ctx.userId) {
-        // Check if we already have product info from a previous node
+        // Check if we already have product info from a previous node in THIS execution
         if (ctx.variables["produto_encontrado"] === "true" && ctx.variables["produto_nome"] && ctx.variables["produto_preco"]) {
           const prodName = ctx.variables["produto_nome"];
           const prodPrice = Number(ctx.variables["produto_preco"]).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
           bodyText = `🛒 Produto: *${prodName}*\n💰 Valor: *${prodPrice}*\n\n${bodyText}`;
-          console.log(`[PIX] Injected product info: ${prodName} = ${prodPrice}`);
+          console.log(`[PIX] Injected product info from current execution: ${prodName} = ${prodPrice}`);
         } else {
-          // Try to find product from recent conversation context
-          const grouped = ctx.variables["mensagens_agrupadas"] || "";
-          const transcription = ctx.variables["transcricao"] || "";
-          const imageProduct = ctx.variables["produto_identificado"] || ctx.variables["descricao_imagem"] || "";
-          const searchText = imageProduct || grouped || transcription || ctx.messageContent || "";
+          // ── STEP 1: Check recent OUTBOUND messages for previously identified product ──
+          let productRecovered = false;
+          try {
+            const { data: recentMsgs } = await supabase
+              .from("messages")
+              .select("content")
+              .eq("contact_id", ctx.contactId)
+              .eq("direction", "outbound")
+              .order("created_at", { ascending: false })
+              .limit(10);
 
-          if (searchText.length > 2) {
-            try {
-              // Extract meaningful words for search
-              const stopWords = new Set(["para", "como", "quero", "saber", "qual", "esse", "essa", "favor", "pode", "aqui", "mais", "muito", "obrigado", "obrigada", "sobre", "tenho", "estou", "esta", "isso", "peguei", "produto", "valor", "preco", "pagar", "pagamento", "chave", "paguei", "pago", "transferi"]);
-              const words = searchText
-                .replace(/[^\p{L}\p{N}\s]/gu, " ")
-                .split(/\s+/)
-                .filter((w: string) => w.length > 3 && !stopWords.has(w.toLowerCase()));
-              const query = words.slice(0, 5).join(" ");
-              
-              if (query.length > 2) {
-                const { data: products } = await supabase.rpc("search_products", {
-                  _user_id: ctx.userId,
-                  _query: query,
-                  _limit: 3,
-                });
-                if (products && products.length > 0) {
-                  const first = products[0];
+            if (recentMsgs && recentMsgs.length > 0) {
+              // Look for "🛒 Encontrei no catálogo: *PRODUCT*\n💰 Valor: *R$ XX,XX*" or similar patterns
+              const productPattern = /(?:🛒\s*(?:Encontrei no catálogo|Produto):\s*\*([^*]+)\*[\s\S]*?💰\s*Valor:\s*\*R\$\s*([\d.,]+)\*)/;
+              for (const msg of recentMsgs) {
+                const match = msg.content?.match(productPattern);
+                if (match) {
+                  const recoveredName = match[1].trim();
+                  const recoveredPrice = match[2].trim().replace(",", ".");
                   ctx.variables["produto_encontrado"] = "true";
-                  ctx.variables["produto_nome"] = first.name || "";
-                  ctx.variables["produto_preco"] = String(first.price || 0);
-                  const prodPrice = Number(first.price).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-                  bodyText = `🛒 Produto: *${first.name}*\n💰 Valor: *${prodPrice}*\n\n${bodyText}`;
-                  console.log(`[PIX] Auto-searched product: ${first.name} = ${prodPrice} (query: "${query}")`);
-                } else {
-                  // No product found — prepend a warning asking the client to identify the product
-                  bodyText = `⚠️ Não consegui identificar o produto. Poderia enviar uma foto do produto ou código de barras para eu verificar o valor?\n\n${bodyText}`;
-                  console.log(`[PIX] No product found for query: "${query}" — asking client to identify`);
+                  ctx.variables["produto_nome"] = recoveredName;
+                  ctx.variables["produto_preco"] = recoveredPrice;
+                  const formattedPrice = Number(recoveredPrice).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                  bodyText = `🛒 Produto: *${recoveredName}*\n💰 Valor: *${formattedPrice}*\n\n${bodyText}`;
+                  console.log(`[PIX] Recovered product from recent messages: ${recoveredName} = ${formattedPrice}`);
+                  productRecovered = true;
+                  break;
                 }
-              } else {
-                bodyText = `⚠️ Para seguir com o pagamento, preciso saber qual produto você pegou. Poderia me informar o nome ou enviar uma foto?\n\n${bodyText}`;
-                console.log(`[PIX] No search query available — asking client to identify product`);
               }
-            } catch (e) {
-              console.error("[PIX] Product search error:", e);
             }
-          } else {
-            bodyText = `⚠️ Para seguir com o pagamento, preciso saber qual produto você pegou. Poderia me informar o nome ou enviar uma foto?\n\n${bodyText}`;
-            console.log(`[PIX] No context for product search — asking client`);
+          } catch (e) {
+            console.error("[PIX] Error recovering product from recent messages:", e);
+          }
+
+          // ── STEP 2: If not recovered, try searching from conversation context ──
+          if (!productRecovered) {
+            const grouped = ctx.variables["mensagens_agrupadas"] || "";
+            const transcription = ctx.variables["transcricao"] || "";
+            const imageProduct = ctx.variables["produto_identificado"] || ctx.variables["descricao_imagem"] || "";
+            const searchText = imageProduct || grouped || transcription || ctx.messageContent || "";
+
+            // Check if the message is ONLY a PIX request with no product context
+            const isOnlyPixRequest = PIX_EXPLICIT_REQUEST.test(ctx.messageContent || "") && !imageProduct && !grouped && !transcription;
+
+            if (isOnlyPixRequest) {
+              // Customer just said "envia a chave pix" — don't search with garbage, ask nicely
+              bodyText = `⚠️ Para seguir com o pagamento, preciso confirmar qual produto você pegou. Poderia me informar o nome ou enviar uma foto?\n\n${bodyText}`;
+              console.log(`[PIX] Explicit PIX request but no product context — asking client to identify`);
+            } else if (searchText.length > 2) {
+              try {
+                const stopWords = new Set(["para", "como", "quero", "saber", "qual", "esse", "essa", "favor", "pode", "aqui", "mais", "muito", "obrigado", "obrigada", "sobre", "tenho", "estou", "esta", "isso", "peguei", "produto", "valor", "preco", "pagar", "pagamento", "chave", "paguei", "pago", "transferi", "enviar", "envie", "envia", "mandar", "manda", "mande", "quiser", "quer"]);
+                const words = searchText
+                  .replace(/[^\p{L}\p{N}\s]/gu, " ")
+                  .split(/\s+/)
+                  .filter((w: string) => w.length > 3 && !stopWords.has(w.toLowerCase()));
+                const query = words.slice(0, 5).join(" ");
+                
+                if (query.length > 2) {
+                  const { data: products } = await supabase.rpc("search_products", {
+                    _user_id: ctx.userId,
+                    _query: query,
+                    _limit: 3,
+                  });
+                  if (products && products.length > 0) {
+                    const first = products[0];
+                    ctx.variables["produto_encontrado"] = "true";
+                    ctx.variables["produto_nome"] = first.name || "";
+                    ctx.variables["produto_preco"] = String(first.price || 0);
+                    const prodPrice = Number(first.price).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                    bodyText = `🛒 Produto: *${first.name}*\n💰 Valor: *${prodPrice}*\n\n${bodyText}`;
+                    console.log(`[PIX] Auto-searched product: ${first.name} = ${prodPrice} (query: "${query}")`);
+                  } else {
+                    bodyText = `⚠️ Não consegui identificar o produto. Poderia enviar uma foto do produto ou código de barras para eu verificar o valor?\n\n${bodyText}`;
+                    console.log(`[PIX] No product found for query: "${query}" — asking client to identify`);
+                  }
+                } else {
+                  bodyText = `⚠️ Para seguir com o pagamento, preciso saber qual produto você pegou. Poderia me informar o nome ou enviar uma foto?\n\n${bodyText}`;
+                  console.log(`[PIX] No search query available — asking client to identify product`);
+                }
+              } catch (e) {
+                console.error("[PIX] Product search error:", e);
+              }
+            } else {
+              bodyText = `⚠️ Para seguir com o pagamento, preciso saber qual produto você pegou. Poderia me informar o nome ou enviar uma foto?\n\n${bodyText}`;
+              console.log(`[PIX] No context for product search — asking client`);
+            }
           }
         }
       }
