@@ -629,6 +629,41 @@ Se {{produto_encontrado}} = "true", confirme o valor do catálogo ao invés de p
       data: { nodeType: "action_add_tag", tag_name: "produto-foto" },
     },
 
+    // ═══ ROTA 3: VERIFICAÇÃO DE COMPROVANTE PIX ═══
+    // Verifica se a imagem recebida é um comprovante de pagamento
+    {
+      id: "multi_check_comprovante",
+      type: "flowNode",
+      position: { x: X + 1050, y: 560 },
+      data: {
+        nodeType: "condition_contains",
+        text: "comprovante,recibo,pix,pagamento,transferência,transferencia,paguei,pago,enviando comprovante,segue comprovante,tá pago,ta pago,fiz o pix,realizei o pagamento",
+        case_sensitive: false,
+      },
+    },
+    // Nó de verificação do comprovante PIX
+    {
+      id: "multi_verify_payment",
+      type: "flowNode",
+      position: { x: X + 1050, y: 700 },
+      data: {
+        nodeType: "action_verify_payment",
+        expected_pix_key: "financeiro@nutricarbrasil.com.br",
+        expected_recipient: "Nutricar Brasil",
+        check_value: true,
+        max_hours_ago: 24,
+        send_result: true,
+        auto_tag_fraud: true,
+        fraud_tag: "comprovante-suspeito",
+      },
+    },
+    {
+      id: "multi_verify_tag_ok",
+      type: "flowNode",
+      position: { x: X + 1050, y: 840 },
+      data: { nodeType: "action_add_tag", tag_name: "pagamento-confirmado" },
+    },
+
     // ═══ ROTA 2: TEXTO (sem áudio, sem imagem) ═══
     // Verificar se texto fala de pagamento
     {
@@ -806,8 +841,14 @@ FRASE INSTITUCIONAL: A Nutricar Brasil utiliza tecnologia, controle de acesso e 
 
     // ── Rota Imagem (se não é áudio, verificar se é imagem) ──
     makeEdge("multi_check_audio", "multi_check_image", "no"),
-    // Imagem SIM → analisar → buscar produto → tag → ocorrência final
-    makeEdge("multi_check_image", "multi_image_analyze", "yes"),
+    // Imagem SIM → verificar se menciona comprovante
+    makeEdge("multi_check_image", "multi_check_comprovante", "yes"),
+    // Comprovante SIM → verificar pagamento → tag ok → ocorrência final
+    makeEdge("multi_check_comprovante", "multi_verify_payment", "yes"),
+    makeEdge("multi_verify_payment", "multi_verify_tag_ok"),
+    makeEdge("multi_verify_tag_ok", "multi_occ_final"),
+    // Comprovante NÃO → analisar produto → buscar catálogo → tag → ocorrência final
+    makeEdge("multi_check_comprovante", "multi_image_analyze", "no"),
     makeEdge("multi_image_analyze", "multi_image_search_product"),
     makeEdge("multi_image_search_product", "multi_image_tag"),
     makeEdge("multi_image_tag", "multi_occ_final"),
