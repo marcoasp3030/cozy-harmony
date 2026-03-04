@@ -1811,8 +1811,8 @@ REGRAS PARA "ready":
     if (type === "action_llm_reply") {
       const systemPrompt = interpolate(String(d.system_prompt || "Você é um assistente de atendimento."), ctx);
       const provider = d.provider || "openai";
-      const model = d.model || (provider === "openai" ? "gpt-4o-mini" : "gemini-2.5-flash");
-      const maxTokens = parseInt(d.max_tokens) || 500;
+      const model = d.model || (provider === "openai" ? "gpt-4o" : "gemini-2.5-flash");
+      const maxTokens = parseInt(d.max_tokens) || 1024;
 
       // Get user API keys
       const { data: ownerAutomation } = await supabase
@@ -2781,6 +2781,7 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
       }
 
       if (reply) {
+        console.log(`[LLM] Reply generated (${reply.length} chars, maxTokens=${maxTokens}): "${reply.slice(0, 120)}..."`);
         const hasCatalogProduct =
           ctx.variables["produto_encontrado"] === "true" &&
           !!ctx.variables["produto_nome"] &&
