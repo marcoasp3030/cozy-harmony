@@ -87,6 +87,187 @@ async function getCachedInstance(supabase: any, userId: string | null, instanceI
   return result;
 }
 
+// ── Cached user AI keys lookup ──
+const userKeysCache = new Map<string, { keys: Record<string, string>; timeout: number }>();
+
+async function getUserAIKeys(supabase: any, userId: string | null): Promise<{ keys: Record<string, string>; aiTimeout: number }> {
+  if (!userId) return { keys: {}, aiTimeout: 15 };
+  
+  if (userKeysCache.has(userId)) {
+    const cached = userKeysCache.get(userId)!;
+    return { keys: cached.keys, aiTimeout: cached.timeout };
+  }
+
+  const { data: settings } = await supabase
+    .from("settings")
+    .select("key, value")
+    .eq("user_id", userId)
+    .in("key", ["llm_openai", "llm_gemini", "ai_timeout"]);
+
+  const keys: Record<string, string> = {};
+  let aiTimeout = 15;
+  for (const s of settings || []) {
+    const val = s.value as any;
+    if (s.key === "llm_openai" && val?.apiKey) keys.openai = val.apiKey;
+    if (s.key === "llm_gemini" && val?.apiKey) keys.gemini = val.apiKey;
+    if (s.key === "ai_timeout" && val?.seconds) aiTimeout = val.seconds;
+  }
+
+  userKeysCache.set(userId, { keys, timeout: aiTimeout });
+  return { keys, aiTimeout };
+}
+
+// ── Helper: call AI with user's OpenAI/Gemini keys ──
+async function callAIWithUserKeys(
+  keys: Record<string, string>,
+  prompt: string,
+  options: { maxTokens?: number; temperature?: number; timeoutMs?: number } = {}
+): Promise<string> {
+  const { maxTokens = 300, temperature = 0.2, timeoutMs = 15000 } = options;
+
+  if (keys.openai) {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: maxTokens,
+          temperature,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(tid);
+      if (resp.ok) {
+        const data = await resp.json();
+        return data.choices?.[0]?.message?.content?.trim() || "";
+      }
+      const errText = await resp.text();
+      console.error(`[AI] OpenAI error (${resp.status}):`, errText.slice(0, 100));
+    } catch (e) {
+      clearTimeout(tid);
+      console.error("[AI] OpenAI call failed:", e);
+    }
+  }
+
+  if (keys.gemini) {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${keys.gemini}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: { maxOutputTokens: maxTokens, temperature },
+          }),
+          signal: controller.signal,
+        }
+      );
+      clearTimeout(tid);
+      if (resp.ok) {
+        const data = await resp.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+      }
+      const errText = await resp.text();
+      console.error(`[AI] Gemini error (${resp.status}):`, errText.slice(0, 100));
+    } catch (e) {
+      clearTimeout(tid);
+      console.error("[AI] Gemini call failed:", e);
+    }
+  }
+
+  return "";
+}
+
+// ── Helper: call AI with vision (image analysis) using user keys ──
+async function callAIVisionWithUserKeys(
+  keys: Record<string, string>,
+  prompt: string,
+  imageBase64: string,
+  options: { maxTokens?: number; temperature?: number; timeoutMs?: number } = {}
+): Promise<string> {
+  const { maxTokens = 600, temperature = 0.2, timeoutMs = 30000 } = options;
+
+  // Prefer Gemini for vision (native support, better for images)
+  if (keys.gemini) {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${keys.gemini}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              role: "user",
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: "image/jpeg", data: imageBase64 } },
+              ],
+            }],
+            generationConfig: { maxOutputTokens: maxTokens, temperature },
+          }),
+          signal: controller.signal,
+        }
+      );
+      clearTimeout(tid);
+      if (resp.ok) {
+        const data = await resp.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+      }
+      const errText = await resp.text();
+      console.error(`[AI-VISION] Gemini error (${resp.status}):`, errText.slice(0, 100));
+    } catch (e) {
+      clearTimeout(tid);
+      console.error("[AI-VISION] Gemini call failed:", e);
+    }
+  }
+
+  // Fallback to OpenAI vision
+  if (keys.openai) {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [{
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+            ],
+          }],
+          max_tokens: maxTokens,
+          temperature,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(tid);
+      if (resp.ok) {
+        const data = await resp.json();
+        return data.choices?.[0]?.message?.content?.trim() || "";
+      }
+      const errText = await resp.text();
+      console.error(`[AI-VISION] OpenAI error (${resp.status}):`, errText.slice(0, 100));
+    } catch (e) {
+      clearTimeout(tid);
+      console.error("[AI-VISION] OpenAI call failed:", e);
+    }
+  }
+
+  return "";
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -680,27 +861,10 @@ Responda APENAS com um JSON válido no formato:
 Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
 
       let reply = "";
-      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+      const { keys: intentKeys } = await getUserAIKeys(supabase, ctx.userId);
 
-      if (LOVABLE_API_KEY) {
-        try {
-          const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: "google/gemini-2.5-flash-lite",
-              messages: [{ role: "user", content: classifyPrompt }],
-              max_tokens: 100,
-              temperature: 0.1,
-            }),
-          });
-          if (resp.ok) {
-            const data = await resp.json();
-            reply = data.choices?.[0]?.message?.content?.trim() || "";
-          }
-        } catch (e) {
-          console.error("Intent classifier AI error:", e);
-        }
+      if (intentKeys.openai || intentKeys.gemini) {
+        reply = await callAIWithUserKeys(intentKeys, classifyPrompt, { maxTokens: 100, temperature: 0.1 });
       }
 
       if (!reply) {
@@ -787,8 +951,8 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
         ctx.variables["_difficulty_detected"] = "true";
         ctx.variables["_audit_reply_suppressed"] = `Mensagem interativa PIX bloqueada — relato de dificuldade: "${ctx.messageContent?.slice(0, 100)}"`;
         
-        // Use AI to generate a context-aware qualification message instead of hardcoded text
-        const LOVABLE_API_KEY_GUARD = Deno.env.get("LOVABLE_API_KEY");
+        // Use AI to generate a context-aware qualification message
+        const { keys: guardKeys } = await getUserAIKeys(supabase, ctx.userId);
         
         // Build conversation context for qualification
         let qualConversation = "";
@@ -812,9 +976,8 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
 
         let qualificationMsg = "";
         
-        if (LOVABLE_API_KEY_GUARD && qualConversation) {
-          try {
-            const qualPrompt = `Você é uma atendente simpática da Nutricar Brasil (mini mercados autônomos 24h).
+        if ((guardKeys.openai || guardKeys.gemini) && qualConversation) {
+          const qualPrompt = `Você é uma atendente simpática da Nutricar Brasil (mini mercados autônomos 24h).
 
 O cliente está relatando um PROBLEMA com pagamento. Você precisa entender melhor a situação ANTES de oferecer a chave PIX.
 
@@ -846,23 +1009,7 @@ INSTRUÇÃO PRINCIPAL:
 
 Responda APENAS com o texto da mensagem.`;
 
-            const guardResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-              method: "POST",
-              headers: { Authorization: `Bearer ${LOVABLE_API_KEY_GUARD}`, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                model: "google/gemini-2.5-flash-lite",
-                messages: [{ role: "user", content: qualPrompt }],
-                max_tokens: 300,
-                temperature: 0.7,
-              }),
-            });
-            if (guardResp.ok) {
-              const guardData = await guardResp.json();
-              qualificationMsg = guardData.choices?.[0]?.message?.content?.trim() || "";
-            }
-          } catch (e) {
-            console.error("[PIX GUARD] AI qualification error:", e);
-          }
+          qualificationMsg = await callAIWithUserKeys(guardKeys, qualPrompt, { maxTokens: 300, temperature: 0.7 });
         }
         
         // Fallback if AI fails — try to detect store from conversation to avoid re-asking

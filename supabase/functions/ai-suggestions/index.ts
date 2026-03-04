@@ -7,19 +7,156 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// ── Helper: call AI using user's own OpenAI/Gemini keys ──
+async function callUserAI(
+  keys: Record<string, string>,
+  messages: Array<{ role: string; content: string }>,
+  options: { maxTokens?: number; temperature?: number; tools?: any[]; tool_choice?: any } = {}
+): Promise<{ content?: string; tool_calls?: any[]; error?: string }> {
+  const { maxTokens = 500, temperature = 0.7, tools, tool_choice } = options;
+  const provider = keys.openai ? "openai" : keys.gemini ? "gemini" : null;
+  if (!provider) return { error: "Nenhuma API Key configurada (OpenAI/Gemini). Vá em Configurações → API LLM." };
+
+  try {
+    if (provider === "openai") {
+      const body: any = {
+        model: "gpt-4o-mini",
+        messages,
+        max_tokens: maxTokens,
+        temperature,
+      };
+      if (tools) body.tools = tools;
+      if (tool_choice) body.tool_choice = tool_choice;
+
+      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        const errText = await resp.text();
+        console.error("OpenAI error:", resp.status, errText);
+        return { error: `Erro na API OpenAI (${resp.status}). Verifique sua API Key.` };
+      }
+      const data = await resp.json();
+      const choice = data.choices?.[0]?.message;
+      return { content: choice?.content?.trim() || "", tool_calls: choice?.tool_calls };
+    } else {
+      // Gemini — convert messages to Gemini format
+      const systemMsg = messages.find(m => m.role === "system");
+      const geminiContents = messages
+        .filter(m => m.role !== "system")
+        .map(m => ({
+          role: m.role === "assistant" ? "model" : "user",
+          parts: [{ text: m.content }],
+        }));
+
+      const body: any = {
+        contents: geminiContents,
+        generationConfig: { maxOutputTokens: maxTokens, temperature },
+      };
+      if (systemMsg) body.system_instruction = { parts: [{ text: systemMsg.content }] };
+
+      // Gemini doesn't support OpenAI-style tool_choice, but supports tools
+      if (tools) {
+        body.tools = [{
+          function_declarations: tools.map((t: any) => ({
+            name: t.function.name,
+            description: t.function.description,
+            parameters: t.function.parameters,
+          })),
+        }];
+        body.tool_config = { function_calling_config: { mode: "ANY" } };
+      }
+
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${keys.gemini}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }
+      );
+      if (!resp.ok) {
+        const errText = await resp.text();
+        console.error("Gemini error:", resp.status, errText);
+        return { error: `Erro na API Gemini (${resp.status}). Verifique sua API Key.` };
+      }
+      const data = await resp.json();
+      const candidate = data.candidates?.[0]?.content;
+      const textPart = candidate?.parts?.find((p: any) => p.text);
+      const funcPart = candidate?.parts?.find((p: any) => p.functionCall);
+
+      if (funcPart?.functionCall) {
+        // Convert Gemini function call to OpenAI tool_calls format
+        return {
+          tool_calls: [{
+            function: {
+              name: funcPart.functionCall.name,
+              arguments: JSON.stringify(funcPart.functionCall.args),
+            },
+          }],
+        };
+      }
+      return { content: textPart?.text?.trim() || "" };
+    }
+  } catch (e) {
+    console.error("AI call error:", e);
+    return { error: e instanceof Error ? e.message : "Erro desconhecido na chamada de IA" };
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
-
     const { conversation_id, contact_id } = await req.json();
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
+
+    // Resolve user from auth header
+    const authHeader = req.headers.get("Authorization");
+    let userId = "";
+    if (authHeader?.startsWith("Bearer ")) {
+      const anonClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: authHeader } } }
+      );
+      const token = authHeader.replace("Bearer ", "");
+      const { data: claimsData } = await anonClient.auth.getClaims(token);
+      userId = (claimsData?.claims?.sub as string) || "";
+    }
+
+    if (!userId) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Load user's API keys
+    const { data: settings } = await supabase
+      .from("settings")
+      .select("key, value")
+      .eq("user_id", userId)
+      .in("key", ["llm_openai", "llm_gemini"]);
+
+    const keys: Record<string, string> = {};
+    for (const s of settings || []) {
+      const val = s.value as { apiKey?: string };
+      if (s.key === "llm_openai" && val?.apiKey) keys.openai = val.apiKey;
+      if (s.key === "llm_gemini" && val?.apiKey) keys.gemini = val.apiKey;
+    }
+
+    if (!keys.openai && !keys.gemini) {
+      return new Response(
+        JSON.stringify({ error: "Nenhuma API Key configurada. Vá em Configurações → API LLM para adicionar." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Load contact info
     const { data: contact } = await supabase
@@ -89,76 +226,75 @@ Regras:
 - Se é uma reclamação, seja empático
 - Se é um elogio, agradeça`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...messagesContext,
-          { role: "user", content: "Gere 3 sugestões de resposta para a última mensagem do cliente." },
-        ],
-        tools: [{
-          type: "function",
-          function: {
-            name: "suggest_replies",
-            description: "Return exactly 3 reply suggestions",
-            parameters: {
-              type: "object",
-              properties: {
-                suggestions: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      label: { type: "string", description: "Short label: Formal, Amigável, or Objetiva" },
-                      text: { type: "string", description: "The suggested reply text" },
-                    },
-                    required: ["label", "text"],
-                    additionalProperties: false,
-                  },
+    const tools = [{
+      type: "function",
+      function: {
+        name: "suggest_replies",
+        description: "Return exactly 3 reply suggestions",
+        parameters: {
+          type: "object",
+          properties: {
+            suggestions: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  label: { type: "string", description: "Short label: Formal, Amigável, or Objetiva" },
+                  text: { type: "string", description: "The suggested reply text" },
                 },
+                required: ["label", "text"],
+                additionalProperties: false,
               },
-              required: ["suggestions"],
-              additionalProperties: false,
             },
           },
-        }],
-        tool_choice: { type: "function", function: { name: "suggest_replies" } },
-      }),
+          required: ["suggestions"],
+          additionalProperties: false,
+        },
+      },
+    }];
+
+    const result = await callUserAI(keys, [
+      { role: "system", content: systemPrompt },
+      ...messagesContext,
+      { role: "user", content: "Gere 3 sugestões de resposta para a última mensagem do cliente." },
+    ], {
+      tools,
+      tool_choice: { type: "function", function: { name: "suggest_replies" } },
     });
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limit excedido. Tente novamente em alguns segundos." }), {
-          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Créditos insuficientes. Adicione créditos ao workspace." }), {
-          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const errText = await response.text();
-      console.error("AI gateway error:", response.status, errText);
-      throw new Error("AI gateway error");
+    if (result.error) {
+      return new Response(JSON.stringify({ error: result.error }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    const data = await response.json();
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-    
     let suggestions = [];
+    const toolCall = result.tool_calls?.[0];
     if (toolCall?.function?.arguments) {
       try {
         const parsed = JSON.parse(toolCall.function.arguments);
         suggestions = parsed.suggestions || [];
       } catch {
-        suggestions = [];
+        // If tool calling didn't work, try parsing content as JSON
+        if (result.content) {
+          try {
+            const jsonMatch = result.content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0]);
+              suggestions = parsed.suggestions || [];
+            }
+          } catch {}
+        }
       }
+    } else if (result.content) {
+      // Fallback: parse content as JSON (Gemini might return text instead of function call)
+      try {
+        const jsonMatch = result.content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          suggestions = parsed.suggestions || [];
+        }
+      } catch {}
     }
 
     return new Response(
