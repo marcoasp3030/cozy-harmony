@@ -385,6 +385,48 @@ const LlmApiConfig = () => {
   const [geminiSaved, setGeminiSaved] = useState(false);
   const [aiTimeout, setAiTimeout] = useState(30);
   const [savingTimeout, setSavingTimeout] = useState(false);
+  const [testing, setTesting] = useState<"openai" | "gemini" | null>(null);
+  const [testResult, setTestResult] = useState<{ provider: string; ok: boolean; message: string } | null>(null);
+
+  const testKey = async (provider: "openai" | "gemini") => {
+    const apiKey = provider === "openai" ? openaiKey.trim() : geminiKey.trim();
+    if (!apiKey) { toast.error("Preencha a API Key antes de testar."); return; }
+    setTesting(provider);
+    setTestResult(null);
+    try {
+      if (provider === "openai") {
+        const resp = await fetch("https://api.openai.com/v1/models", {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        });
+        if (resp.status === 401) {
+          setTestResult({ provider, ok: false, message: "API Key inválida. Verifique e tente novamente." });
+        } else if (resp.status === 429) {
+          setTestResult({ provider, ok: false, message: "⚠️ Cota esgotada! Verifique seu plano em platform.openai.com/account/billing." });
+        } else if (!resp.ok) {
+          setTestResult({ provider, ok: false, message: `Erro ${resp.status}: ${(await resp.text()).slice(0, 100)}` });
+        } else {
+          setTestResult({ provider, ok: true, message: "✅ Conexão OK! API Key válida e com cota disponível." });
+        }
+      } else {
+        const resp = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+        );
+        if (resp.status === 400 || resp.status === 403) {
+          setTestResult({ provider, ok: false, message: "API Key inválida ou sem permissão. Verifique em aistudio.google.com." });
+        } else if (resp.status === 429) {
+          setTestResult({ provider, ok: false, message: "⚠️ Cota esgotada! Verifique seus limites no Google AI Studio." });
+        } else if (!resp.ok) {
+          setTestResult({ provider, ok: false, message: `Erro ${resp.status}: ${(await resp.text()).slice(0, 100)}` });
+        } else {
+          setTestResult({ provider, ok: true, message: "✅ Conexão OK! API Key válida e funcional." });
+        }
+      }
+    } catch (err: any) {
+      setTestResult({ provider, ok: false, message: "Erro de rede: " + (err.message || "Verifique sua conexão.") });
+    } finally {
+      setTesting(null);
+    }
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -535,12 +577,20 @@ const LlmApiConfig = () => {
               <Button onClick={() => saveKey("openai")} disabled={saving || !openaiKey.trim()} size="sm">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               </Button>
+              <Button variant="outline" onClick={() => testKey("openai")} disabled={testing === "openai" || !openaiKey.trim()} size="sm">
+                {testing === "openai" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Testar"}
+              </Button>
               {openaiSaved && (
                 <Button variant="destructive" size="sm" onClick={() => removeKey("openai")}>
                   Remover
                 </Button>
               )}
             </div>
+            {testResult?.provider === "openai" && (
+              <div className={`text-xs rounded-md p-2 ${testResult.ok ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
+                {testResult.message}
+              </div>
+            )}
             {openaiSaved && (
               <div className="flex items-center gap-2 text-xs text-success">
                 <CheckCircle2 className="h-3.5 w-3.5" />
@@ -595,12 +645,20 @@ const LlmApiConfig = () => {
               <Button onClick={() => saveKey("gemini")} disabled={saving || !geminiKey.trim()} size="sm">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               </Button>
+              <Button variant="outline" onClick={() => testKey("gemini")} disabled={testing === "gemini" || !geminiKey.trim()} size="sm">
+                {testing === "gemini" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Testar"}
+              </Button>
               {geminiSaved && (
                 <Button variant="destructive" size="sm" onClick={() => removeKey("gemini")}>
                   Remover
                 </Button>
               )}
             </div>
+            {testResult?.provider === "gemini" && (
+              <div className={`text-xs rounded-md p-2 ${testResult.ok ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
+                {testResult.message}
+              </div>
+            )}
             {geminiSaved && (
               <div className="flex items-center gap-2 text-xs text-success">
                 <CheckCircle2 className="h-3.5 w-3.5" />
