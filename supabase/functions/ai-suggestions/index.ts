@@ -20,7 +20,7 @@ async function callUserAI(
   try {
     if (provider === "openai") {
       const body: any = {
-        model: "gpt-4o-mini",
+        model: "gpt-4o",
         messages,
         max_tokens: maxTokens,
         temperature,

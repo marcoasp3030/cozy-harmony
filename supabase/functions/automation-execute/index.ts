@@ -145,7 +145,7 @@ async function callAIWithUserKeys(
           method: "POST",
           headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: "gpt-4o-mini",
+            model: "gpt-4o",
             messages: [{ role: "user", content: prompt }],
             max_tokens: maxTokens,
             temperature,
@@ -261,7 +261,7 @@ async function callAIVisionWithUserKeys(
         method: "POST",
         headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "gpt-4o-mini",
+          model: "gpt-4o",
           messages: [{
             role: "user",
             content: [
