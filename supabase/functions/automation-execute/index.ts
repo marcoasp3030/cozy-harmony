@@ -1546,18 +1546,15 @@ Responda APENAS com o texto da mensagem.`;
       }
 
       const baseUrl = String(instance.base_url).replace(/\/+$/, "");
-      // UazAPI expects chatid for groups, number for individuals
-      const isGroup = groupId.includes("@g.us");
-      const sendBody: Record<string, any> = isGroup
-        ? { chatid: groupId, text: finalMessage }
-        : { number: groupId, text: finalMessage };
+      // UazAPI /send/text always requires "number" field — for groups use the JID as number
+      const sendBody: Record<string, any> = { number: groupId, text: finalMessage };
 
       // Add mentions for UazAPI to properly tag users in group
       if (mentionNumbers.length > 0) {
         sendBody.mentioned = mentionNumbers.map((n: string) => `${n}@s.whatsapp.net`);
       }
 
-      console.log(`[NOTIFY_GROUP] Sending to ${groupId}, isGroup=${isGroup}, payload keys: ${Object.keys(sendBody).join(",")}`);
+      console.log(`[NOTIFY_GROUP] Sending to ${groupId}, payload: ${JSON.stringify(sendBody).slice(0, 500)}`);
 
       const resp = await fetch(`${baseUrl}/send/text`, {
         method: "POST",
