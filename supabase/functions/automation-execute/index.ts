@@ -1552,12 +1552,25 @@ Responda APENAS com o texto da mensagem.`;
         for (const pat of lojaPatterns) {
           const m = textPool.match(pat);
           if (m?.[1]) {
-            const candidate = m[1].trim();
-            // Skip generic words that aren't store names
-            const skipWords = ["não","nao","aqui","está","tá","que","uma","tem","meu","minha","esse","essa","você","voce","por","favor"];
-            if (!skipWords.includes(candidate.toLowerCase()) && candidate.length > 1) {
+            const rawCandidate = m[1].trim();
+            const cleaned = rawCandidate
+              .replace(/^(?:aqui\s+)?(?:do|da|de|no|na)\s+/i, "")
+              .replace(/[.,;:!?]+$/g, "")
+              .trim();
+
+            const stopTokens = new Set(["e","eu","não","nao","está","esta","tá","ta","tem","mas","porém","porem","que","aqui","onde","porque","por","com","sem","um","uma","uns","umas","o","a","os","as","no","na","do","da","de","ele","ela","meu","minha","esse","essa","este","se","já","ja","só","so","muito","como","quando","então","entao","aí","ai","lá","la","pra","para"]);
+            const candidateTokens: string[] = [];
+            for (const token of cleaned.split(/\s+/).filter(Boolean)) {
+              const low = token.toLowerCase();
+              if (stopTokens.has(low) && candidateTokens.length > 0) break;
+              if (!stopTokens.has(low)) candidateTokens.push(token);
+              if (candidateTokens.length >= 4) break;
+            }
+            const candidate = candidateTokens.join(" ").trim();
+
+            if (candidate.length > 1) {
               loja = candidate;
-              console.log(`[NOTIFY_GROUP] Detected loja from text: "${loja}" (pattern: ${pat.source.slice(0, 40)}...)`);
+              console.log(`[NOTIFY_GROUP] Detected loja from text: "${loja}" (raw: "${rawCandidate}")`);
               break;
             }
           }
