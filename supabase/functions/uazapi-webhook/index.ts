@@ -273,28 +273,38 @@ serve(async (req) => {
                 const token = matchedInstance.instance_token;
                 
                 // Try multiple UazAPI endpoint paths and body formats for downloading media
+                // Includes v1 and v2 endpoints for maximum compatibility
                 // Use short timeout to avoid blocking the webhook
                 const downloadAttempts = [
-                  { ep: '/message/downloadMediaMessage', body: { id: externalId } },
-                  { ep: '/message/downloadMediaMessage', body: { messageId: externalId } },
-                  { ep: '/chat/downloadMediaMessage', body: { id: externalId } },
+                  // v2 endpoints (base64 — most reliable on newer UazAPI versions)
+                  { ep: '/chat/getBase64FromMediaMessage', body: { message: { key: { id: externalId } } }, method: 'POST' as const },
+                  { ep: '/message/getBase64FromMediaMessage', body: { message: { key: { id: externalId } } }, method: 'POST' as const },
+                  // v2 with simpler body
+                  { ep: '/chat/getBase64FromMediaMessage', body: { id: externalId }, method: 'POST' as const },
+                  // v1 endpoints (binary download)
+                  { ep: '/message/downloadMediaMessage', body: { id: externalId }, method: 'POST' as const },
+                  { ep: '/message/downloadMediaMessage', body: { messageId: externalId }, method: 'POST' as const },
+                  { ep: '/chat/downloadMediaMessage', body: { id: externalId }, method: 'POST' as const },
+                  // v2 GET endpoint fallback
+                  { ep: `/chat/mediaMessage/${externalId}`, body: null, method: 'GET' as const },
                 ];
                 
                 let dlResp: Response | null = null;
                 for (const attempt of downloadAttempts) {
-                  console.log(`[MEDIA] Trying: POST ${attempt.ep} body=${JSON.stringify(attempt.body)}`);
+                  console.log(`[MEDIA] Trying: ${attempt.method} ${attempt.ep} body=${JSON.stringify(attempt.body)}`);
                   try {
                     const abortCtrl = new AbortController();
-                    const timeout = setTimeout(() => abortCtrl.abort(), 3000); // 3s timeout per attempt
-                    const resp = await fetch(`${apiBase}${attempt.ep}`, {
-                      method: 'POST',
+                    const timeout = setTimeout(() => abortCtrl.abort(), 4000); // 4s timeout per attempt
+                    const fetchOpts: RequestInit = {
+                      method: attempt.method,
                       headers: {
                         'Content-Type': 'application/json',
                         'token': token,
                       },
-                      body: JSON.stringify(attempt.body),
                       signal: abortCtrl.signal,
-                    });
+                    };
+                    if (attempt.body) fetchOpts.body = JSON.stringify(attempt.body);
+                    const resp = await fetch(`${apiBase}${attempt.ep}`, fetchOpts);
                     clearTimeout(timeout);
                     
                     if (resp.status !== 404 && resp.status !== 405 && resp.status !== 400) {
