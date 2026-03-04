@@ -173,6 +173,22 @@ serve(async (req) => {
 
       if (!triggered) continue;
 
+      // ── Skip if conversation was escalated to human (assigned + waiting/in_progress) ──
+      if (conversationId) {
+        const hasEscalateNode = flow.nodes.some((n: FlowNode) => n.data?.nodeType === "action_escalate_human");
+        if (hasEscalateNode) {
+          const { data: convCheck } = await supabase
+            .from("conversations")
+            .select("assigned_to, status")
+            .eq("id", conversationId)
+            .maybeSingle();
+          if (convCheck?.assigned_to && ["waiting", "in_progress"].includes(convCheck.status)) {
+            console.log(`[ESCALATE] Skipping automation "${automation.name}" — conversation already escalated to human (status=${convCheck.status})`);
+            continue;
+          }
+        }
+      }
+
       // ── Debounce: use insert-first pattern to prevent race conditions ──
       const collectNode = flow.nodes.find((n: FlowNode) => n.data?.nodeType === "action_collect_messages");
       const debounceSeconds = collectNode ? (parseInt(collectNode.data.wait_seconds) || 15) + 3 : 12;
@@ -404,6 +420,7 @@ async function executeFromNode(
       action_send_media: "Enviar Mídia", action_register_occurrence: "Registrar Ocorrência",
       action_analyze_image: "Analisar Imagem", action_search_product: "Buscar Produto",
       action_verify_payment: "Verificar Comprovante PIX",
+      action_escalate_human: "Escalonar p/ Humano",
     };
 
     // Build result object for logging
@@ -1112,6 +1129,108 @@ Responda APENAS com o texto da mensagem.`;
         await supabase.from("conversations").update({ assigned_to: profile.user_id }).eq("id", ctx.conversationId);
       }
       return true;
+    }
+
+    if (type === "action_escalate_human") {
+      const transferMsg = interpolate(String(d.transfer_message || "Estou transferindo você para um de nossos atendentes. Aguarde um momento! 😊"), ctx);
+      const assignmentMode = String(d.assignment_mode || "auto");
+      const agentEmail = String(d.agent_email || "").trim();
+      const setPriority = String(d.set_priority || "high");
+      const addTag = String(d.add_tag || "").trim();
+      const pauseAutomations = d.pause_automations !== false;
+
+      // 1. Send transfer message to the client
+      const instance = await getCachedInstance(supabase, ctx.userId, ctx.instanceId);
+      if (instance && transferMsg) {
+        try {
+          const sendUrl = `${instance.base_url}/send/text`;
+          await fetch(sendUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${instance.instance_token}` },
+            body: JSON.stringify({ phone: ctx.contactPhone, message: transferMsg }),
+          });
+          // Save outbound message
+          await supabase.from("messages").insert({
+            contact_id: ctx.contactId || null,
+            user_id: ctx.userId,
+            content: transferMsg,
+            type: "text",
+            direction: "outbound",
+            status: "sent",
+          });
+        } catch (sendErr) {
+          console.error("[ESCALATE] Failed to send transfer message:", sendErr);
+        }
+      }
+
+      // 2. Assign to agent based on mode
+      let assignedToId: string | null = null;
+
+      if (assignmentMode === "specific" && agentEmail) {
+        const { data: profile } = await supabase.from("profiles").select("user_id").eq("email", agentEmail).maybeSingle();
+        if (profile) assignedToId = profile.user_id;
+      } else if (assignmentMode === "auto") {
+        // Find agent with lowest active conversation count
+        const { data: agents } = await supabase
+          .from("profiles")
+          .select("user_id, name")
+          .neq("role", "user");
+
+        if (agents && agents.length > 0) {
+          let minLoad = Infinity;
+          let bestAgent: string | null = null;
+
+          for (const agent of agents) {
+            const { count } = await supabase
+              .from("conversations")
+              .select("id", { count: "exact", head: true })
+              .eq("assigned_to", agent.user_id)
+              .in("status", ["open", "in_progress", "waiting"]);
+            const load = count || 0;
+            if (load < minLoad) {
+              minLoad = load;
+              bestAgent = agent.user_id;
+            }
+          }
+          assignedToId = bestAgent;
+        }
+      }
+      // mode === "none" → don't assign, leave in general queue
+
+      // 3. Update conversation: assign, set priority, change status
+      const convUpdate: Record<string, any> = {
+        status: "waiting",
+      };
+      if (assignedToId) convUpdate.assigned_to = assignedToId;
+      if (setPriority !== "keep") convUpdate.priority = setPriority;
+
+      await supabase.from("conversations").update(convUpdate).eq("id", ctx.conversationId);
+
+      // 4. Add escalation tag
+      if (addTag && ctx.contactId) {
+        // Upsert tag
+        const { data: existingTag } = await supabase.from("tags").select("id").ilike("name", addTag).maybeSingle();
+        let tagId: string;
+        if (existingTag) {
+          tagId = existingTag.id;
+        } else {
+          const { data: newTag } = await supabase.from("tags").insert({ name: addTag, color: "#ef4444", created_by: ctx.userId }).select("id").single();
+          tagId = newTag?.id;
+        }
+        if (tagId) {
+          await supabase.from("contact_tags").upsert({ contact_id: ctx.contactId, tag_id: tagId }, { onConflict: "contact_id,tag_id" });
+        }
+      }
+
+      // 5. Set variable to pause further automations in this execution
+      if (pauseAutomations) {
+        ctx.variables["_escalated_to_human"] = "true";
+        ctx.variables["_escalated_at"] = new Date().toISOString();
+        if (assignedToId) ctx.variables["_escalated_agent_id"] = assignedToId;
+      }
+
+      console.log(`[ESCALATE] Conversation ${ctx.conversationId} escalated to human. Mode=${assignmentMode}, Agent=${assignedToId || "queue"}, Priority=${setPriority}`);
+      return { escalated: true, assignedTo: assignedToId, mode: assignmentMode };
     }
 
     if (type === "action_move_funnel") {
