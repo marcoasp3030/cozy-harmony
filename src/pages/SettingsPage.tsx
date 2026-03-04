@@ -7,6 +7,7 @@ import InactivitySettings from "@/components/settings/InactivitySettings";
 import ElevenLabsSettings from "@/components/settings/ElevenLabsSettings";
 import ProductCatalog from "@/components/settings/ProductCatalog";
 import KnowledgeBase from "@/components/settings/KnowledgeBase";
+import LlmUsageDashboard from "@/components/settings/LlmUsageDashboard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -988,8 +989,9 @@ const SettingsPage = () => {
           <WebhookConfig />
         </TabsContent>
 
-        <TabsContent value="apillm">
+        <TabsContent value="apillm" className="space-y-4">
           <LlmApiConfig />
+          <LlmUsageDashboard />
         </TabsContent>
 
         <TabsContent value="elevenlabs">
