@@ -1551,243 +1551,36 @@ Responda APENAS com o texto da mensagem.`;
     }
 
     if (type === "action_register_occurrence") {
-      const defaultType = d.occurrence_type || "reclamacao";
-      const priority = d.priority || "normal";
-
-      // ── Dedup: skip if there's already a recent occurrence for this contact ──
-      const dedupMinutes = 30;
-      const dedupCutoff = new Date(Date.now() - dedupMinutes * 60 * 1000).toISOString();
-      const { data: recentOcc } = await supabase
-        .from("occurrences")
-        .select("id, type, created_at")
-        .eq("contact_phone", ctx.contactPhone)
-        .gte("created_at", dedupCutoff)
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      if (recentOcc && recentOcc.length > 0) {
-        console.log(`[OCCURRENCE] Dedup: skipping for ${ctx.contactPhone}, recent occurrence ${recentOcc[0].id} (${recentOcc[0].type}) at ${recentOcc[0].created_at}`);
-        return { registered: false, reason: "dedup", existing_id: recentOcc[0].id };
-      }
-
-      // Build full conversation context for AI analysis (include both inbound AND outbound)
-      const grouped = ctx.variables["mensagens_agrupadas"] || "";
-      const transcription = ctx.variables["transcricao"] || "";
-      const iaReply = ctx.variables["ia_reply"] || "";
-      const contextParts: string[] = [];
-      if (grouped) contextParts.push(grouped);
-      if (transcription) contextParts.push(`[Áudio transcrito] ${transcription}`);
-      if (ctx.messageContent && !grouped) contextParts.push(ctx.messageContent);
-      if (iaReply) contextParts.push(`[Resposta da IA] ${iaReply}`);
-
-      // Also fetch recent conversation messages (inbound + outbound) for fuller context
-      // Filter by session boundary to avoid mixing resolved occurrences
-      let occMsgQuery = supabase
-        .from("messages")
-        .select("direction, content, type, created_at")
-        .eq("contact_id", ctx.contactId)
-        .order("created_at", { ascending: false })
-        .limit(10);
-      if (ctx.sessionStartedAt) occMsgQuery = occMsgQuery.gte("created_at", ctx.sessionStartedAt);
-      const { data: recentMsgs } = await occMsgQuery;
-      
-      if (recentMsgs && recentMsgs.length > 0) {
-        const msgHistory = recentMsgs
-          .reverse()
-          .filter((m: any) => m.content && m.content.trim())
-          .map((m: any) => `[${m.direction === "inbound" ? "Cliente" : "Atendente"}]: ${m.content}`)
-          .join("\n");
-        if (msgHistory) contextParts.push(`\n[Histórico da conversa]:\n${msgHistory}`);
-      }
-
-      const conversationContext = contextParts.join("\n").slice(0, 3500) || "";
-
-      if (conversationContext.length < 5) {
-        console.log("[OCCURRENCE] Skipping: no conversation context available");
-        return { registered: false, reason: "no_context" };
-      }
-
-      // ── Use AI to analyze conversation and decide if we have enough info ──
-      const { keys: occKeys, aiTimeout: occTimeout } = await getUserAIKeys(supabase, ctx.userId);
-      if (!occKeys.openai && !occKeys.gemini) {
-        console.error("[OCCURRENCE] No AI keys configured for user");
-        return { registered: false, reason: "no_ai_key" };
-      }
-
+      // ── Instead of registering immediately, FLAG the conversation for deferred registration ──
+      // The actual occurrence will be registered when the conversation is auto-closed,
+      // so the AI has the FULL conversation context (client may report multiple issues).
       try {
-        const extractPrompt = `Você é um analisador de conversas de atendimento da Nutricar Brasil (rede de mini mercados autônomos 24h).
+        const defaultType = d.occurrence_type || "reclamacao";
+        const priority = d.priority || "normal";
 
-Analise a conversa abaixo e extraia informações para registrar uma ocorrência de atendimento.
+        // Save pending occurrence flag on the conversation
+        const { error: flagErr } = await supabase
+          .from("conversations")
+          .update({
+            notes: JSON.stringify({
+              pending_occurrence: true,
+              default_type: defaultType,
+              default_priority: priority,
+              flagged_at: new Date().toISOString(),
+            }),
+          })
+          .eq("id", ctx.conversationId);
 
-IMPORTANTE SOBRE LOJAS:
-- A Nutricar Brasil possui MUITAS unidades e está sempre abrindo novas lojas.
-- NÃO valide o nome da loja contra nenhuma lista. Aceite QUALQUER nome de loja/unidade/bairro que o cliente informar.
-- Registre o nome exatamente como o cliente informou (ex: "Alphaville 10", "Alpha 10", "Barra Park", etc).
-- Se o cliente não informou a loja, use "Não informada".
-
-TIPOS DE OCORRÊNCIA (use exatamente estes valores):
-- elogio (feedback positivo, elogios, agradecimentos, satisfação com atendimento ou produto)
-- reclamacao (insatisfação geral, mau atendimento, problemas não cobertos por categorias específicas)
-- furto (relato de furto, roubo, subtração de produtos, flagrante, suspeita de furto na loja)
-- falta_produto (produto em falta, prateleira vazia, produto não encontrado, sem estoque)
-- produto_vencido (produto vencido, data de validade expirada, produto estragado, impróprio para consumo)
-- loja_suja (sujeira, falta de limpeza, higiene precária, chão sujo, banheiro sujo, mau cheiro)
-- problema_pagamento (totem com defeito, cobrança indevida, cartão não passa, PIX não funcionou, valor cobrado errado, estorno, reembolso)
-- loja_sem_energia (loja sem luz, sem energia, queda de energia, equipamentos desligados, geladeira desligada)
-- acesso_bloqueado (reconhecimento facial falhou, porta não abre, acesso negado, cadastro com problema)
-- sugestao (sugestões de produtos, melhorias, pedidos de novos itens, ideias)
-- duvida (perguntas sobre funcionamento, horário, pagamento, PIX, como funciona a loja)
-- outro (assunto não identificado ou que não se encaixa nas categorias acima)
-
-PRIORIDADE:
-- alta (furto, produto vencido, loja sem energia, cobrança indevida, acesso bloqueado, loja suja, problema urgente)
-- normal (reclamações gerais, problemas de pagamento, falta de produto, dúvidas)
-- baixa (elogios, sugestões, feedback positivo)
-
-DADOS DO CONTATO:
-- Nome no sistema: "${ctx.contactName || "Não informado"}"
-- Telefone: ${ctx.contactPhone}
-
-CONVERSA COMPLETA (inclui mensagens do cliente E respostas do atendente):
-"${conversationContext.slice(0, 2500)}"
-
-INSTRUÇÕES:
-1. Extraia o NOME do cliente: verifique se ele se identificou na conversa. Se não, use o nome do sistema.
-2. Extraia a LOJA/UNIDADE: verifique se mencionou qual loja, bairro ou referência indireta.
-3. Extraia DETALHES ESPECÍFICOS conforme a categoria:
-   - Pagamento/cobrança: data e horário da transação, forma de pagamento, valor cobrado, valor esperado
-   - Produto vencido: nome do produto, data de validade (se informada)
-   - Falta de produto: nome do produto procurado
-   - Loja suja: qual área afetada (chão, banheiro, prateleiras)
-   - Acesso bloqueado: tipo de acesso (facial, porta), se é cadastro novo ou antigo
-   - Loja sem energia: desde quando, quais equipamentos afetados
-   - Furto/divergência: quando aconteceu, o que foi relatado
-4. Avalie se há informações SUFICIENTES para registrar (precisa ter pelo menos o motivo claro).
-5. Crie um RESUMO DETALHADO incluindo TODOS os detalhes fornecidos pelo cliente: o que aconteceu, quando, onde, valores, produtos, etc.
-6. ATENÇÃO: O cliente pode interpretar situações de forma diferente da realidade. Registre fielmente o RELATO do cliente sem fazer julgamentos.
-7. Analise TODA a conversa (incluindo respostas do atendente) para extrair informações que o cliente pode ter fornecido em resposta a perguntas.
-
-Responda APENAS com JSON válido:
-{
-  "ready": true/false,
-  "reason": "motivo se não está pronto (ex: cliente só cumprimentou, falta identificar o problema)",
-  "store_name": "nome exato da loja ou Não informada",
-  "contact_name": "nome do cliente",
-  "type": "tipo da ocorrência",
-  "priority": "alta/normal/baixa",
-  "transaction_date": "data e horário da transação se informados, ou null",
-  "product_name": "nome do produto envolvido se aplicável, ou null",
-  "payment_method": "forma de pagamento se informada, ou null",
-  "amount": "valor mencionado se informado, ou null",
-  "summary": "Resumo detalhado com TODAS as informações coletadas: problema, local, data/horário, produto, valores, detalhes específicos. Máximo 4 frases."
-}
-
-REGRAS PARA "ready":
-- ready=false se: cliente apenas cumprimentou, mensagem genérica sem problema claro, ou tipo seria "outro" sem detalhes
-- ready=false se: store_name é "Não informada" (o cliente PRECISA informar a loja/unidade)
-- ready=false se: contact_name é vazio ou igual a "Não informado" (o cliente PRECISA se identificar pelo nome)
-- ready=true SOMENTE se: (1) há um problema/feedback/dúvida clara, (2) o nome da loja foi mencionado na conversa, E (3) o nome do cliente foi informado
-- IMPORTANTE: Analise TODA a conversa (incluindo mensagens anteriores e respostas do atendente). O cliente pode ter informado o nome da loja em uma mensagem anterior (inclusive por áudio transcrito) e o nome em outra. NÃO peça informações que já foram fornecidas em qualquer ponto da conversa.
-- Se a informação foi dada em qualquer mensagem do histórico, considere-a como coletada.`;
-
-        const reply = await callAIWithUserKeys(occKeys, extractPrompt, { maxTokens: 500, temperature: 0.1, timeoutMs: occTimeout * 1000 });
-
-        if (!reply) {
-          console.error("[OCCURRENCE] AI returned empty response");
-          return { registered: false, reason: "ai_error" };
+        if (flagErr) {
+          console.error("[OCCURRENCE] Failed to flag conversation:", flagErr.message);
+          return { flagged: false, reason: "db_error" };
         }
 
-        const jsonMatch = reply.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-          console.error("[OCCURRENCE] AI returned non-JSON:", reply.slice(0, 200));
-          return { registered: false, reason: "ai_parse_error" };
-        }
-
-        const parsed = JSON.parse(jsonMatch[0]);
-
-        // ── Check if AI says we have enough info to register ──
-        if (!parsed.ready) {
-          console.log(`[OCCURRENCE] Not ready to register: ${parsed.reason || "insufficient info"}`);
-          return { registered: false, reason: parsed.reason || "not_ready", details: "AI determined insufficient information" };
-        }
-
-        // ── Hard validation: store_name and contact_name are MANDATORY ──
-        const storeName = parsed.store_name || "Não informada";
-        const contactName = parsed.contact_name || ctx.contactName || "";
-
-        if (!storeName || storeName === "Não informada" || storeName.trim().length < 2) {
-          console.log(`[OCCURRENCE] Not ready: store_name missing ("${storeName}")`);
-          return { registered: false, reason: "store_name_missing", details: "Cliente não informou a loja/unidade" };
-        }
-
-        if (!contactName || contactName === "Não informado" || contactName.trim().length < 2) {
-          console.log(`[OCCURRENCE] Not ready: contact_name missing ("${contactName}")`);
-          return { registered: false, reason: "contact_name_missing", details: "Cliente não informou o nome" };
-        }
-
-        const validTypes = ["elogio", "reclamacao", "furto", "falta_produto", "produto_vencido", "loja_suja", "problema_pagamento", "loja_sem_energia", "acesso_bloqueado", "sugestao", "duvida", "outro"];
-        const occType = validTypes.includes(parsed.type) ? parsed.type : defaultType;
-        const occPriority = ["alta", "normal", "baixa"].includes(parsed.priority) ? parsed.priority : priority;
-        // Build enriched description with all extracted details
-        const descParts: string[] = [];
-        if (parsed.summary) descParts.push(parsed.summary);
-        if (parsed.transaction_date) descParts.push(`Data/horário: ${parsed.transaction_date}`);
-        if (parsed.product_name) descParts.push(`Produto: ${parsed.product_name}`);
-        if (parsed.payment_method) descParts.push(`Pagamento: ${parsed.payment_method}`);
-        if (parsed.amount) descParts.push(`Valor: ${parsed.amount}`);
-        const description = descParts.length > 0 ? descParts.join(" | ") : conversationContext.slice(0, 500);
-
-        console.log(`[OCCURRENCE] Registering: store="${storeName}", type="${occType}", priority="${occPriority}", name="${contactName}"`);
-
-        const { error: occErr } = await supabase.from("occurrences").insert({
-          store_name: storeName,
-          type: occType,
-          description,
-          contact_phone: ctx.contactPhone || null,
-          contact_name: contactName || null,
-          priority: occPriority,
-          status: "aberto",
-          created_by: ctx.userId || null,
-        });
-
-        if (occErr) {
-          console.error("Failed to register occurrence:", occErr.message);
-          throw new Error(`Erro ao registrar ocorrência: ${occErr.message}`);
-        }
-
-        // ── PROGRESSIVE PROFILE: save condomínio/unidade from occurrence for future sessions ──
-        if (storeName && storeName !== "Não informada") {
-          try {
-            const { data: currentContact } = await supabase
-              .from("contacts")
-              .select("custom_fields")
-              .eq("id", ctx.contactId)
-              .single();
-            const existingFields = (currentContact?.custom_fields as Record<string, any>) || {};
-            if (!existingFields.condominio || existingFields.condominio !== storeName) {
-              await supabase.from("contacts").update({
-                custom_fields: { ...existingFields, condominio: storeName },
-              }).eq("id", ctx.contactId);
-              console.log(`[PROFILE] Auto-saved condomínio from occurrence: "${storeName}"`);
-            }
-          } catch (profileErr) {
-            console.error("[PROFILE] Error saving condomínio:", profileErr);
-          }
-        }
-
-        // Also save contact name if detected and different
-        if (contactName && contactName !== "Não informado") {
-          try {
-            await supabase.from("contacts").update({ name: contactName }).eq("id", ctx.contactId);
-          } catch {}
-        }
-
-        console.log(`Occurrence registered successfully: type=${occType}, store=${storeName}, name=${contactName}`);
-        return { registered: true, type: occType, store: storeName, contactName, priority: occPriority };
-
+        console.log(`[OCCURRENCE] Conversation ${ctx.conversationId} flagged for deferred occurrence registration (will register on auto-close)`);
+        return { flagged: true, deferred: true, message: "Occurrence will be registered when conversation closes" };
       } catch (e) {
-        console.error("[OCCURRENCE] Error:", e);
-        return { registered: false, reason: "error", error: e instanceof Error ? e.message : "unknown" };
+        console.error("[OCCURRENCE] Error flagging:", e);
+        return { flagged: false, reason: "error", error: e instanceof Error ? e.message : "unknown" };
       }
     }
 
