@@ -269,7 +269,7 @@ const NodeConfigPanel = ({ node, onUpdate, onClose, onDelete }: NodeConfigPanelP
                 <p className="text-[10px] font-semibold text-primary">Variáveis disponíveis</p>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {["{{nome}}", "{{phone}}", "{{mensagem}}", "{{transcricao}}"].map((v) => (
+                {["{{nome}}", "{{phone}}", "{{mensagem}}", "{{transcricao}}", "{{loja}}", "{{descricao}}", "{{tipo_ocorrencia}}"].map((v) => (
                   <button
                     key={v}
                     className="text-[9px] px-2 py-1 rounded-md bg-card border border-primary/20 text-primary font-mono hover:bg-primary/10 hover:border-primary/30 transition-all active:scale-95"

@@ -3,7 +3,7 @@ import {
   Send, Bot, Globe, Zap, Volume2, BarChart3, GitBranch,
   Variable, Timer, Mail, Phone, Filter, Users, Building2,
   FileType, Layers, AudioLines, FileText, BrainCircuit, ListOrdered,
-  ImagePlus, ClipboardList, ScanSearch, ShoppingCart
+  ImagePlus, ClipboardList, ScanSearch, ShoppingCart, Megaphone
 } from "lucide-react";
 
 export type NodeCategory = "trigger" | "condition" | "action";
@@ -533,6 +533,20 @@ export const NODE_TYPES: NodeTypeConfig[] = [
       ], defaultValue: "high" },
       { key: "add_tag", label: "Tag ao escalonar (opcional)", type: "text", placeholder: "escalonado-humano", defaultValue: "escalonado-humano" },
       { key: "pause_automations", label: "Pausar automações para este contato", type: "switch", defaultValue: true },
+    ],
+  },
+  {
+    type: "action_notify_group",
+    label: "Notificar Grupo",
+    category: "action",
+    icon: Megaphone,
+    color: "#f97316",
+    description: "Envia uma mensagem para um grupo do WhatsApp mencionando pessoas específicas",
+    fields: [
+      { key: "group_id", label: "ID do Grupo (JID)", type: "text", placeholder: "5511999999999-1234567890@g.us", required: true },
+      { key: "mention_numbers", label: "Números para mencionar (separados por vírgula)", type: "text", placeholder: "5511999999999, 5511888888888" },
+      { key: "message_template", label: "Mensagem", type: "textarea", placeholder: "🚨 *{{tipo_ocorrencia}}*\n\n📍 Loja: {{loja}}\n📝 {{descricao}}\n👤 Contato: {{contato}}\n📞 {{phone}}", required: true, defaultValue: "🚨 *Alerta de Ocorrência*\n\n📍 Loja: {{loja}}\n📝 {{descricao}}\n👤 Contato: {{nome}}\n📞 {{phone}}" },
+      { key: "only_types", label: "Apenas para tipos (separados por vírgula, vazio = todos)", type: "text", placeholder: "acesso_bloqueado, furto, sem_energia" },
     ],
   },
 ];
