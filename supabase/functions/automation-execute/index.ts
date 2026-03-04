@@ -718,6 +718,7 @@ async function executeFromNode(
       action_analyze_image: "Analisar Imagem", action_search_product: "Buscar Produto",
       action_verify_payment: "Verificar Comprovante PIX",
       action_escalate_human: "Escalonar p/ Humano",
+      action_notify_group: "Notificar Grupo",
     };
 
     // Build result object for logging
@@ -1510,6 +1511,70 @@ Responda APENAS com o texto da mensagem.`;
 
       console.log(`[ESCALATE] Conversation ${ctx.conversationId} escalated to human. Mode=${assignmentMode}, Agent=${assignedToId || "queue"}, Priority=${setPriority}`);
       return { escalated: true, assignedTo: assignedToId, mode: assignmentMode };
+    }
+
+    // ── NOTIFY GROUP NODE ──
+    if (type === "action_notify_group") {
+      const groupId = interpolate(String(d.group_id || ""), ctx).trim();
+      if (!groupId) return { sent: false, reason: "missing_group_id" };
+
+      // Filter by occurrence type if configured
+      const onlyTypes = String(d.only_types || "").split(",").map((t: string) => t.trim().toLowerCase()).filter(Boolean);
+      if (onlyTypes.length > 0) {
+        const currentType = (ctx.variables["tipo_ocorrencia"] || ctx.variables["occurrence_type"] || "").toLowerCase();
+        if (!onlyTypes.some(t => currentType.includes(t))) {
+          console.log(`[NOTIFY_GROUP] Skipping — type "${currentType}" not in filter: ${onlyTypes.join(", ")}`);
+          return { sent: false, reason: "type_filtered", currentType };
+        }
+      }
+
+      const messageTemplate = interpolate(String(d.message_template || "🚨 Alerta: {{descricao}}"), ctx);
+      const mentionNumbersRaw = interpolate(String(d.mention_numbers || ""), ctx);
+      const mentionNumbers = mentionNumbersRaw.split(",").map((n: string) => n.trim().replace(/\D/g, "")).filter(Boolean);
+
+      // Build message with @mentions
+      let finalMessage = messageTemplate;
+      if (mentionNumbers.length > 0) {
+        const mentionTags = mentionNumbers.map((n: string) => `@${n}`).join(" ");
+        finalMessage = `${messageTemplate}\n\n${mentionTags}`;
+      }
+
+      // Send to group via UazAPI
+      const instance = await getCachedInstance(supabase, ctx.userId, ctx.instanceId);
+      if (!instance) {
+        throw new Error("Instância WhatsApp não configurada");
+      }
+
+      const baseUrl = String(instance.base_url).replace(/\/+$/, "");
+      const sendBody: Record<string, any> = {
+        number: groupId,
+        text: finalMessage,
+      };
+
+      // Add mentions array for UazAPI to properly tag users in group
+      if (mentionNumbers.length > 0) {
+        sendBody.mentions = mentionNumbers.map((n: string) => `${n}@s.whatsapp.net`);
+      }
+
+      const resp = await fetch(`${baseUrl}/send/text`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          token: instance.instance_token,
+        },
+        body: JSON.stringify(sendBody),
+      });
+
+      const rawResponse = await resp.text();
+      let result: any = {};
+      try { result = rawResponse ? JSON.parse(rawResponse) : {}; } catch { result = { raw: rawResponse }; }
+
+      if (!resp.ok || result?.error) {
+        throw new Error(result?.error || `Falha ao notificar grupo (HTTP ${resp.status})`);
+      }
+
+      console.log(`[NOTIFY_GROUP] Sent to group ${groupId} with ${mentionNumbers.length} mentions`);
+      return { sent: true, groupId, mentions: mentionNumbers.length };
     }
 
     if (type === "action_move_funnel") {
