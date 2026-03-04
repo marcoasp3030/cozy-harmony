@@ -835,6 +835,19 @@ FRASE INSTITUCIONAL: A Nutricar Brasil utiliza tecnologia, controle de acesso e 
         priority: "normal",
       },
     },
+    // ═══ NOTIFICAR GRUPO (após ocorrência, apenas para tipos críticos) ═══
+    {
+      id: "multi_notify_group",
+      type: "flowNode",
+      position: { x: X, y: 1310 },
+      data: {
+        nodeType: "action_notify_group",
+        group_id: "120363408395105824@g.us",
+        mention_numbers: "5511957769899",
+        message_template: "🚨 *Alerta de Ocorrência*\n\n📍 Loja: {{loja}}\n📝 {{descricao}}\n👤 Contato: {{nome}}\n📞 {{phone}}\n🏷️ Tipo: {{tipo_ocorrencia}}",
+        only_types: "acesso_bloqueado, problema_pagamento",
+      },
+    },
   ];
 
   const edges: Edge[] = [
@@ -898,6 +911,8 @@ FRASE INSTITUCIONAL: A Nutricar Brasil utiliza tecnologia, controle de acesso e 
     // Intenção classificada → converge para ocorrência final (ambos os caminhos)
     makeEdge("multi_text_intent", "multi_occ_final", "yes"),
     makeEdge("multi_text_intent", "multi_occ_final", "no"),
+    // Ocorrência final → Notificar Grupo (filtro por tipo no nó)
+    makeEdge("multi_occ_final", "multi_notify_group"),
   ];
 
   return {
