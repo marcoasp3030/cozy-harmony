@@ -1528,6 +1528,42 @@ Responda APENAS com o texto da mensagem.`;
         }
       }
 
+      // ── Auto-populate missing variables from available context ──
+      // loja: from custom_fields.condominio, or try to detect from conversation
+      if (!ctx.variables["loja"]) {
+        let loja = "";
+        if (ctx.contactId) {
+          const { data: cp } = await supabase.from("contacts").select("custom_fields").eq("id", ctx.contactId).single();
+          const cf = (cp?.custom_fields as Record<string, any>) || {};
+          loja = cf.condominio || cf.loja || cf.unidade || "";
+        }
+        if (!loja) {
+          // Try to extract from grouped messages or current message
+          const textPool = (ctx.variables["mensagens_agrupadas"] || "") + " " + (ctx.messageContent || "");
+          const lojaMatch = textPool.match(/(?:condom[ií]nio|unidade|loja)\s+([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ][a-záàâãéèêíïóôõöúç]+(?:\s+[A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ0-9][a-záàâãéèêíïóôõöúç0-9]*){0,3})/i);
+          if (lojaMatch?.[1]) loja = lojaMatch[1].trim();
+        }
+        ctx.variables["loja"] = loja || "Não identificada";
+      }
+
+      // descricao: from grouped messages, transcription, or current message
+      if (!ctx.variables["descricao"]) {
+        const desc = ctx.variables["mensagens_agrupadas"]
+          || ctx.variables["transcricao"]
+          || ctx.variables["descricao_imagem"]
+          || ctx.messageContent
+          || "Sem descrição";
+        // Truncate to 200 chars for group notification
+        ctx.variables["descricao"] = desc.length > 200 ? desc.slice(0, 200) + "..." : desc;
+      }
+
+      // tipo_ocorrencia fallback
+      if (!ctx.variables["tipo_ocorrencia"]) {
+        ctx.variables["tipo_ocorrencia"] = ctx.variables["occurrence_type"] || ctx.variables["intent"] || "não classificado";
+      }
+
+      console.log(`[NOTIFY_GROUP] Variables: loja="${ctx.variables["loja"]}", descricao="${(ctx.variables["descricao"] || "").slice(0, 80)}...", tipo="${ctx.variables["tipo_ocorrencia"]}"`);
+
       const messageTemplate = interpolate(String(d.message_template || "🚨 Alerta: {{descricao}}"), ctx);
       const mentionNumbersRaw = interpolate(String(d.mention_numbers || ""), ctx);
       const mentionNumbers = mentionNumbersRaw.split(",").map((n: string) => n.trim().replace(/\D/g, "")).filter(Boolean);
