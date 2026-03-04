@@ -1541,10 +1541,12 @@ Responda APENAS com o texto da mensagem.`;
         
         console.log(`[NOTIFY_GROUP] textPool for loja detection (first 300): "${textPool.slice(0, 300)}"`);
         
-        // Match patterns like: "loja do Alphavita", "loja H-Ville", "unidade Central Park", "na loja Firenze"
+        // Match patterns like: "loja do Alphavita", "loja H-Ville", "unidade Central Park"
+        // Use word boundaries — stop at connectors (e, não, mas, que, está, tá, aqui, eu, etc.)
+        const stopWords = "e|eu|não|nao|está|esta|tá|ta|tem|mas|porém|porem|que|aqui|onde|porque|por|com|sem|um|uma|uns|umas|o|a|os|as|no|na|do|da|de|ele|ela|meu|minha|esse|essa|este|esta|se|já|ja|só|so|muito|como|quando|então|entao|aí|ai|lá|la|pra|para";
         const lojaPatterns = [
-          /(?:loja|unidade|condom[ií]nio)\s+(?:d[oae]\s+)?([A-ZÀ-Úa-zà-ú][\w\-']+(?:[\s\-][A-ZÀ-Úa-zà-ú][\w\-']*){0,3})/i,
-          /(?:aqui\s+n[oa]\s+|n[oa]\s+)([A-ZÀ-Ú][\w\-']+(?:[\s\-][A-ZÀ-Ú][\w\-']*){0,2})(?:\s*[,.]|\s+(?:e|não|nao|está|tá|tem|mas|porém))/i,
+          new RegExp(`(?:loja|unidade|condom[ií]nio)\\s+(?:d[oae]\\s+)?([A-ZÀ-Úa-zà-ú][\\w\\-']+(?:[\\s\\-][A-ZÀ-Ú][\\w\\-']*){0,2})(?:\\s+(?:${stopWords})|\\s*[,.]|$)`, "i"),
+          new RegExp(`(?:aqui\\s+n[oa]\\s+|n[oa]\\s+)([A-ZÀ-Ú][\\w\\-']+(?:[\\s\\-][A-ZÀ-Ú][\\w\\-']*){0,2})(?:\\s+(?:${stopWords})|\\s*[,.]|$)`, "i"),
         ];
         
         for (const pat of lojaPatterns) {
