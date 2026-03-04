@@ -334,12 +334,14 @@ serve(async (req) => {
       contactName,
       messageContent,
       messageType,
-      conversationId,
+      conversationId: rawConversationId,
       isFirstContact,
     } = await req.json();
 
-    console.log(`Automation trigger: phone=${contactPhone}, type=${messageType}, msg="${(messageContent || "").slice(0, 50)}"`);
+    // Guard against "undefined" string being passed as conversationId
+    const conversationId = rawConversationId && rawConversationId !== "undefined" ? rawConversationId : null;
 
+    console.log(`Automation trigger: phone=${contactPhone}, type=${messageType}, msg="${(messageContent || "").slice(0, 50)}", convId=${conversationId || "NONE"}`);
     // Load all active automations
     const { data: automations, error: autoErr } = await supabase
       .from("automations")
@@ -506,10 +508,24 @@ serve(async (req) => {
         .limit(1);
 
       if (recentRuns && recentRuns.length > 0) {
-        // Delete our duplicate log entry
-        await supabase.from("automation_logs").delete().eq("id", logEntry.id);
-        console.log(`Debounce: skipping automation "${automation.name}" for ${contactPhone} (older run ${recentRuns[0].id})`);
-        continue;
+        // Don't block if the "running" entry is stale (>5 min old — likely a crashed execution)
+        const isStaleRunning = recentRuns[0].status === "running" &&
+          (Date.now() - new Date(recentRuns[0].started_at).getTime()) > 5 * 60 * 1000;
+
+        if (isStaleRunning) {
+          // Auto-fix: mark stale entry as completed with error
+          await supabase.from("automation_logs").update({
+            status: "completed",
+            completed_at: new Date().toISOString(),
+            error: "Auto-finalizado: execução travada detectada",
+          }).eq("id", recentRuns[0].id);
+          console.log(`Auto-fixed stale running log ${recentRuns[0].id}, proceeding with new execution`);
+        } else {
+          // Delete our duplicate log entry
+          await supabase.from("automation_logs").delete().eq("id", logEntry.id);
+          console.log(`Debounce: skipping automation "${automation.name}" for ${contactPhone} (older run ${recentRuns[0].id})`);
+          continue;
+        }
       }
 
       console.log(`Automation "${automation.name}" (${automation.id}) triggered, log=${logEntry.id}`);
@@ -1557,6 +1573,11 @@ Responda APENAS com o texto da mensagem.`;
       try {
         const defaultType = d.occurrence_type || "reclamacao";
         const priority = d.priority || "normal";
+
+        if (!ctx.conversationId) {
+          console.warn("[OCCURRENCE] No conversationId available, cannot flag for deferred registration");
+          return { flagged: false, reason: "no_conversation" };
+        }
 
         // Save pending occurrence flag on the conversation
         const { error: flagErr } = await supabase
