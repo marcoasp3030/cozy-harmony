@@ -4584,49 +4584,61 @@ async function sendTypingPresence(baseUrl: string, instanceToken: string, cleanN
   if (!baseUrl || !instanceToken || !cleanNumber) return;
 
   const normalizedBaseUrl = String(baseUrl).replace(/\/+$/, "");
+  const headers = { "Content-Type": "application/json", token: instanceToken };
 
   const attempts: Array<{
+    method: string;
     endpoint: string;
-    headers: Record<string, string>;
-    payload: Record<string, string>;
+    payload: Record<string, unknown>;
+    useQuery?: boolean;
     label: string;
   }> = [
+    // UazAPI v2: PUT /chat/updatePresence?number=XXX  body: {presence:"composing",delay:1200}
     {
+      method: "PUT",
+      endpoint: `/chat/updatePresence?number=${cleanNumber}`,
+      payload: { presence: "composing", delay: 1200 },
+      label: "PUT /chat/updatePresence",
+    },
+    // POST /send/presence (legacy v1 format)
+    {
+      method: "POST",
       endpoint: "/send/presence",
-      headers: { "Content-Type": "application/json", token: instanceToken },
       payload: { number: cleanNumber, type: "composing" },
-      label: "token:number+type",
+      label: "POST /send/presence number+type",
     },
+    // PUT /send/presence
     {
+      method: "PUT",
       endpoint: "/send/presence",
-      headers: { "Content-Type": "application/json", token: instanceToken },
-      payload: { phone: cleanNumber, presence: "composing" },
-      label: "token:phone+presence",
+      payload: { number: cleanNumber, type: "composing" },
+      label: "PUT /send/presence",
     },
+    // POST /chat/presence
     {
+      method: "POST",
       endpoint: "/chat/presence",
-      headers: { "Content-Type": "application/json", token: instanceToken },
-      payload: { number: cleanNumber, type: "composing" },
-      label: "token:/chat/presence",
+      payload: { number: cleanNumber, presence: "composing" },
+      label: "POST /chat/presence",
     },
   ];
 
   for (const attempt of attempts) {
     try {
       const res = await fetch(`${normalizedBaseUrl}${attempt.endpoint}`, {
-        method: "POST",
-        headers: attempt.headers,
+        method: attempt.method,
+        headers,
         body: JSON.stringify(attempt.payload),
       });
 
       const raw = await res.text();
       if (res.ok) {
-        console.log(`[TYPING] Presence sent (${attempt.label}) to ${cleanNumber}`);
+        console.log(`[TYPING] ✅ Presence sent (${attempt.label}) to ${cleanNumber}`);
         return;
       }
 
       console.warn(
-        `[TYPING] Failed (${attempt.label}) status=${res.status} response=${raw.slice(0, 180)}`,
+        `[TYPING] ❌ (${attempt.label}) status=${res.status} body=${raw.slice(0, 180)}`,
       );
     } catch (err) {
       console.warn(
@@ -4636,7 +4648,7 @@ async function sendTypingPresence(baseUrl: string, instanceToken: string, cleanN
     }
   }
 
-  console.warn(`[TYPING] Could not send presence for ${cleanNumber}`);
+  console.warn(`[TYPING] Could not send presence for ${cleanNumber} after all attempts`);
 }
 
 async function sendWhatsAppMessage(supabase: any, ctx: ExecutionContext, message: string): Promise<{ messageId: string | null; httpStatus: number; apiResponse: string }> {
