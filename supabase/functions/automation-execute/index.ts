@@ -1812,7 +1812,7 @@ REGRAS PARA "ready":
       const systemPrompt = interpolate(String(d.system_prompt || "Você é um assistente de atendimento."), ctx);
       const provider = d.provider || "openai";
       const model = d.model || (provider === "openai" ? "gpt-4o" : "gemini-2.5-flash");
-      const maxTokens = parseInt(d.max_tokens) || 1024;
+      const maxTokens = parseInt(d.max_tokens) || 2048;
 
       // Get user API keys
       const { data: ownerAutomation } = await supabase
