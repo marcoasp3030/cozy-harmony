@@ -87,6 +87,9 @@ async function getCachedInstance(supabase: any, userId: string | null, instanceI
   return result;
 }
 
+// Track providers that failed with quota/auth errors within this request to skip retries
+const disabledProviders = new Set<string>();
+
 // ── Cached user AI keys lookup ──
 const userKeysCache = new Map<string, { keys: Record<string, string>; timeout: number }>();
 
@@ -125,60 +128,79 @@ async function callAIWithUserKeys(
 ): Promise<string> {
   const { maxTokens = 300, temperature = 0.2, timeoutMs = 15000 } = options;
 
-  if (keys.openai) {
-    const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: maxTokens,
-          temperature,
-        }),
-        signal: controller.signal,
-      });
-      clearTimeout(tid);
-      if (resp.ok) {
-        const data = await resp.json();
-        return data.choices?.[0]?.message?.content?.trim() || "";
-      }
-      const errText = await resp.text();
-      console.error(`[AI] OpenAI error (${resp.status}):`, errText.slice(0, 100));
-    } catch (e) {
-      clearTimeout(tid);
-      console.error("[AI] OpenAI call failed:", e);
-    }
-  }
+  // Determine provider order: prefer Gemini if OpenAI is disabled or unavailable
+  const providers: Array<"openai" | "gemini"> = [];
+  if (keys.openai && !disabledProviders.has("openai")) providers.push("openai");
+  if (keys.gemini && !disabledProviders.has("gemini")) providers.push("gemini");
+  // If OpenAI was disabled but Gemini wasn't added yet, add it
+  if (providers.length === 0 && keys.gemini) providers.push("gemini");
+  if (providers.length === 0 && keys.openai) providers.push("openai");
 
-  if (keys.gemini) {
-    const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${keys.gemini}`,
-        {
+  for (const provider of providers) {
+    if (provider === "openai") {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const resp = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            generationConfig: { maxOutputTokens: maxTokens, temperature },
+            model: "gpt-4o-mini",
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: maxTokens,
+            temperature,
           }),
           signal: controller.signal,
+        });
+        clearTimeout(tid);
+        if (resp.ok) {
+          const data = await resp.json();
+          return data.choices?.[0]?.message?.content?.trim() || "";
         }
-      );
-      clearTimeout(tid);
-      if (resp.ok) {
-        const data = await resp.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+        const errText = await resp.text();
+        console.error(`[AI] OpenAI error (${resp.status}):`, errText.slice(0, 100));
+        // Disable OpenAI for remaining calls in this request if quota/auth error
+        if (resp.status === 429 || resp.status === 401 || resp.status === 403) {
+          disabledProviders.add("openai");
+          console.log(`[AI] OpenAI disabled for remaining calls (${resp.status})`);
+        }
+      } catch (e) {
+        clearTimeout(tid);
+        console.error("[AI] OpenAI call failed:", e);
       }
-      const errText = await resp.text();
-      console.error(`[AI] Gemini error (${resp.status}):`, errText.slice(0, 100));
-    } catch (e) {
-      clearTimeout(tid);
-      console.error("[AI] Gemini call failed:", e);
+    }
+
+    if (provider === "gemini") {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const resp = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${keys.gemini}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text: prompt }] }],
+              generationConfig: { maxOutputTokens: maxTokens, temperature },
+            }),
+            signal: controller.signal,
+          }
+        );
+        clearTimeout(tid);
+        if (resp.ok) {
+          const data = await resp.json();
+          return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+        }
+        const errText = await resp.text();
+        console.error(`[AI] Gemini error (${resp.status}):`, errText.slice(0, 100));
+        if (resp.status === 429 || resp.status === 401 || resp.status === 403) {
+          disabledProviders.add("gemini");
+          console.log(`[AI] Gemini disabled for remaining calls (${resp.status})`);
+        }
+      } catch (e) {
+        clearTimeout(tid);
+        console.error("[AI] Gemini call failed:", e);
+      }
     }
   }
 
@@ -271,8 +293,9 @@ async function callAIVisionWithUserKeys(
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  // Clear instance cache per request
+  // Clear caches per request
   instanceCache.clear();
+  disabledProviders.clear();
 
   try {
     const supabase = createClient(
@@ -2623,10 +2646,10 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
 
       let reply = "";
 
-      // Try user's own API key first, fallback to Lovable AI Gateway
+      // Try user's own API key first
       // IMPORTANT: When there's an image, ALWAYS prefer Gemini (native vision support)
-      // gpt-4o-mini doesn't support image_url content type
-      const selectedProvider = imageBase64 && keys.gemini 
+      // Also prefer Gemini if OpenAI has been disabled due to quota/auth errors
+      const selectedProvider = (imageBase64 && keys.gemini) || disabledProviders.has("openai")
         ? "gemini" 
         : (model.startsWith("gemini") ? "gemini" : "openai");
       const hasUserKey = !!keys[selectedProvider];
@@ -2648,7 +2671,11 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
               reply = data.choices?.[0]?.message?.content?.trim() || "";
             } else {
               const errText = await resp.text();
-              console.error(`OpenAI user key failed (${resp.status}), falling back to Lovable AI: ${errText.slice(0, 100)}`);
+              console.error(`OpenAI user key failed (${resp.status}): ${errText.slice(0, 100)}`);
+              if (resp.status === 429 || resp.status === 401 || resp.status === 403) {
+                disabledProviders.add("openai");
+                console.log(`[AI] OpenAI disabled for remaining calls (${resp.status}), will use Gemini`);
+              }
             }
           } else {
             const geminiContents = chatMessages.filter((m: any) => m.role !== "system").map((m: any) => {
@@ -2691,27 +2718,36 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
               reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
             } else {
               const errText = await resp.text();
-              console.error(`Gemini user key failed (${resp.status}), falling back to Lovable AI: ${errText.slice(0, 100)}`);
+              console.error(`Gemini user key failed (${resp.status}): ${errText.slice(0, 100)}`);
+              if (resp.status === 429 || resp.status === 401 || resp.status === 403) {
+                disabledProviders.add("gemini");
+              }
             }
           }
         } catch (userKeyErr) {
-          console.error(`User key error, falling back to Lovable AI:`, userKeyErr);
+          console.error(`User key error:`, userKeyErr);
         }
       }
 
-      // Fallback: retry with user keys if no reply yet
+      // Fallback: retry with OTHER provider if first one failed
       if (!reply) {
         const { keys: fallbackKeys, aiTimeout: fallbackTimeout } = await getUserAIKeys(supabase, ctx.userId);
-        if (fallbackKeys.openai || fallbackKeys.gemini) {
-          console.log("Using user AI keys as fallback for LLM reply");
-          // For vision, use callAIVisionWithUserKeys; for text, use callAIWithUserKeys
+        // Filter out disabled providers from fallback keys
+        const effectiveKeys: Record<string, string> = {};
+        if (fallbackKeys.openai && !disabledProviders.has("openai")) effectiveKeys.openai = fallbackKeys.openai;
+        if (fallbackKeys.gemini && !disabledProviders.has("gemini")) effectiveKeys.gemini = fallbackKeys.gemini;
+        // If both disabled, re-enable gemini as last resort
+        if (!effectiveKeys.openai && !effectiveKeys.gemini && fallbackKeys.gemini) effectiveKeys.gemini = fallbackKeys.gemini;
+        
+        if (effectiveKeys.openai || effectiveKeys.gemini) {
+          console.log(`Using fallback AI keys (providers: ${Object.keys(effectiveKeys).join(", ")})`);
           if (imageBase64) {
             const systemContent = chatMessages.find((m: any) => m.role === "system")?.content || "";
             const userContent = chatMessages.filter((m: any) => m.role !== "system").map((m: any) => typeof m.content === "string" ? m.content : "").join("\n");
-            reply = await callAIVisionWithUserKeys(fallbackKeys, systemContent + "\n" + userContent, imageBase64, { maxTokens, timeoutMs: fallbackTimeout * 1000 });
+            reply = await callAIVisionWithUserKeys(effectiveKeys, systemContent + "\n" + userContent, imageBase64, { maxTokens, timeoutMs: fallbackTimeout * 1000 });
           } else {
             const fullPrompt = chatMessages.map((m: any) => `[${m.role}]: ${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`).join("\n");
-            reply = await callAIWithUserKeys(fallbackKeys, fullPrompt, { maxTokens, temperature: 0.7, timeoutMs: fallbackTimeout * 1000 });
+            reply = await callAIWithUserKeys(effectiveKeys, fullPrompt, { maxTokens, temperature: 0.7, timeoutMs: fallbackTimeout * 1000 });
           }
         }
         if (!reply) {
