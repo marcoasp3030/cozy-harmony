@@ -115,6 +115,53 @@ function mapModelForProvider(model: string, targetProvider: "openai" | "gemini")
   return model;
 }
 
+// ── Reply style guard: enforce short, natural WhatsApp responses ──
+function enforceConciseNaturalReply(text: string): string {
+  if (!text) return text;
+
+  let cleaned = text
+    .replace(/\r/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const bannedPatterns = [
+    /obrigad[oa]\s+por\s+nos?\s+avisar[^.!?\n]*[.!?]?/gi,
+    /a\s+sua\s+colaboraç[aã]o[^.!?\n]*[.!?]?/gi,
+    /se\s+precisar\s+de\s+mais\s+alguma\s+coisa[^.!?\n]*[.!?]?/gi,
+    /qualquer\s+coisa[^.!?\n]*[.!?]?/gi,
+    /fico\s+[àa]\s+disposiç[aã]o[^.!?\n]*[.!?]?/gi,
+    /estou\s+aqui(?:\s+para\s+ajudar)?[^.!?\n]*[.!?]?/gi,
+  ];
+
+  for (const pattern of bannedPatterns) {
+    cleaned = cleaned.replace(pattern, " ");
+  }
+
+  cleaned = cleaned
+    .replace(/\bencaminhar\s+essa\s+informaç[aã]o\b/gi, "passar isso")
+    .replace(/\bencaminhar\b/gi, "passar")
+    .replace(/\bo\s+mais\s+r[aá]pido\s+poss[ií]vel\b/gi, "o quanto antes")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  const sentences = (cleaned.match(/[^.!?]+[.!?]?/g) || [])
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  let concise = sentences.slice(0, 2).join(" ").trim();
+
+  if (!concise) {
+    concise = "Entendi, já vou passar pra equipe agora 👍";
+  }
+
+  if (concise.length > 220) {
+    concise = concise.slice(0, 220).replace(/\s+\S*$/, "").trim();
+    if (!/[.!?]$/.test(concise)) concise += ".";
+  }
+
+  return concise;
+}
+
 // ── Cached user AI keys lookup ──
 const userKeysCache = new Map<string, { keys: Record<string, string>; timeout: number }>();
 
@@ -2704,7 +2751,7 @@ O cliente enviou uma IMAGEM. Sua prioridade é:
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  system_instruction: { parts: [{ text: systemPrompt }] },
+                  system_instruction: { parts: [{ text: enrichedSystemPrompt }] },
                   contents: geminiContents,
                   generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 },
                 }),
@@ -2821,12 +2868,22 @@ O cliente enviou uma IMAGEM. Sua prioridade é:
           ctx.variables["_audit_guard_block"] = (ctx.variables["_audit_guard_block"] || "") + " | LLM incluiu chave PIX no texto — removida.";
         }
 
-        // ── DOUBLE PROTECTION: Difficulty report → force confirmation before PIX ──
+        // ── DOUBLE PROTECTION: enforce concise style + difficulty confirmation before PIX ──
         const customerContextForGuard = [
           ctx.messageContent,
           ctx.variables["mensagens_agrupadas"] || "",
           ctx.variables["transcricao"] || "",
         ].join(" ");
+
+        const isPaymentOrCatalogContext = /\b(valor|preço|preco|pix|pagamento|pagar|barcode|c[oó]digo\s+de\s+barras?)\b/i.test(customerContextForGuard) || hasCatalogProduct;
+        if (!isPaymentOrCatalogContext) {
+          const guarded = enforceConciseNaturalReply(reply);
+          if (guarded !== reply) {
+            console.log(`[LLM STYLE GUARD] Reply normalized (${reply.length} -> ${guarded.length} chars)`);
+          }
+          reply = guarded;
+        }
+
         const isDifficultyContext = PIX_DIFFICULTY_KEYWORDS.test(customerContextForGuard);
         if (isDifficultyContext) {
           ctx.variables["_difficulty_detected"] = "true";
