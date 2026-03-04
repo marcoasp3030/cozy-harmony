@@ -2083,7 +2083,53 @@ Responda APENAS com o texto da mensagem.`;
       }
 
       // ══════════════════════════════════════════════════════════
-      // ── HUMANIZED CONTEXT ENGINE (6 strategies) ──
+      // ── HANDLE STORE BUTTON RESPONSES ──
+      // ══════════════════════════════════════════════════════════
+      const msgTrimmed = (ctx.messageContent || "").trim().toLowerCase();
+      const isStoreYes = /^(store_yes_|✅\s*sim|sim,?\s+[a-záàâãéèêíïóôõöúç])/i.test(msgTrimmed) || msgTrimmed === "sim";
+      const isStoreNo = msgTrimmed === "store_change" || /^(❌\s*n[ãa]o|n[ãa]o,?\s*outra)/i.test(msgTrimmed);
+
+      // Only handle as store button if there was a recent store confirmation message
+      if (isStoreYes || isStoreNo) {
+        let pendingStore = "";
+        try {
+          const { data: recentInt } = await supabase
+            .from("messages")
+            .select("content")
+            .eq("contact_id", ctx.contactId)
+            .eq("direction", "outbound")
+            .eq("type", "interactive")
+            .order("created_at", { ascending: false })
+            .limit(3);
+          for (const msg of recentInt || []) {
+            const sm = (msg.content || "").match(/unidade\s+\*([^*]+)\*/i);
+            if (sm?.[1]) { pendingStore = sm[1].trim(); break; }
+          }
+        } catch {}
+
+        if (pendingStore && isStoreYes) {
+          ctx.variables["_store_confirmed"] = "true";
+          ctx.variables["loja"] = pendingStore;
+          try {
+            const { data: cp } = await supabase.from("contacts").select("custom_fields").eq("id", ctx.contactId).single();
+            const cf = (cp?.custom_fields as Record<string, any>) || {};
+            cf.condominio = pendingStore;
+            await supabase.from("contacts").update({ custom_fields: cf }).eq("id", ctx.contactId);
+          } catch {}
+          await sendWhatsAppMessage(supabase, ctx, `✅ Perfeito, unidade *${pendingStore}* confirmada! 👍`);
+          await new Promise((r) => setTimeout(r, 1000 + Math.random() * 800));
+          await sendWhatsAppMessage(supabase, ctx, "Me conta, como posso te ajudar? 😊");
+          console.log(`[STORE CONFIRM] Store "${pendingStore}" confirmed and saved`);
+          return { sent: true, model, storeConfirmed: pendingStore };
+        }
+
+        if (pendingStore && isStoreNo) {
+          ctx.variables["_store_confirmed"] = "false";
+          await sendWhatsAppMessage(supabase, ctx, "Sem problema! Em qual das nossas unidades você está? 📍");
+          return { sent: true, model, storeChangeRequested: true };
+        }
+      }
+
       // ══════════════════════════════════════════════════════════
 
       // ── 1. CONVERSATION MEMORY: load broader history (15 msgs) ──
@@ -3007,18 +3053,109 @@ O cliente enviou uma IMAGEM. Sua prioridade é:
           console.log(`Audio reply fallback to text: ${audioResult.reason || "unknown_reason"}`);
         }
 
+        // ── AUTO STORE CONFIRMATION BUTTONS ──
+        // Detect if the AI reply mentions/asks about a store and convert to interactive buttons
+        let storeConfirmationHandled = false;
+        if (!d.suppress_send && !shouldHoldPrimaryReply && ctx.variables["_store_confirmed"] !== "true") {
+          // Pattern: AI asks "Vc tá na unidade X?" or "É na loja X, certo?" or similar
+          const storeConfirmPatterns = [
+            /(?:vc|voc[eê])\s+(?:tá|está|ta|esta)\s+(?:na|no)\s+(?:unidade|loja|condom[ií]nio)\s+([A-ZÀ-Úa-zà-ú][\w\-']+(?:[\s\-][A-ZÀ-Úa-zà-ú][\w\-']*){0,3})\s*\??/i,
+            /(?:é|e)\s+(?:na|no|da|do)\s+(?:unidade|loja|condom[ií]nio)?\s*([A-ZÀ-Ú][\w\-']+(?:[\s\-][A-ZÀ-Ú][\w\-']*){0,3})\s*,?\s*(?:certo|n[eé]|isso|correto|mesmo)\s*\??/i,
+            /(?:unidade|loja|condom[ií]nio)\s+([A-ZÀ-Ú][\w\-']+(?:[\s\-][A-ZÀ-Ú][\w\-']*){0,3})\s*,?\s*(?:certo|n[eé]|isso|correto|mesmo)\s*\??/i,
+            /(?:tá|está|ta|esta)\s+(?:na|no)\s+([A-ZÀ-Ú][\w\-']+(?:[\s\-][A-ZÀ-Ú][\w\-']*){0,3})\s*,?\s*(?:certo|n[eé]|isso|correto|mesmo)\s*\??/i,
+          ];
+
+          let detectedStoreName = "";
+          const fullReply = reply.replace(/\n*---\n*/g, " ");
+          for (const pat of storeConfirmPatterns) {
+            const m = fullReply.match(pat);
+            if (m?.[1]) {
+              detectedStoreName = m[1].trim().replace(/[.,;:!?]+$/g, "");
+              break;
+            }
+          }
+
+          // If no store in AI reply, check if customer just mentioned a store
+          if (!detectedStoreName) {
+            const customerText = [ctx.messageContent || "", ctx.variables["mensagens_agrupadas"] || "", ctx.variables["transcricao"] || ""].join(" ");
+            const customerStorePatterns = [
+              /(?:loja|unidade|condom[ií]nio)\s+(?:d[oae]\s+)?([A-ZÀ-Úa-zà-ú][\w\-']+(?:[\s\-][A-ZÀ-Ú][\w\-']*){0,2})/i,
+              /(?:aqui\s+n[oa]\s+|n[oa]\s+|t[ôo]\s+n[oa]\s+)([A-ZÀ-Ú][\w\-']+(?:[\s\-][A-ZÀ-Ú][\w\-']*){0,2})/i,
+            ];
+            const stopWords = new Set(["aqui","esse","essa","este","esta","isso","muito","mais","como","quando","onde","porque","meu","minha","outro","outra","sim","não","nao"]);
+            for (const pat of customerStorePatterns) {
+              const m = customerText.match(pat);
+              if (m?.[1]) {
+                const candidate = m[1].trim().replace(/[.,;:!?]+$/g, "");
+                if (candidate.length > 2 && !stopWords.has(candidate.toLowerCase())) {
+                  detectedStoreName = candidate;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (detectedStoreName && detectedStoreName.length > 1) {
+            console.log(`[STORE CONFIRM] Detected store: "${detectedStoreName}" — sending interactive buttons`);
+
+            // Remove the store confirmation question from reply to send rest as text
+            let replyWithoutConfirmation = reply;
+            const stripPatterns = [
+              /(?:vc|voc[eê])\s+(?:tá|está|ta|esta)\s+(?:na|no)\s+(?:unidade|loja|condom[ií]nio)\s+[^\n?]+\??\s*/gi,
+              /(?:é|e)\s+(?:na|no|da|do)\s+(?:unidade|loja|condom[ií]nio)?\s*[A-ZÀ-Ú][^\n,?]+,?\s*(?:certo|n[eé]|isso|correto|mesmo)\s*\??\s*/gi,
+              /(?:unidade|loja|condom[ií]nio)\s+[A-ZÀ-Ú][^\n,?]+,?\s*(?:certo|n[eé]|isso|correto|mesmo)\s*\??\s*/gi,
+              /em\s+qual\s+(?:unidade|loja|das\s+nossas\s+lojas)[^\n?]*\??\s*/gi,
+            ];
+            for (const pat of stripPatterns) {
+              replyWithoutConfirmation = replyWithoutConfirmation.replace(pat, "").trim();
+            }
+            replyWithoutConfirmation = replyWithoutConfirmation.replace(/\n*---\n*/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+
+            // Send non-confirmation text first
+            if (replyWithoutConfirmation && replyWithoutConfirmation.length > 3) {
+              const textParts = replyWithoutConfirmation.includes("---")
+                ? replyWithoutConfirmation.split(/\n*---\n*/).map((s: string) => s.trim()).filter(Boolean)
+                : [replyWithoutConfirmation];
+              for (let i = 0; i < textParts.length; i++) {
+                const part = textParts[i];
+                const typingDelayMs = Math.min(Math.max(part.length * 30, 800), 3000);
+                if (i > 0) await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1500));
+                else await new Promise((r) => setTimeout(r, typingDelayMs));
+                await sendWhatsAppMessage(supabase, ctx, part);
+              }
+              await new Promise((r) => setTimeout(r, 800 + Math.random() * 700));
+            }
+
+            // Send interactive buttons for store confirmation
+            const confirmBody = `📍 Você está na unidade *${detectedStoreName}*?`;
+            const btnLabel = detectedStoreName.length > 15 ? `✅ Sim` : `✅ Sim, ${detectedStoreName}`;
+            const buttonsSent = await sendInteractiveButtons(
+              supabase, ctx, confirmBody,
+              [
+                { label: btnLabel, id: `store_yes_${detectedStoreName.toLowerCase().replace(/\s+/g, "_").slice(0, 15)}` },
+                { label: "❌ Não, outra", id: "store_change" },
+              ],
+              "Nutricar Brasil"
+            );
+
+            if (buttonsSent) {
+              ctx.variables["_store_pending_confirmation"] = detectedStoreName;
+              storeConfirmationHandled = true;
+              console.log(`[STORE CONFIRM] Interactive buttons sent for "${detectedStoreName}"`);
+            }
+          }
+        }
+
         // ── SMART MULTI-MESSAGE SEND: split on --- and send sequentially like a human ──
-        if (!d.suppress_send && !shouldHoldPrimaryReply) {
+        if (!d.suppress_send && !shouldHoldPrimaryReply && !storeConfirmationHandled) {
           const messageParts = reply.includes("---")
             ? reply.split(/\n*---\n*/).map((s: string) => s.trim()).filter(Boolean)
             : [reply];
 
           for (let i = 0; i < messageParts.length; i++) {
             const part = messageParts[i];
-            // Typing delay proportional to message length (1-3s per message)
             const typingDelayMs = Math.min(Math.max(part.length * 30, 800), 3000);
             if (i > 0) {
-              // Extra pause between messages to feel natural (1-2.5s)
               await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1500));
             } else {
               await new Promise((r) => setTimeout(r, typingDelayMs));
