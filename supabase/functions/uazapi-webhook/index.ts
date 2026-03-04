@@ -273,18 +273,19 @@ serve(async (req) => {
                 const token = matchedInstance.instance_token;
                 
                 // Try multiple UazAPI endpoint paths and body formats for downloading media
+                // Use short timeout to avoid blocking the webhook
                 const downloadAttempts = [
                   { ep: '/message/downloadMediaMessage', body: { id: externalId } },
                   { ep: '/message/downloadMediaMessage', body: { messageId: externalId } },
                   { ep: '/chat/downloadMediaMessage', body: { id: externalId } },
-                  { ep: '/message/download', body: { id: externalId } },
-                  { ep: '/message/downloadFile', body: { id: externalId } },
                 ];
                 
                 let dlResp: Response | null = null;
                 for (const attempt of downloadAttempts) {
                   console.log(`[MEDIA] Trying: POST ${attempt.ep} body=${JSON.stringify(attempt.body)}`);
                   try {
+                    const abortCtrl = new AbortController();
+                    const timeout = setTimeout(() => abortCtrl.abort(), 3000); // 3s timeout per attempt
                     const resp = await fetch(`${apiBase}${attempt.ep}`, {
                       method: 'POST',
                       headers: {
@@ -292,7 +293,9 @@ serve(async (req) => {
                         'token': token,
                       },
                       body: JSON.stringify(attempt.body),
+                      signal: abortCtrl.signal,
                     });
+                    clearTimeout(timeout);
                     
                     if (resp.status !== 404 && resp.status !== 405 && resp.status !== 400) {
                       dlResp = resp;
