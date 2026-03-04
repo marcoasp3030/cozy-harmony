@@ -267,11 +267,199 @@ Responda APENAS o resumo atualizado (max 200 palavras).`;
           console.error(`[MEMORY] Failed to generate summary for conv ${conv.id}:`, memErr);
         }
 
+        // ── STEP 3.5: Register deferred occurrence if conversation was flagged ──
+        try {
+          // Check if this conversation has a pending_occurrence flag in notes
+          const { data: convData } = await supabase
+            .from('conversations')
+            .select('notes')
+            .eq('id', conv.id)
+            .single();
+
+          let pendingOccurrence: any = null;
+          try {
+            const notesObj = JSON.parse(convData?.notes || '{}');
+            if (notesObj?.pending_occurrence) pendingOccurrence = notesObj;
+          } catch {}
+
+          if (pendingOccurrence) {
+            console.log(`[OCCURRENCE-DEFERRED] Processing deferred occurrence for conv ${conv.id}`);
+
+            // Dedup check
+            const dedupMinutes = 30;
+            const dedupCutoff = new Date(Date.now() - dedupMinutes * 60 * 1000).toISOString();
+            const { data: recentOcc } = await supabase
+              .from('occurrences')
+              .select('id, type, created_at')
+              .eq('contact_phone', contact.phone)
+              .gte('created_at', dedupCutoff)
+              .order('created_at', { ascending: false })
+              .limit(1);
+
+            if (recentOcc && recentOcc.length > 0) {
+              console.log(`[OCCURRENCE-DEFERRED] Dedup: skipping for ${contact.phone}, recent occurrence ${recentOcc[0].id}`);
+            } else {
+              // Load FULL conversation messages for AI analysis
+              const { data: allMessages } = await supabase
+                .from('messages')
+                .select('direction, content, type, created_at')
+                .eq('contact_id', conv.contact_id)
+                .order('created_at', { ascending: false })
+                .limit(50);
+
+              const conversationContext = (allMessages || [])
+                .reverse()
+                .filter((m: any) => m.content?.trim())
+                .map((m: any) => `[${m.direction === 'inbound' ? 'Cliente' : 'Atendente'}]: ${m.content}`)
+                .join('\n');
+
+              if (conversationContext.length >= 10 && (aiKeys.openai || aiKeys.gemini)) {
+                const extractPrompt = `Você é um analisador de conversas de atendimento da Nutricar Brasil (rede de mini mercados autônomos 24h).
+
+Analise a conversa COMPLETA abaixo e extraia informações para registrar uma ocorrência.
+
+IMPORTANTE: Esta é a conversa COMPLETA (já encerrada). Extraia TODAS as informações disponíveis.
+
+TIPOS DE OCORRÊNCIA: elogio, reclamacao, furto, falta_produto, produto_vencido, loja_suja, problema_pagamento, loja_sem_energia, acesso_bloqueado, sugestao, duvida, outro
+
+PRIORIDADE:
+- alta (furto, produto vencido, loja sem energia, cobrança indevida, acesso bloqueado, loja suja)
+- normal (reclamações gerais, problemas de pagamento, falta de produto, dúvidas)
+- baixa (elogios, sugestões, feedback positivo)
+
+DADOS DO CONTATO:
+- Nome no sistema: "${contactName}"
+- Telefone: ${contact.phone}
+
+CONVERSA COMPLETA:
+"${conversationContext.slice(0, 4000)}"
+
+INSTRUÇÕES:
+1. Extraia NOME do cliente (se se identificou na conversa, senão use o nome do sistema)
+2. Extraia LOJA/UNIDADE mencionada
+3. Extraia TODOS os detalhes: problema, data/horário, produto, valores, forma de pagamento
+4. Se houve MÚLTIPLOS problemas, combine tudo no resumo
+5. Se não há problema/feedback claro (apenas cumprimento, conversa genérica), retorne ready=false
+
+Responda APENAS com JSON válido:
+{
+  "ready": true/false,
+  "reason": "motivo se não está pronto",
+  "store_name": "nome da loja ou Não informada",
+  "contact_name": "nome do cliente",
+  "type": "tipo da ocorrência",
+  "priority": "alta/normal/baixa",
+  "summary": "Resumo completo com TODOS os detalhes coletados durante toda a conversa. Max 5 frases."
+}`;
+
+                let aiReply = '';
+                if (aiKeys.openai) {
+                  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${aiKeys.openai}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      model: 'gpt-4o',
+                      messages: [{ role: 'user', content: extractPrompt }],
+                      max_tokens: 500,
+                      temperature: 0.1,
+                    }),
+                  });
+                  if (resp.ok) {
+                    const data = await resp.json();
+                    aiReply = data.choices?.[0]?.message?.content?.trim() || '';
+                  }
+                } else if (aiKeys.gemini) {
+                  const resp = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${aiKeys.gemini}`,
+                    {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        contents: [{ role: 'user', parts: [{ text: extractPrompt }] }],
+                        generationConfig: { maxOutputTokens: 500, temperature: 0.1 },
+                      }),
+                    }
+                  );
+                  if (resp.ok) {
+                    const data = await resp.json();
+                    aiReply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+                  }
+                }
+
+                if (aiReply) {
+                  const jsonMatch = aiReply.match(/\{[\s\S]*\}/);
+                  if (jsonMatch) {
+                    try {
+                      const parsed = JSON.parse(jsonMatch[0]);
+                      if (parsed.ready) {
+                        const storeName = parsed.store_name || 'Não informada';
+                        const occContactName = parsed.contact_name || contactName || '';
+                        const validTypes = ['elogio', 'reclamacao', 'furto', 'falta_produto', 'produto_vencido', 'loja_suja', 'problema_pagamento', 'loja_sem_energia', 'acesso_bloqueado', 'sugestao', 'duvida', 'outro'];
+                        const occType = validTypes.includes(parsed.type) ? parsed.type : (pendingOccurrence.default_type || 'reclamacao');
+                        const occPriority = ['alta', 'normal', 'baixa'].includes(parsed.priority) ? parsed.priority : (pendingOccurrence.default_priority || 'normal');
+                        const description = parsed.summary || conversationContext.slice(0, 500);
+
+                        const { error: occErr } = await supabase.from('occurrences').insert({
+                          store_name: storeName,
+                          type: occType,
+                          description,
+                          contact_phone: contact.phone || null,
+                          contact_name: occContactName || null,
+                          priority: occPriority,
+                          status: 'aberto',
+                          created_by: setting.user_id || null,
+                        });
+
+                        if (occErr) {
+                          console.error(`[OCCURRENCE-DEFERRED] Insert error:`, occErr.message);
+                        } else {
+                          console.log(`[OCCURRENCE-DEFERRED] Registered: store="${storeName}", type="${occType}", priority="${occPriority}", name="${occContactName}"`);
+
+                          // Save condomínio on contact profile
+                          if (storeName && storeName !== 'Não informada') {
+                            try {
+                              const { data: currentContact } = await supabase
+                                .from('contacts')
+                                .select('custom_fields')
+                                .eq('id', conv.contact_id)
+                                .single();
+                              const existingFields = (currentContact?.custom_fields as Record<string, any>) || {};
+                              if (!existingFields.condominio || existingFields.condominio !== storeName) {
+                                await supabase.from('contacts').update({
+                                  custom_fields: { ...existingFields, condominio: storeName },
+                                }).eq('id', conv.contact_id);
+                              }
+                            } catch {}
+                          }
+
+                          // Save contact name if detected
+                          if (occContactName && occContactName !== 'Não informado') {
+                            try {
+                              await supabase.from('contacts').update({ name: occContactName }).eq('id', conv.contact_id);
+                            } catch {}
+                          }
+                        }
+                      } else {
+                        console.log(`[OCCURRENCE-DEFERRED] AI says not ready: ${parsed.reason || 'no clear issue'}`);
+                      }
+                    } catch (parseErr) {
+                      console.error(`[OCCURRENCE-DEFERRED] JSON parse error:`, parseErr);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (occErr) {
+          console.error(`[OCCURRENCE-DEFERRED] Error processing deferred occurrence for conv ${conv.id}:`, occErr);
+        }
+
         // ── STEP 4: Close the conversation ──
         await supabase.from('conversations').update({
           status: 'resolved',
           funnel_stage_id: null,
           funnel_id: null,
+          notes: null, // Clear the pending_occurrence flag
         }).eq('id', conv.id);
 
         totalClosed++;
