@@ -163,7 +163,69 @@ serve(async (req) => {
           }
         }
 
-        // ── STEP 3: Close the conversation ──
+        // ── STEP 3: Generate conversation summary for long-term memory ──
+        try {
+          const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+          if (LOVABLE_API_KEY && conv.contact_id) {
+            // Load last 30 messages from this conversation
+            const { data: convMessages } = await supabase
+              .from('messages')
+              .select('direction, content, type, created_at')
+              .eq('contact_id', conv.contact_id)
+              .order('created_at', { ascending: false })
+              .limit(30);
+
+            if (convMessages && convMessages.length >= 3) {
+              const msgHistory = convMessages
+                .reverse()
+                .filter((m: any) => m.content?.trim())
+                .map((m: any) => `[${m.direction === 'inbound' ? 'Cliente' : 'Atendente'}]: ${m.content}`)
+                .join('\n');
+
+              // Load existing summary for context
+              const { data: existingContact } = await supabase
+                .from('contacts')
+                .select('conversation_summary, name')
+                .eq('id', conv.contact_id)
+                .single();
+
+              const existingSummary = existingContact?.conversation_summary || '';
+
+              const summaryResp = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  model: 'google/gemini-2.5-flash-lite',
+                  messages: [{
+                    role: 'user',
+                    content: `Você é um sistema de memória. Resuma a conversa abaixo em MAX 3 frases focando em: problema relatado, solução dada, preferências do cliente. Seja objetivo.
+${existingSummary ? `\nRESUMO ANTERIOR:\n${existingSummary}\n\nATUALIZE o resumo incorporando novas informações:` : ''}
+
+CONVERSA:
+${msgHistory.slice(0, 3000)}
+
+Responda APENAS o resumo atualizado (max 200 palavras).`
+                  }],
+                  max_tokens: 300,
+                  temperature: 0.2,
+                }),
+              });
+
+              if (summaryResp.ok) {
+                const summaryData = await summaryResp.json();
+                const summary = summaryData.choices?.[0]?.message?.content?.trim() || '';
+                if (summary) {
+                  await supabase.from('contacts').update({ conversation_summary: summary }).eq('id', conv.contact_id);
+                  console.log(`[MEMORY] Saved conversation summary for contact ${conv.contact_id}: "${summary.slice(0, 80)}"`);
+                }
+              }
+            }
+          }
+        } catch (memErr) {
+          console.error(`[MEMORY] Failed to generate summary for conv ${conv.id}:`, memErr);
+        }
+
+        // ── STEP 4: Close the conversation ──
         await supabase.from('conversations').update({
           status: 'resolved',
           funnel_stage_id: null,

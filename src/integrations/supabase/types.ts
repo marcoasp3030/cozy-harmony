@@ -14,6 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_feedback: {
+        Row: {
+          contact_id: string | null
+          conversation_id: string | null
+          created_at: string
+          id: string
+          rating: string
+          suggestion_label: string | null
+          suggestion_text: string
+          user_id: string
+        }
+        Insert: {
+          contact_id?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          rating: string
+          suggestion_label?: string | null
+          suggestion_text: string
+          user_id: string
+        }
+        Update: {
+          contact_id?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          rating?: string
+          suggestion_label?: string | null
+          suggestion_text?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_feedback_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_feedback_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       automation_logs: {
         Row: {
           automation_id: string
@@ -282,6 +330,7 @@ export type Database = {
       contacts: {
         Row: {
           about: string | null
+          conversation_summary: string | null
           created_at: string
           custom_fields: Json | null
           email: string | null
@@ -297,6 +346,7 @@ export type Database = {
         }
         Insert: {
           about?: string | null
+          conversation_summary?: string | null
           created_at?: string
           custom_fields?: Json | null
           email?: string | null
@@ -312,6 +362,7 @@ export type Database = {
         }
         Update: {
           about?: string | null
+          conversation_summary?: string | null
           created_at?: string
           custom_fields?: Json | null
           email?: string | null

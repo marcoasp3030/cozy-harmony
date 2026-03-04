@@ -2030,7 +2030,7 @@ REGRAS PARA "ready":
         productContext = "\n\n🚫 PREÇOS: Você NÃO tem acesso ao catálogo de produtos neste momento. Se o cliente perguntar sobre preço ou valor de qualquer produto, NUNCA invente um valor. Diga: 'Vou verificar o valor para você' ou peça para enviar uma foto do código de barras. JAMAIS cite valores como R$ 2,50, R$ 7,99 ou qualquer outro número sem dados reais.";
       }
 
-      // ── 4. SENTIMENT ANALYSIS: detect emotional tone from message ──
+      // ── 4. SENTIMENT ANALYSIS + TONE ADAPTATION: detect emotional tone and communication style ──
       let sentimentHint = "";
       const msgLower = (msgForProductSearch).toLowerCase();
       const frustrationWords = /absurdo|raiva|indignado|revoltado|péssimo|pessimo|horrível|horrivel|lixo|vergonha|nunca mais|inaceitável|inaceitavel|porcaria|merda|droga|irritad|cansad|farto|decepcion|desrespeito|descaso|abuso/;
@@ -2047,6 +2047,53 @@ REGRAS PARA "ready":
       } else if (confusionWords.test(msgLower)) {
         sentimentHint = "\n🤔 SENTIMENTO DETECTADO: CONFUSÃO/DÚVIDA. Seja didático e paciente. Explique passo a passo. Evite jargões técnicos. Pergunte se ficou claro.";
       }
+
+      // ── 4b. DYNAMIC TONE ADAPTATION: mirror client's communication style ──
+      let toneHint = "";
+      const allClientText = (groupedMessages || transcription || ctx.messageContent || "");
+      // Detect informal vs formal style
+      const informalMarkers = /\b(vc|tb|pq|pra|tá|tô|né|blz|vlw|tmj|kk|haha|rs|kkk|mds|slk|mn|mano|cara|véi|vei|pow|poxa|eai|fala|suave)\b/i;
+      const formalMarkers = /\b(prezado|senhor|senhora|cordialmente|atenciosamente|gostaria|solicito|informo|gentileza|poderia)\b/i;
+      const shortMessages = allClientText.split(/\n/).filter((l: string) => l.trim()).every((l: string) => l.trim().length < 40);
+      const usesEmojis = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u.test(allClientText);
+
+      if (formalMarkers.test(allClientText)) {
+        toneHint = "\n🎭 ESTILO DO CLIENTE: FORMAL. Adapte seu tom: use linguagem mais polida e profissional. Evite gírias e emojis em excesso. Trate por 'senhor(a)' se apropriado. Mantenha respostas estruturadas.";
+      } else if (informalMarkers.test(allClientText) || (shortMessages && usesEmojis)) {
+        toneHint = "\n🎭 ESTILO DO CLIENTE: SUPER INFORMAL. Espelhe o tom: use 'vc', 'tá', 'pra', emojis, tom descontraído. Respostas CURTAS (1-2 frases max). Vá direto ao ponto como um amigo faria.";
+      } else if (shortMessages) {
+        toneHint = "\n🎭 ESTILO DO CLIENTE: DIRETO/OBJETIVO. O cliente usa mensagens curtas. Responda de forma igualmente objetiva: máximo 2 frases. Sem rodeios.";
+      }
+
+      // ── 4c. LONG-TERM MEMORY: inject previous conversation summary ──
+      let memoryHint = "";
+      try {
+        const { data: contactMem } = await supabase
+          .from("contacts")
+          .select("conversation_summary")
+          .eq("id", ctx.contactId)
+          .single();
+        if (contactMem?.conversation_summary) {
+          memoryHint = `\n\n🧠 MEMÓRIA DE LONGO PRAZO (resumo de interações anteriores — use para contexto, NÃO mencione diretamente):\n${contactMem.conversation_summary}`;
+          console.log(`[MEMORY] Injected long-term memory for contact ${ctx.contactId}: ${contactMem.conversation_summary.slice(0, 80)}`);
+        }
+      } catch {}
+
+      // ── 4d. FEW-SHOT EXAMPLES: inject high-rated real agent responses ──
+      let fewShotHint = "";
+      try {
+        const { data: goodExamples } = await supabase
+          .from("ai_feedback")
+          .select("suggestion_text")
+          .eq("rating", "positive")
+          .order("created_at", { ascending: false })
+          .limit(5);
+        if (goodExamples && goodExamples.length >= 2) {
+          const examples = goodExamples.map((e: any) => `• "${e.suggestion_text}"`).join("\n");
+          fewShotHint = `\n\n💡 EXEMPLOS DE BOAS RESPOSTAS (avaliadas positivamente por atendentes reais — use como referência de TOM e ESTILO):\n${examples}\n\nIMPORTANTE: Estes são exemplos de estilo. NÃO copie literalmente. Adapte ao contexto da conversa atual.`;
+          console.log(`[FEW-SHOT] Injected ${goodExamples.length} positive examples`);
+        }
+      } catch {}
 
       // ── 5. BUILD ENRICHED PROFILE CONTEXT ──
       const profileParts: string[] = [];
@@ -2288,7 +2335,7 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
       }
 
       // ── Compose final enriched system prompt ──
-      const enrichedSystemPrompt = systemPrompt + profileContext + productContext + knowledgeContext + sentimentHint + languageHint + variationHint + autonomousStoreHint + pixQualificationHint;
+      const enrichedSystemPrompt = systemPrompt + profileContext + memoryHint + productContext + knowledgeContext + sentimentHint + toneHint + fewShotHint + languageHint + variationHint + autonomousStoreHint + pixQualificationHint;
 
       // Merge and sort by created_at
       const allRecent = [
@@ -2683,8 +2730,23 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
           console.log(`Audio reply fallback to text: ${audioResult.reason || "unknown_reason"}`);
         }
 
-        // Only send as text if not suppressed and not waiting for image lookup follow-up
+        // ── SMART TYPING DELAY: simulate human typing before sending ──
         if (!d.suppress_send && !shouldHoldPrimaryReply) {
+          const typingDelayMs = Math.min(Math.max(reply.length * 25, 1000), 4000); // 1-4s proportional to length
+          try {
+            const typingInstance = await getCachedInstance(supabase, ctx.userId, ctx.instanceId);
+            if (typingInstance) {
+              const typingCleanNumber = String(ctx.contactPhone || "").replace(/\D/g, "");
+              const typingBaseUrl = String(typingInstance.base_url).replace(/\/+$/, "");
+              // Send "composing" presence via UazAPI
+              await fetch(`${typingBaseUrl}/send/presence`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", token: typingInstance.instance_token },
+                body: JSON.stringify({ number: typingCleanNumber, type: "composing" }),
+              }).catch(() => {});
+            }
+          } catch {}
+          await new Promise((r) => setTimeout(r, typingDelayMs));
           await sendWhatsAppMessage(supabase, ctx, reply);
         } else if (!d.suppress_send && shouldHoldPrimaryReply) {
           ctx.variables["_audit_reply_suppressed"] = `Resposta suprimida para aguardar lookup de imagem: "${reply.slice(0, 200)}"`;
