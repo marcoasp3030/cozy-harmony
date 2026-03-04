@@ -1533,21 +1533,40 @@ Responda APENAS com o texto da mensagem.`;
       if (!ctx.variables["loja"]) {
         let loja = "";
         // Priority 1: detect from current conversation text (most accurate for THIS interaction)
-        const textPool = (ctx.variables["transcricao"] || "") + " " + (ctx.variables["mensagens_agrupadas"] || "") + " " + (ctx.messageContent || "");
-        const lojaMatch = textPool.match(/(?:condom[ií]nio|unidade|loja|do\s+|da\s+|no\s+|na\s+)([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ][a-záàâãéèêíïóôõöúç]+(?:\s+[A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ0-9][a-záàâãéèêíïóôõöúç0-9]*){0,3})(?:\s+(?:não|nao|está|esta|tá|ta|tem|n[ãa]o))/i);
-        if (lojaMatch?.[1]) loja = lojaMatch[1].trim();
+        const textPool = [
+          ctx.variables["transcricao"] || "",
+          ctx.variables["mensagens_agrupadas"] || "",
+          ctx.messageContent || "",
+        ].join(" ");
         
-        // Priority 2: broader pattern matching for store names
-        if (!loja) {
-          const broaderMatch = textPool.match(/(?:loja|unidade|condom[ií]nio)\s+(?:do\s+|da\s+|de\s+)?([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ][a-záàâãéèêíïóôõöúç]+(?:\s+[A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ0-9][a-záàâãéèêíïóôõöúç0-9]*){0,3})/i);
-          if (broaderMatch?.[1]) loja = broaderMatch[1].trim();
+        console.log(`[NOTIFY_GROUP] textPool for loja detection (first 300): "${textPool.slice(0, 300)}"`);
+        
+        // Match patterns like: "loja do Alphavita", "loja H-Ville", "unidade Central Park", "na loja Firenze"
+        const lojaPatterns = [
+          /(?:loja|unidade|condom[ií]nio)\s+(?:d[oae]\s+)?([A-ZÀ-Úa-zà-ú][\w\-']+(?:[\s\-][A-ZÀ-Úa-zà-ú][\w\-']*){0,3})/i,
+          /(?:aqui\s+n[oa]\s+|n[oa]\s+)([A-ZÀ-Ú][\w\-']+(?:[\s\-][A-ZÀ-Ú][\w\-']*){0,2})(?:\s*[,.]|\s+(?:e|não|nao|está|tá|tem|mas|porém))/i,
+        ];
+        
+        for (const pat of lojaPatterns) {
+          const m = textPool.match(pat);
+          if (m?.[1]) {
+            const candidate = m[1].trim();
+            // Skip generic words that aren't store names
+            const skipWords = ["não","nao","aqui","está","tá","que","uma","tem","meu","minha","esse","essa","você","voce","por","favor"];
+            if (!skipWords.includes(candidate.toLowerCase()) && candidate.length > 1) {
+              loja = candidate;
+              console.log(`[NOTIFY_GROUP] Detected loja from text: "${loja}" (pattern: ${pat.source.slice(0, 40)}...)`);
+              break;
+            }
+          }
         }
 
-        // Priority 3: fallback to saved profile data
+        // Priority 2: fallback to saved profile data
         if (!loja && ctx.contactId) {
           const { data: cp } = await supabase.from("contacts").select("custom_fields").eq("id", ctx.contactId).single();
           const cf = (cp?.custom_fields as Record<string, any>) || {};
           loja = cf.condominio || cf.loja || cf.unidade || "";
+          if (loja) console.log(`[NOTIFY_GROUP] Loja from profile fallback: "${loja}"`);
         }
         ctx.variables["loja"] = loja || "Não identificada";
       }
