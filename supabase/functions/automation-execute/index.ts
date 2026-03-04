@@ -1546,20 +1546,20 @@ Responda APENAS com o texto da mensagem.`;
         ctx.variables["loja"] = loja || "Não identificada";
       }
 
-      // descricao: from grouped messages, transcription, or current message
+      // descricao: prefer transcription > grouped messages > image description > message content
       if (!ctx.variables["descricao"]) {
-        const desc = ctx.variables["mensagens_agrupadas"]
-          || ctx.variables["transcricao"]
+        const desc = ctx.variables["transcricao"]
+          || ctx.variables["mensagens_agrupadas"]
           || ctx.variables["descricao_imagem"]
-          || ctx.messageContent
+          || (ctx.messageContent && !ctx.messageContent.startsWith("[") && !ctx.messageContent.startsWith("http") ? ctx.messageContent : null)
           || "Sem descrição";
         // Truncate to 200 chars for group notification
         ctx.variables["descricao"] = desc.length > 200 ? desc.slice(0, 200) + "..." : desc;
       }
 
-      // tipo_ocorrencia fallback
+      // tipo_ocorrencia: from classify intent node result
       if (!ctx.variables["tipo_ocorrencia"]) {
-        ctx.variables["tipo_ocorrencia"] = ctx.variables["occurrence_type"] || ctx.variables["intent"] || "não classificado";
+        ctx.variables["tipo_ocorrencia"] = ctx.variables["intencao"] || ctx.variables["occurrence_type"] || ctx.variables["intent"] || "não classificado";
       }
 
       console.log(`[NOTIFY_GROUP] Variables: loja="${ctx.variables["loja"]}", descricao="${(ctx.variables["descricao"] || "").slice(0, 80)}...", tipo="${ctx.variables["tipo_ocorrencia"]}"`);
