@@ -1532,16 +1532,22 @@ Responda APENAS com o texto da mensagem.`;
       // loja: from custom_fields.condominio, or try to detect from conversation
       if (!ctx.variables["loja"]) {
         let loja = "";
-        if (ctx.contactId) {
+        // Priority 1: detect from current conversation text (most accurate for THIS interaction)
+        const textPool = (ctx.variables["transcricao"] || "") + " " + (ctx.variables["mensagens_agrupadas"] || "") + " " + (ctx.messageContent || "");
+        const lojaMatch = textPool.match(/(?:condom[ií]nio|unidade|loja|do\s+|da\s+|no\s+|na\s+)([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ][a-záàâãéèêíïóôõöúç]+(?:\s+[A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ0-9][a-záàâãéèêíïóôõöúç0-9]*){0,3})(?:\s+(?:não|nao|está|esta|tá|ta|tem|n[ãa]o))/i);
+        if (lojaMatch?.[1]) loja = lojaMatch[1].trim();
+        
+        // Priority 2: broader pattern matching for store names
+        if (!loja) {
+          const broaderMatch = textPool.match(/(?:loja|unidade|condom[ií]nio)\s+(?:do\s+|da\s+|de\s+)?([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ][a-záàâãéèêíïóôõöúç]+(?:\s+[A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ0-9][a-záàâãéèêíïóôõöúç0-9]*){0,3})/i);
+          if (broaderMatch?.[1]) loja = broaderMatch[1].trim();
+        }
+
+        // Priority 3: fallback to saved profile data
+        if (!loja && ctx.contactId) {
           const { data: cp } = await supabase.from("contacts").select("custom_fields").eq("id", ctx.contactId).single();
           const cf = (cp?.custom_fields as Record<string, any>) || {};
           loja = cf.condominio || cf.loja || cf.unidade || "";
-        }
-        if (!loja) {
-          // Try to extract from grouped messages or current message
-          const textPool = (ctx.variables["mensagens_agrupadas"] || "") + " " + (ctx.messageContent || "");
-          const lojaMatch = textPool.match(/(?:condom[ií]nio|unidade|loja)\s+([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ][a-záàâãéèêíïóôõöúç]+(?:\s+[A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ0-9][a-záàâãéèêíïóôõöúç0-9]*){0,3})/i);
-          if (lojaMatch?.[1]) loja = lojaMatch[1].trim();
         }
         ctx.variables["loja"] = loja || "Não identificada";
       }
