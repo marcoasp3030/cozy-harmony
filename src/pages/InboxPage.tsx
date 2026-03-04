@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, Send, Phone, MoreVertical, Kanban, List, StickyNote, LayoutTemplate, Slash, ArrowLeft, Brain, Loader2, Sparkles, FileText as SummarizeIcon, MousePointerClick, X } from "lucide-react";
+import { Search, Send, Phone, MoreVertical, Kanban, List, StickyNote, LayoutTemplate, Slash, ArrowLeft, Brain, Loader2, Sparkles, FileText as SummarizeIcon, MousePointerClick, X, ThumbsUp, ThumbsDown } from "lucide-react";
 import { MediaUploader, AttachmentPreview, uploadMediaFile } from "@/components/inbox/MediaUploader";
 import type { MediaAttachment } from "@/components/inbox/MediaUploader";
 import AudioRecorder from "@/components/inbox/AudioRecorder";
@@ -1059,19 +1059,57 @@ const InboxPage = () => {
                   ) : (
                     <>
                       {replySuggestions.map((s, i) => (
-                        <button
-                          key={i}
-                          onClick={() => {
-                            setNewMessage(s.text);
-                            setReplySuggestions([]);
-                            textareaRef.current?.focus();
-                          }}
-                          className="rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs text-foreground hover:bg-primary/10 hover:border-primary/40 transition-colors max-w-[250px] truncate"
-                          title={s.text}
-                        >
-                          <span className="font-medium text-primary mr-1">{s.label}:</span>
-                          {s.text}
-                        </button>
+                        <div key={i} className="flex items-center gap-0.5 animate-in fade-in">
+                          <button
+                            onClick={() => {
+                              setNewMessage(s.text);
+                              setReplySuggestions([]);
+                              textareaRef.current?.focus();
+                            }}
+                            className="rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs text-foreground hover:bg-primary/10 hover:border-primary/40 transition-colors max-w-[220px] truncate"
+                            title={s.text}
+                          >
+                            <span className="font-medium text-primary mr-1">{s.label}:</span>
+                            {s.text}
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (!user || !selectedConvId || !contact) return;
+                              await supabase.from("ai_feedback").insert({
+                                user_id: user.id,
+                                conversation_id: selectedConvId,
+                                contact_id: contact.id,
+                                suggestion_text: s.text,
+                                suggestion_label: s.label,
+                                rating: "positive",
+                              } as any);
+                              toast.success("Feedback salvo 👍");
+                            }}
+                            className="p-0.5 text-muted-foreground hover:text-green-600 transition-colors"
+                            title="Boa sugestão"
+                          >
+                            <ThumbsUp className="h-3 w-3" />
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (!user || !selectedConvId || !contact) return;
+                              await supabase.from("ai_feedback").insert({
+                                user_id: user.id,
+                                conversation_id: selectedConvId,
+                                contact_id: contact.id,
+                                suggestion_text: s.text,
+                                suggestion_label: s.label,
+                                rating: "negative",
+                              } as any);
+                              toast.success("Feedback salvo 👎");
+                              setReplySuggestions((prev) => prev.filter((_, idx) => idx !== i));
+                            }}
+                            className="p-0.5 text-muted-foreground hover:text-red-500 transition-colors"
+                            title="Sugestão ruim"
+                          >
+                            <ThumbsDown className="h-3 w-3" />
+                          </button>
+                        </div>
                       ))}
                       <button onClick={() => setReplySuggestions([])} className="text-muted-foreground hover:text-foreground">
                         <X className="h-3.5 w-3.5" />
