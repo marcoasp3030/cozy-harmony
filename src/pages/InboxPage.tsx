@@ -897,10 +897,15 @@ const InboxPage = () => {
                       {conv.lastMessage?.content || (conv.lastMessage?.type !== "text" ? `📎 ${conv.lastMessage?.type}` : "")}
                     </p>
                   </div>
-                  <div className="flex flex-col items-end gap-1 shrink-0">
+                   <div className="flex flex-col items-end gap-1 shrink-0">
                     {(conv.unread_count ?? 0) > 0 && (
                       <Badge className="h-5 min-w-[20px] rounded-full p-0 text-xs flex items-center justify-center">
                         {conv.unread_count}
+                      </Badge>
+                    )}
+                    {conv.assigned_to && ["waiting", "in_progress"].includes(conv.status) && (
+                      <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-amber-500/50 text-amber-600 dark:text-amber-400 bg-amber-500/10">
+                        IA pausada
                       </Badge>
                     )}
                     {(conv.score ?? 0) > 0 && (
@@ -942,7 +947,15 @@ const InboxPage = () => {
                       </AvatarFallback>
                     </Avatar>
                     <div>
-                      <p className="text-sm font-medium">{contact?.name || contact?.phone || "Desconhecido"}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium">{contact?.name || contact?.phone || "Desconhecido"}</p>
+                        {selectedConv.assigned_to && ["waiting", "in_progress"].includes(selectedConv.status) && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-amber-500/50 text-amber-600 dark:text-amber-400 bg-amber-500/10 gap-1">
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            Atendimento humano · IA pausada
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground">{contact?.phone}</p>
                     </div>
                   </div>
