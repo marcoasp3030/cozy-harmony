@@ -115,13 +115,12 @@ function mapModelForProvider(model: string, targetProvider: "openai" | "gemini")
   return model;
 }
 
-// ── Reply style guard: enforce short, natural WhatsApp responses ──
+// ── Reply style guard: enforce natural WhatsApp responses (supports multi-message) ──
 function enforceConciseNaturalReply(text: string): string {
   if (!text) return text;
 
   let cleaned = text
     .replace(/\r/g, "")
-    .replace(/\s+/g, " ")
     .trim();
 
   const bannedPatterns = [
@@ -144,18 +143,25 @@ function enforceConciseNaturalReply(text: string): string {
     .replace(/\s{2,}/g, " ")
     .trim();
 
+  // If the AI used --- separators, clean each segment individually
+  if (cleaned.includes("---")) {
+    const segments = cleaned.split(/\n*---\n*/).map(s => s.trim()).filter(Boolean);
+    return segments.slice(0, 3).join("\n---\n");
+  }
+
+  // For single-block replies, limit to 3 sentences max
   const sentences = (cleaned.match(/[^.!?]+[.!?]?/g) || [])
     .map((s) => s.trim())
     .filter(Boolean);
 
-  let concise = sentences.slice(0, 2).join(" ").trim();
+  let concise = sentences.slice(0, 3).join(" ").trim();
 
   if (!concise) {
-    concise = "Entendi, já vou passar pra equipe agora 👍";
+    concise = "Entendi, já vou verificar pra vc 👍";
   }
 
-  if (concise.length > 220) {
-    concise = concise.slice(0, 220).replace(/\s+\S*$/, "").trim();
+  if (concise.length > 300) {
+    concise = concise.slice(0, 300).replace(/\s+\S*$/, "").trim();
     if (!/[.!?]$/.test(concise)) concise += ".";
   }
 
@@ -2349,14 +2355,31 @@ Responda APENAS com o texto da mensagem.`;
 - NÃO repita a mesma saudação. Varie entre: "Oi", "Olá", "Ei", usar só o nome, ou ir direto ao ponto.
 - Se já cumprimentou antes nesta conversa, NÃO cumprimente de novo.
 - NUNCA use despedidas genéricas como "Qualquer coisa, estou aqui!", "Fico à disposição", "Estou aqui pra ajudar", "A sua colaboração é importante".
-- Seja natural como uma pessoa real conversando, não como um bot.
+- Seja natural como uma pessoa real conversando no WhatsApp, não como um bot.
 
-📏 REGRA ABSOLUTA DE BREVIDADE:
-- MÁXIMO 1-2 frases por resposta. NUNCA mais que 2 frases.
+📱 FORMATO DE RESPOSTA — MÚLTIPLAS MENSAGENS:
+- Responda como um HUMANO REAL faria no WhatsApp: envie 2-3 mensagens curtas em sequência, NÃO um textão.
+- Separe cada mensagem com "---" em uma linha sozinha.
+- Cada mensagem deve ter NO MÁXIMO 1-2 frases curtas.
+- Isso simula o comportamento humano de digitar e enviar várias mensagens rápidas.
+
+Exemplo BOM (cliente reportou falta de produto):
+Eita, que chato isso 😕
+---
+Vou passar pra equipe de abastecimento agora
+---
+Qual a unidade/loja?
+
+Exemplo BOM (cliente perguntou preço):
+Deixa eu ver aqui pra vc
+---
+Manda uma foto do código de barras que eu consulto rapidinho 📸
+
+Exemplo RUIM (textão único):
+"Obrigada por nos avisar sobre a falta de produtos na loja Nilville. Vou encaminhar essa informação para a equipe responsável pelo abastecimento, para que eles possam resolver isso o mais rápido possível. A sua colaboração é fundamental para mantermos a loja completa."
+
 - Se pode dizer em 5 palavras, NÃO use 15.
 - PROIBIDO: parágrafos longos, explicações desnecessárias, frases motivacionais, agradecimentos elaborados.
-- Exemplo BOM: "Vou verificar e te retorno 👍"
-- Exemplo RUIM: "Obrigada por nos avisar sobre a falta de produtos na loja. Vou encaminhar essa informação para a equipe responsável pelo abastecimento, para que eles possam resolver isso o mais rápido possível."
 - Se o cliente relatou um PROBLEMA: reconheça rapidamente e diga que vai resolver. Ponto. Não enrole.`;
 
       // ── 8. PIX QUALIFICATION + AUTONOMOUS STORE SUPPORT INSTRUCTIONS ──
@@ -2952,13 +2975,24 @@ O cliente enviou uma IMAGEM. Sua prioridade é:
           console.log(`Audio reply fallback to text: ${audioResult.reason || "unknown_reason"}`);
         }
 
-        // ── SMART TYPING DELAY: simulate human typing before sending ──
-        // NOTE: UazAPI does not support a presence/typing endpoint (all attempts return 405).
-        // We use a simple delay proportional to message length to simulate natural response timing.
+        // ── SMART MULTI-MESSAGE SEND: split on --- and send sequentially like a human ──
         if (!d.suppress_send && !shouldHoldPrimaryReply) {
-          const typingDelayMs = Math.min(Math.max(reply.length * 25, 1000), 4000); // 1-4s proportional to length
-          await new Promise((r) => setTimeout(r, typingDelayMs));
-          await sendWhatsAppMessage(supabase, ctx, reply);
+          const messageParts = reply.includes("---")
+            ? reply.split(/\n*---\n*/).map((s: string) => s.trim()).filter(Boolean)
+            : [reply];
+
+          for (let i = 0; i < messageParts.length; i++) {
+            const part = messageParts[i];
+            // Typing delay proportional to message length (1-3s per message)
+            const typingDelayMs = Math.min(Math.max(part.length * 30, 800), 3000);
+            if (i > 0) {
+              // Extra pause between messages to feel natural (1-2.5s)
+              await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1500));
+            } else {
+              await new Promise((r) => setTimeout(r, typingDelayMs));
+            }
+            await sendWhatsAppMessage(supabase, ctx, part);
+          }
         } else if (!d.suppress_send && shouldHoldPrimaryReply) {
           ctx.variables["_audit_reply_suppressed"] = `Resposta suprimida para aguardar lookup de imagem: "${reply.slice(0, 200)}"`;
           console.log(`[AUDIT] Primary reply suppressed at ${new Date().toISOString()} — waiting for barcode lookup`);
