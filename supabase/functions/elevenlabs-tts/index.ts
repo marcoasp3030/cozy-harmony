@@ -87,27 +87,221 @@ function normalizePercentages(text: string): string {
   });
 }
 
+function normalizeDecimalNumbers(text: string): string {
+  // Handle decimal numbers like 3,5 or 2.5 (not already handled by currency/percentage)
+  return text.replace(/\b(\d{1,7})[,.](\d{1,2})\b/g, (_match, intPart, decPart) => {
+    const intNum = parseInt(intPart, 10);
+    const decNum = parseInt(decPart, 10);
+    if (intNum > 9999999) return _match;
+    return numberToWords(intNum) + ' vírgula ' + numberToWords(decNum);
+  });
+}
+
 function normalizeNumbers(text: string): string {
-  // Standalone numbers (not part of currency/percentage already converted)
+  // Standalone integers (not part of already-converted patterns)
   return text.replace(/\b(\d{1,7})\b/g, (_match, num) => {
     const n = parseInt(num, 10);
-    if (n > 9999999) return num; // too large, keep as-is
+    if (n > 9999999) return num;
     return numberToWords(n);
   });
 }
 
 function normalizePhoneNumbers(text: string): string {
-  // Common BR phone patterns: (11) 99999-9999 or 11999999999
+  // Spell out digits for phone numbers
+  const DIGIT_WORDS = ['zero', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove'];
   return text.replace(/\(?\d{2}\)?\s?\d{4,5}[-\s]?\d{4}/g, (match) => {
-    return match.replace(/\d/g, (d) => UNITS[parseInt(d)] || d).split('').join(' ');
+    return match.replace(/\d/g, (d) => DIGIT_WORDS[parseInt(d)] + ' ');
   });
 }
+
+// ── English words commonly used in Brazilian Portuguese ──
+const ENGLISH_PRONUNCIATIONS: Record<string, string> = {
+  // Tech & business
+  'WhatsApp': 'uótsapp',
+  'whatsapp': 'uótsapp',
+  'Instagram': 'instagrãm',
+  'instagram': 'instagrãm',
+  'Facebook': 'feicebuk',
+  'facebook': 'feicebuk',
+  'Google': 'gúgol',
+  'google': 'gúgol',
+  'YouTube': 'iutúbi',
+  'youtube': 'iutúbi',
+  'Twitter': 'tuíter',
+  'twitter': 'tuíter',
+  'TikTok': 'tiquetóque',
+  'tiktok': 'tiquetóque',
+  'LinkedIn': 'linquedín',
+  'linkedin': 'linquedín',
+  'iPhone': 'aifôni',
+  'iphone': 'aifôni',
+  'Android': 'androide',
+  'Windows': 'uíndous',
+  'Apple': 'épol',
+  'Samsung': 'sãmçung',
+  'Netflix': 'nétiflics',
+  'Spotify': 'espotifái',
+  'Uber': 'úber',
+  'delivery': 'delivéri',
+  'Delivery': 'delivéri',
+  'online': 'onlaine',
+  'Online': 'onlaine',
+  'offline': 'oflaine',
+  'Offline': 'oflaine',
+  'Wi-Fi': 'uaifai',
+  'wifi': 'uaifai',
+  'WiFi': 'uaifai',
+  'Wi-fi': 'uaifai',
+  'website': 'uébissaite',
+  'site': 'sáite',
+  'link': 'linque',
+  'links': 'linques',
+  'Link': 'linque',
+  'e-mail': 'iméil',
+  'email': 'iméil',
+  'Email': 'iméil',
+  'E-mail': 'iméil',
+  'login': 'lóguin',
+  'Login': 'lóguin',
+  'password': 'péssuord',
+  'software': 'sóftuer',
+  'hardware': 'rarduer',
+  'backup': 'béquiap',
+  'Backup': 'béquiap',
+  'download': 'daunlôud',
+  'upload': 'aplôud',
+  'feedback': 'fídbéque',
+  'Feedback': 'fídbéque',
+  'layout': 'lêiaut',
+  'design': 'dizáin',
+  'Design': 'dizáin',
+  'designer': 'dizáiner',
+  'marketing': 'marquéting',
+  'Marketing': 'marquéting',
+  'freelancer': 'frílâncer',
+  'startup': 'startap',
+  'Startup': 'startap',
+  'pitch': 'pítch',
+  'budget': 'bâdjet',
+  'deadline': 'dédlaine',
+  'insight': 'insáite',
+  'insights': 'insáites',
+  'coach': 'côutch',
+  'coaching': 'côutching',
+  'performance': 'perfórmãnce',
+  'benchmark': 'bêntchmarque',
+  'branding': 'brénding',
+  'target': 'társguit',
+  'trend': 'trênd',
+  'trends': 'trênds',
+  'story': 'estóri',
+  'stories': 'estóris',
+  'Stories': 'estóris',
+  'post': 'pôst',
+  'posts': 'pôsts',
+  'like': 'laike',
+  'likes': 'laikes',
+  'follow': 'fólou',
+  'followers': 'fólouers',
+  'hashtag': 'réshtag',
+  'sticker': 'istíquer',
+  'stickers': 'istíquers',
+  'GIF': 'gif',
+  'gif': 'gif',
+  'live': 'laive',
+  'Live': 'laive',
+  'chat': 'tchét',
+  'bot': 'bót',
+  'Bot': 'bót',
+  'chatbot': 'tchétbót',
+  'token': 'tôquen',
+  'tokens': 'tôquens',
+  'app': 'épp',
+  'apps': 'épps',
+  'App': 'épp',
+  'update': 'apdêite',
+  'updates': 'apdêites',
+  'feature': 'fítcher',
+  'features': 'fítchers',
+  'ok': 'oquei',
+  'OK': 'oquei',
+  'Ok': 'oquei',
+  'check': 'tchéque',
+  'checklist': 'tchéqueliste',
+  'call': 'cól',
+  'meeting': 'míting',
+  'coworking': 'cou-uôrquing',
+  'home office': 'rôme ófice',
+  'home-office': 'rôme ófice',
+  'weekend': 'uíquend',
+  'happy hour': 'répi áuer',
+  'show': 'chôu',
+  'shopping': 'chóping',
+  'Shopping': 'chóping',
+  'fitness': 'fítnéss',
+  'personal': 'persônau',
+  'trainer': 'trêiner',
+  'look': 'lúque',
+  'fashion': 'féchion',
+  'sale': 'sêil',
+  'Sale': 'sêil',
+  'black friday': 'bléque fraidêi',
+  'Black Friday': 'bléque fraidêi',
+  'voucher': 'váutcher',
+  'cashback': 'quéchbéque',
+  'Cashback': 'quéchbéque',
+  'drive-thru': 'dráive trú',
+  'self-service': 'sélfi sérvice',
+  'drive': 'dráive',
+  'web': 'uéb',
+  'Web': 'uéb',
+  'blog': 'blóg',
+  'Blog': 'blóg',
+  'podcast': 'pódcast',
+  'Podcast': 'pódcast',
+  'playlist': 'plêiliste',
+  'streaming': 'estríming',
+  'Streaming': 'estríming',
+  'top': 'tóp',
+  'Top': 'tóp',
+  'VIP': 'víp',
+  'vip': 'víp',
+  'premium': 'prêmium',
+  'Premium': 'prêmium',
+  'free': 'frí',
+  'Free': 'frí',
+  'plus': 'plâs',
+  'Plus': 'plâs',
+  'pro': 'pró',
+  'Pro': 'pró',
+  'kit': 'quít',
+  'Kit': 'quít',
+  'stock': 'estóque',
+  'input': 'ínput',
+  'output': 'áutput',
+  'status': 'stétus',
+  'Status': 'stétus',
+  'ticket': 'tíquete',
+  'tickets': 'tíquetes',
+  'SLA': 'ésse éle á',
+  'CRM': 'cê érre ême',
+  'ERP': 'ê érre pê',
+  'API': 'á pê í',
+  'dashboard': 'déchbord',
+  'Dashboard': 'déchbord',
+  'setup': 'setâp',
+  'Setup': 'setâp',
+  'reset': 'risét',
+  'Reset': 'risét',
+};
 
 const ACRONYMS: Record<string, string> = {
   'CPF': 'cê pê éfe',
   'CNPJ': 'cê ene pê jota',
   'RG': 'érre gê',
   'PIX': 'picks',
+  'pix': 'picks',
+  'Pix': 'picks',
   'CEO': 'cê i ôu',
   'TI': 'tê í',
   'RH': 'érre agá',
@@ -129,19 +323,53 @@ const ACRONYMS: Record<string, string> = {
   'km': 'quilômetros',
   'ML': 'mililitros',
   'ml': 'mililitros',
-  'GB': 'gigabytes',
-  'MB': 'megabytes',
-  'TB': 'terabytes',
+  'GB': 'gigabáites',
+  'MB': 'megabáites',
+  'TB': 'terabáites',
+  'NPS': 'ene pê ésse',
+  'FAQ': 'éfe á quê',
+  'IOF': 'í ô éfe',
+  'IPTU': 'í pê tê ú',
+  'IPVA': 'í pê vê á',
+  'IR': 'í érre',
+  'PJ': 'pê jota',
+  'PF': 'pê éfe',
+  'CNAE': 'cê ene á ê',
+  'DAS': 'dás',
 };
 
+// Common Portuguese words that happen to be ALL CAPS but should NOT be spelled out
+const COMMON_WORDS_UPPER = new Set([
+  'EU', 'TU', 'ELE', 'ELA', 'NOS', 'VOS', 'NÃO', 'SIM', 'JÁ', 'DE', 'DO', 'DA', 'EM', 'NO', 'NA',
+  'UM', 'UMA', 'SE', 'OU', 'QUE', 'COM', 'POR', 'AO', 'OS', 'AS', 'DOS', 'DAS', 'NOS', 'NAS',
+  'MAS', 'ATÉ', 'SÓ', 'VAI', 'VEM', 'FEZ', 'BOM', 'BOA', 'MAU', 'MAL',
+]);
+
+function normalizeEnglishWords(text: string): string {
+  // Replace known English words with phonetic Portuguese equivalents
+  // Process longer phrases first, then single words
+  const entries = Object.entries(ENGLISH_PRONUNCIATIONS).sort((a, b) => b[0].length - a[0].length);
+  for (const [eng, ptBr] of entries) {
+    // Use word boundary for single words, looser match for phrases with spaces/hyphens
+    if (eng.includes(' ') || eng.includes('-')) {
+      text = text.replace(new RegExp(eng.replace(/[-\s]/g, '[-\\s]'), 'gi'), ptBr);
+    } else {
+      text = text.replace(new RegExp(`\\b${eng}\\b`, 'g'), ptBr);
+    }
+  }
+  return text;
+}
+
 function normalizeAcronyms(text: string): string {
+  // First pass: known acronyms
   for (const [acronym, spoken] of Object.entries(ACRONYMS)) {
     const regex = new RegExp(`\\b${acronym.replace('.', '\\.')}\\b`, 'g');
     text = text.replace(regex, spoken);
   }
-  // Generic: all-caps 2-4 letter words not in dictionary → spell out
+  // Second pass: unknown ALL CAPS 2-4 letter words → spell out (unless common PT word)
   text = text.replace(/\b([A-Z]{2,4})\b/g, (match) => {
-    if (ACRONYMS[match]) return ACRONYMS[match]; // already handled
+    if (ACRONYMS[match]) return ACRONYMS[match];
+    if (COMMON_WORDS_UPPER.has(match)) return match;
     const letters: Record<string, string> = {
       'A':'á','B':'bê','C':'cê','D':'dê','E':'ê','F':'éfe','G':'gê','H':'agá',
       'I':'í','J':'jota','K':'cá','L':'éle','M':'ême','N':'ene','O':'ó','P':'pê',
@@ -176,27 +404,85 @@ function normalizeSymbols(text: string): string {
     .replace(/#/g, ' hashtag ')
     .replace(/\*/g, '') // remove asterisks (bold markup)
     .replace(/_/g, ' ') // remove underscores
-    .replace(/\n+/g, '... ') // line breaks → pauses
+    .replace(/\n+/g, '. ') // line breaks → sentence end (natural pause)
     .replace(/\s{2,}/g, ' ');
 }
 
 function insertBreathingPauses(text: string): string {
-  // Add pauses after long clauses (8+ words before a comma or semicolon)
-  let result = text.replace(/([^.!?\n]{60,}?)(,|;)\s/g, '$1$2... ');
-  // Add subtle pause between sentences longer than 80 chars
-  result = result.replace(/([.!?])\s+(?=[A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ])/g, '$1 ... ');
-  // Add pause after colons introducing explanations
-  result = result.replace(/:\s+/g, ':... ');
+  // LESS aggressive pauses — only at natural sentence boundaries
+  // Remove the overly aggressive clause-based pausing that caused robotic rhythm
+  
+  // Natural pause between sentences (period, exclamation, question)
+  let result = text.replace(/([.!?])\s+/g, '$1 ');
+  
+  // Pause after colons (but shorter)
+  result = result.replace(/:\s+/g, ': ');
+  
+  // Remove any triple dots that aren't original (cleanup from previous normalization)
+  result = result.replace(/\.{3,}/g, '...');
+  
   return result;
+}
+
+// ── Clean up markdown and formatting artifacts ──
+function cleanMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '$1')   // **bold** → just text
+    .replace(/\*(.*?)\*/g, '$1')       // *italic* → just text
+    .replace(/__(.*?)__/g, '$1')       // __underline__ → just text
+    .replace(/~~(.*?)~~/g, '$1')       // ~~strikethrough~~ → just text
+    .replace(/`(.*?)`/g, '$1')         // `code` → just text
+    .replace(/^[-•]\s+/gm, '')         // bullet points → remove
+    .replace(/^\d+\.\s+/gm, '')        // numbered lists → remove
+    .replace(/\[(.*?)\]\(.*?\)/g, '$1') // [link text](url) → just text
+    .replace(/>\s+/g, '')              // > blockquotes → remove
+    .trim();
+}
+
+// ── Time normalization: 14:30 → quatorze e trinta ──
+function normalizeTime(text: string): string {
+  return text.replace(/\b(\d{1,2}):(\d{2})\b/g, (_match, h, m) => {
+    const hours = parseInt(h, 10);
+    const minutes = parseInt(m, 10);
+    if (hours > 23 || minutes > 59) return _match;
+    let result = numberToWords(hours) + ' hora' + (hours !== 1 ? 's' : '');
+    if (minutes > 0) {
+      result += ' e ' + numberToWords(minutes) + ' minuto' + (minutes !== 1 ? 's' : '');
+    }
+    return result;
+  });
+}
+
+// ── Date normalization: 15/03/2024 → quinze de março de dois mil e vinte e quatro ──
+function normalizeDates(text: string): string {
+  const MONTHS = ['', 'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+    'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+  return text.replace(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/g, (_match, d, m, y) => {
+    const day = parseInt(d, 10);
+    const month = parseInt(m, 10);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return _match;
+    let result = numberToWords(day) + ' de ' + MONTHS[month];
+    if (y) {
+      let year = parseInt(y, 10);
+      if (year < 100) year += 2000;
+      result += ' de ' + numberToWords(year);
+    }
+    return result;
+  });
 }
 
 function normalizeTextForTTS(text: string): string {
   let normalized = text;
+  normalized = cleanMarkdown(normalized);
+  normalized = normalizeEnglishWords(normalized);
   normalized = normalizeCurrency(normalized);
   normalized = normalizePercentages(normalized);
   normalized = normalizeOrdinals(normalized);
   normalized = normalizeAcronyms(normalized);
   normalized = normalizePhoneNumbers(normalized);
+  normalized = normalizeTime(normalized);
+  normalized = normalizeDates(normalized);
+  normalized = normalizeDecimalNumbers(normalized);
   normalized = normalizeNumbers(normalized);
   normalized = normalizeSymbols(normalized);
   normalized = insertBreathingPauses(normalized);
@@ -270,13 +556,13 @@ serve(async (req) => {
       model_id: selectedModel,
     };
 
-    // Default voice settings optimized for natural, humanized speech in Portuguese
+    // Voice settings optimized for natural, humanized speech in Portuguese
     body.voice_settings = {
-      stability: voiceSettings?.stability ?? 0.3,
-      similarity_boost: voiceSettings?.similarity_boost ?? 0.75,
-      style: voiceSettings?.style ?? 0.5,
+      stability: voiceSettings?.stability ?? 0.35,
+      similarity_boost: voiceSettings?.similarity_boost ?? 0.78,
+      style: voiceSettings?.style ?? 0.45,
       use_speaker_boost: voiceSettings?.use_speaker_boost ?? true,
-      speed: voiceSettings?.speed ?? 0.95,
+      speed: voiceSettings?.speed ?? 0.92,
     };
 
     const resp = await fetch(
