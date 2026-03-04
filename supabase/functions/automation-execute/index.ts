@@ -2731,24 +2731,10 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
         }
 
         // ── SMART TYPING DELAY: simulate human typing before sending ──
-        const shouldShowTyping = d.show_typing !== false;
+        // NOTE: UazAPI does not support a presence/typing endpoint (all attempts return 405).
+        // We use a simple delay proportional to message length to simulate natural response timing.
         if (!d.suppress_send && !shouldHoldPrimaryReply) {
           const typingDelayMs = Math.min(Math.max(reply.length * 25, 1000), 4000); // 1-4s proportional to length
-          if (shouldShowTyping) {
-            try {
-              const typingInstance = await getCachedInstance(supabase, ctx.userId, ctx.instanceId);
-              if (typingInstance) {
-                const typingCleanNumber = String(ctx.contactPhone || "").replace(/\D/g, "");
-                await sendTypingPresence(
-                  String(typingInstance.base_url),
-                  String(typingInstance.instance_token),
-                  typingCleanNumber,
-                );
-              }
-            } catch (err) {
-              console.warn("[TYPING] Presence dispatch error:", err instanceof Error ? err.message : String(err));
-            }
-          }
           await new Promise((r) => setTimeout(r, typingDelayMs));
           await sendWhatsAppMessage(supabase, ctx, reply);
         } else if (!d.suppress_send && shouldHoldPrimaryReply) {
@@ -4580,76 +4566,9 @@ async function autoEscalateToHuman(supabase: any, ctx: ExecutionContext): Promis
   console.log(`[ESCALATE-AUTO] Conversation ${ctx.conversationId} auto-escalated. Agent=${assignedToId || "queue"}`);
 }
 
-async function sendTypingPresence(baseUrl: string, instanceToken: string, cleanNumber: string): Promise<void> {
-  if (!baseUrl || !instanceToken || !cleanNumber) return;
-
-  const normalizedBaseUrl = String(baseUrl).replace(/\/+$/, "");
-  const headers = { "Content-Type": "application/json", token: instanceToken };
-
-  const attempts: Array<{
-    method: string;
-    endpoint: string;
-    payload: Record<string, unknown>;
-    useQuery?: boolean;
-    label: string;
-  }> = [
-    // UazAPI v2: PUT /chat/updatePresence?number=XXX  body: {presence:"composing",delay:1200}
-    {
-      method: "PUT",
-      endpoint: `/chat/updatePresence?number=${cleanNumber}`,
-      payload: { presence: "composing", delay: 1200 },
-      label: "PUT /chat/updatePresence",
-    },
-    // POST /send/presence (legacy v1 format)
-    {
-      method: "POST",
-      endpoint: "/send/presence",
-      payload: { number: cleanNumber, type: "composing" },
-      label: "POST /send/presence number+type",
-    },
-    // PUT /send/presence
-    {
-      method: "PUT",
-      endpoint: "/send/presence",
-      payload: { number: cleanNumber, type: "composing" },
-      label: "PUT /send/presence",
-    },
-    // POST /chat/presence
-    {
-      method: "POST",
-      endpoint: "/chat/presence",
-      payload: { number: cleanNumber, presence: "composing" },
-      label: "POST /chat/presence",
-    },
-  ];
-
-  for (const attempt of attempts) {
-    try {
-      const res = await fetch(`${normalizedBaseUrl}${attempt.endpoint}`, {
-        method: attempt.method,
-        headers,
-        body: JSON.stringify(attempt.payload),
-      });
-
-      const raw = await res.text();
-      if (res.ok) {
-        console.log(`[TYPING] ✅ Presence sent (${attempt.label}) to ${cleanNumber}`);
-        return;
-      }
-
-      console.warn(
-        `[TYPING] ❌ (${attempt.label}) status=${res.status} body=${raw.slice(0, 180)}`,
-      );
-    } catch (err) {
-      console.warn(
-        `[TYPING] Request error (${attempt.label}):`,
-        err instanceof Error ? err.message : String(err),
-      );
-    }
-  }
-
-  console.warn(`[TYPING] Could not send presence for ${cleanNumber} after all attempts`);
-}
+// NOTE: sendTypingPresence removed — UazAPI v2 does not expose a presence/typing endpoint.
+// All attempted endpoints (/send/presence, /chat/presence, /chat/updatePresence) return 405 Method Not Allowed.
+// Typing simulation is achieved via a proportional delay before sending the message.
 
 async function sendWhatsAppMessage(supabase: any, ctx: ExecutionContext, message: string): Promise<{ messageId: string | null; httpStatus: number; apiResponse: string }> {
   const cleanNumber = String(ctx.contactPhone || "").replace(/\D/g, "");
