@@ -90,6 +90,31 @@ async function getCachedInstance(supabase: any, userId: string | null, instanceI
 // Track providers that failed with quota/auth errors within this request to skip retries
 const disabledProviders = new Set<string>();
 
+// ── Model name mapping: translate OpenAI model names to Gemini equivalents ──
+function mapModelForProvider(model: string, targetProvider: "openai" | "gemini"): string {
+  if (targetProvider === "gemini") {
+    // Map OpenAI model names to Gemini equivalents
+    const geminiMap: Record<string, string> = {
+      "gpt-4o": "gemini-2.5-flash",
+      "gpt-4o-mini": "gemini-2.5-flash",
+      "gpt-4-turbo": "gemini-2.5-flash",
+      "gpt-4": "gemini-2.5-flash",
+      "gpt-3.5-turbo": "gemini-2.5-flash-lite",
+    };
+    return geminiMap[model] || (model.startsWith("gpt") ? "gemini-2.5-flash" : model);
+  }
+  if (targetProvider === "openai") {
+    // Map Gemini model names to OpenAI equivalents
+    const openaiMap: Record<string, string> = {
+      "gemini-2.5-flash": "gpt-4o",
+      "gemini-2.5-flash-lite": "gpt-4o-mini",
+      "gemini-2.5-pro": "gpt-4o",
+    };
+    return openaiMap[model] || (model.startsWith("gemini") ? "gpt-4o" : model);
+  }
+  return model;
+}
+
 // ── Cached user AI keys lookup ──
 const userKeysCache = new Map<string, { keys: Record<string, string>; timeout: number }>();
 
@@ -2662,7 +2687,7 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
             const resp = await fetch("https://api.openai.com/v1/chat/completions", {
               method: "POST",
               headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ model, messages: chatMessages, max_tokens: maxTokens, temperature: 0.7 }),
+              body: JSON.stringify({ model: mapModelForProvider(model, "openai"), messages: chatMessages, max_tokens: maxTokens, temperature: 0.7 }),
               signal: controller.signal,
             });
             clearTimeout(tid);
@@ -2700,7 +2725,7 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
             const controller2 = new AbortController();
             const tid2 = setTimeout(() => controller2.abort(), aiTimeoutSeconds * 1000);
             const resp = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${keys.gemini}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/${mapModelForProvider(model, "gemini")}:generateContent?key=${keys.gemini}`,
               {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
