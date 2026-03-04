@@ -445,7 +445,7 @@ const InboxPage = () => {
           media_url: mediaUrl,
           status: "sent",
           external_id: externalId,
-          metadata: optimisticMsg.metadata,
+          metadata: { ...optimisticMsg.metadata, source: "manual" },
         } as any);
 
         // Cleanup: if realtime didn't fire yet, update optimistic directly
@@ -515,7 +515,7 @@ const InboxPage = () => {
         media_url: msg.media_url,
         status: "sent",
         external_id: externalId,
-        metadata: msg.metadata,
+        metadata: { ...msg.metadata, source: "manual" },
       } as any);
 
       setTimeout(() => {
@@ -622,6 +622,7 @@ const InboxPage = () => {
         media_url: audioUrl,
         status: "sent",
         external_id: externalId,
+        metadata: { source: "manual" },
       });
       await supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", selectedConvId);
     } catch (err: any) {

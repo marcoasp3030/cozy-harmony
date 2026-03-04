@@ -173,17 +173,69 @@ serve(async (req) => {
 
       if (!triggered) continue;
 
-      // ── Skip if conversation was escalated to human (assigned + waiting/in_progress) ──
-      if (conversationId) {
-        const hasEscalateNode = flow.nodes.some((n: FlowNode) => n.data?.nodeType === "action_escalate_human");
-        if (hasEscalateNode) {
-          const { data: convCheck } = await supabase
-            .from("conversations")
-            .select("assigned_to, status")
-            .eq("id", conversationId)
-            .maybeSingle();
-          if (convCheck?.assigned_to && ["waiting", "in_progress"].includes(convCheck.status)) {
-            console.log(`[ESCALATE] Skipping automation "${automation.name}" — conversation already escalated to human (status=${convCheck.status})`);
+      // ── Skip if a HUMAN agent is actively handling this conversation ──
+      if (conversationId && contactId) {
+        // Check 1: Conversation was formally escalated (assigned + waiting/in_progress)
+        const { data: convCheck } = await supabase
+          .from("conversations")
+          .select("assigned_to, status")
+          .eq("id", conversationId)
+          .maybeSingle();
+
+        if (convCheck?.assigned_to && ["waiting", "in_progress"].includes(convCheck.status)) {
+          console.log(`[HUMAN-ACTIVE] Skipping automation "${automation.name}" — conversation assigned to human (status=${convCheck.status})`);
+          continue;
+        }
+
+        // Check 2: A human sent a manual message recently (not from automation)
+        // Automation messages have user_id = automation owner but metadata is null or has no "manual" flag
+        // Manual messages from the inbox have the agent's user_id and are sent through the panel
+        // We detect this by finding recent outbound messages NOT created by the automation system
+        const humanWindowMinutes = 30; // If a human replied in last 30min, pause IA
+        const humanCutoff = new Date(Date.now() - humanWindowMinutes * 60 * 1000).toISOString();
+
+        const { data: recentOutbound } = await supabase
+          .from("messages")
+          .select("id, user_id, content, metadata, created_at")
+          .eq("contact_id", contactId)
+          .eq("direction", "outbound")
+          .gte("created_at", humanCutoff)
+          .order("created_at", { ascending: false })
+          .limit(10);
+
+        if (recentOutbound && recentOutbound.length > 0) {
+          // Filter: messages sent by a human agent (not by automation)
+          // Automation-sent messages typically have metadata.source = "automation" or are sent by the automation owner
+          // Manual messages from inbox don't have this marker
+          const automationOwnerId = automation.created_by;
+          const humanMessages = recentOutbound.filter((msg: any) => {
+            const meta = msg.metadata as any;
+            // If metadata explicitly says "automation", it's not human
+            if (meta?.source === "automation") return false;
+            // If the message was sent by someone OTHER than the automation owner, it's definitely human
+            if (msg.user_id && msg.user_id !== automationOwnerId) return true;
+            // If sent by automation owner but has manual flag, it's human
+            if (meta?.source === "manual" || meta?.source === "inbox") return true;
+            // Check if the content matches known automation patterns (skip those)
+            const content = (msg.content || "").toLowerCase();
+            const isAutomationPattern = /nutricar brasil.*mini mercado|_nutricar brasil_|estou transferindo você/i.test(content);
+            if (isAutomationPattern) return false;
+            // If sent by same user as automation owner and no clear signal, check if it could be manual
+            // Conservative: if the automation owner sends from inbox, we want to detect it
+            // We'll mark it as human if there's no automation marker at all
+            if (msg.user_id === automationOwnerId && !meta?.source) {
+              // Ambiguous — could be either. Use a heuristic:
+              // Automation messages are usually sent within seconds of each other in bursts
+              // Manual messages are standalone. Check if this message has NO automation log near its timestamp.
+              return false; // Conservative: don't block unless clearly manual
+            }
+            return false;
+          });
+
+          if (humanMessages.length > 0) {
+            const lastHumanMsg = humanMessages[0];
+            const minutesAgo = Math.round((Date.now() - new Date(lastHumanMsg.created_at).getTime()) / 60000);
+            console.log(`[HUMAN-ACTIVE] Skipping automation "${automation.name}" — human agent sent message ${minutesAgo}min ago (msg_id=${lastHumanMsg.id}, user=${lastHumanMsg.user_id})`);
             continue;
           }
         }
@@ -1015,7 +1067,7 @@ Responda APENAS com o texto da mensagem.`;
         type: "interactive",
         content: contentPreview,
         status: "sent",
-        metadata: { interactive_type: interactiveType, options: optionStrings, footer },
+        metadata: { interactive_type: interactiveType, options: optionStrings, footer, source: "automation" },
       });
 
       console.log(`Sent interactive (${interactiveType}) to ${cleanNumber}: ${optionStrings.length} options`);
@@ -1090,6 +1142,7 @@ Responda APENAS com o texto da mensagem.`;
         content: caption || null,
         media_url: mediaUrl,
         status: "sent",
+        metadata: { source: "automation" },
       });
 
       console.log(`Sent ${mediaType} to ${cleanNumber}: ${mediaUrl.slice(0, 80)}`);
@@ -1171,6 +1224,7 @@ Responda APENAS com o texto da mensagem.`;
             type: "text",
             direction: "outbound",
             status: "sent",
+            metadata: { source: "automation" },
           });
         } catch (sendErr) {
           console.error("[ESCALATE] Failed to send transfer message:", sendErr);
@@ -3967,7 +4021,7 @@ async function sendInteractiveButtons(
       content: bodyText,
       external_id: externalId,
       user_id: ctx.userId,
-      metadata: { buttons: buttons.map(b => b.label), footer },
+      metadata: { buttons: buttons.map(b => b.label), footer, source: "automation" },
     });
 
     return resp.ok;
@@ -4405,6 +4459,7 @@ async function autoEscalateToHuman(supabase: any, ctx: ExecutionContext): Promis
         type: "text",
         direction: "outbound",
         status: "sent",
+        metadata: { source: "automation" },
       });
     } catch (e) {
       console.error("[ESCALATE-AUTO] Failed to send transfer message:", e);
@@ -4549,6 +4604,7 @@ async function sendWhatsAppMessage(supabase: any, ctx: ExecutionContext, message
     content: message,
     status: "sent",
     external_id: externalId,
+    metadata: { source: "automation" },
   });
 
   console.log(`Sent message to ${cleanNumber}: "${message.slice(0, 50)}" (id: ${externalId || "n/a"})`);
@@ -4632,6 +4688,7 @@ async function sendWhatsAppAudio(supabase: any, ctx: ExecutionContext, audioBase
         type: "audio",
         content: "[Áudio automático - TTS]",
         status: "sent",
+        metadata: { source: "automation" },
       });
       console.log(`[AUDIO SEND] Successfully sent audio to ${cleanNumber}`);
     } else {
@@ -4673,6 +4730,7 @@ async function sendWhatsAppImage(supabase: any, ctx: ExecutionContext, imageUrl:
       content: caption || "[Imagem gerada por IA]",
       media_url: imageUrl,
       status: "sent",
+      metadata: { source: "automation" },
     });
 
     console.log(`Sent image to ${cleanNumber}`);
