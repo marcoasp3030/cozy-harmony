@@ -225,6 +225,21 @@ serve(async (req) => {
       return json({ success: result.ok, ...result.data });
     }
 
+    // ── LIST GROUPS ──
+    if (action === 'list-groups') {
+      const result = await callUaz(baseUrl, '/group/list', 'token', tok, 'GET');
+      if (!result.ok) return json({ success: false, error: `Falha ao listar grupos (${result.status})`, debug: result.data });
+      // Normalize group list — UazAPI may return array directly or nested
+      const rawGroups = Array.isArray(result.data) ? result.data : (result.data?.groups || result.data?.data || []);
+      const groups = rawGroups.map((g: any) => ({
+        id: g.id || g.jid || g.groupId || '',
+        name: g.subject || g.name || g.groupName || 'Sem nome',
+        participants: g.participants?.length || g.size || 0,
+        creation: g.creation || g.createdAt || null,
+      }));
+      return json({ success: true, groups });
+    }
+
     return json({ error: 'Ação inválida.' }, 400);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Erro desconhecido';
