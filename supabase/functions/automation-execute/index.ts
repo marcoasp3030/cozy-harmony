@@ -2518,8 +2518,19 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
         console.error("[KB] Error loading knowledge base:", kbErr);
       }
 
+      let imageHint = "";
+      if (ctx.messageType === "image" || (ctx as any)._lastImageUrl) {
+        imageHint = `\n\n📸 IMAGEM RECEBIDA DO CLIENTE — INSTRUÇÕES ESPECIAIS:
+O cliente enviou uma IMAGEM. Sua prioridade é:
+1. Se a imagem contém um CÓDIGO DE BARRAS ou PRODUTO: diga "Vou verificar esse produto no nosso catálogo, um momento! 🔍" — O sistema fará a busca automaticamente.
+2. NÃO peça nome completo ou unidade quando o cliente envia uma foto de código de barras — isso significa que ele quer saber o preço ou pagar.
+3. Se a imagem é um COMPROVANTE DE PAGAMENTO: o sistema verificará automaticamente.
+4. Se a imagem não é legível: peça para reenviar com mais foco/iluminação.
+5. NUNCA ignore a imagem ou responda como se fosse apenas texto.`;
+      }
+
       // ── Compose final enriched system prompt ──
-      const enrichedSystemPrompt = systemPrompt + profileContext + memoryHint + productContext + knowledgeContext + sentimentHint + toneHint + fewShotHint + languageHint + variationHint + autonomousStoreHint + pixQualificationHint;
+      const enrichedSystemPrompt = systemPrompt + profileContext + memoryHint + productContext + knowledgeContext + sentimentHint + toneHint + fewShotHint + languageHint + variationHint + autonomousStoreHint + pixQualificationHint + imageHint;
 
       // Merge and sort by created_at
       const allRecent = [
@@ -2897,12 +2908,14 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
         const hasBarcodeMention = /código de barras|barcode|código.*barras|EAN|GTIN/i.test(reply) || /código de barras|barcode|EAN|GTIN/i.test(ctx.messageContent || "");
         const replyRequestsCatalogCheck = /preciso identificar o produto no cat[aá]logo/i.test(reply);
         const paymentContext = /\b(valor|preço|preco|pix|pagamento|pagar)\b/i.test(`${reply} ${ctx.messageContent} ${ctx.variables["mensagens_agrupadas"] || ""}`);
+        // ALWAYS run barcode lookup when we have an image and product not yet found
+        // This ensures barcode images are always processed, even without payment context
         const shouldRunPostReplyLookup =
           !!imageBase64 &&
           !!ctx.userId &&
-          ctx.variables["produto_encontrado"] !== "true" &&
-          (promisedToCheck || hasBarcodeMention || replyRequestsCatalogCheck || (ctx.messageType === "image" && paymentContext));
-        const shouldHoldPrimaryReply = shouldRunPostReplyLookup && replyRequestsCatalogCheck;
+          ctx.variables["produto_encontrado"] !== "true";
+        // Hold primary reply when we have an image — try barcode lookup first
+        const shouldHoldPrimaryReply = shouldRunPostReplyLookup && ctx.messageType === "image";
 
         // Store IA reply as variable for downstream nodes (e.g. TTS with {{ia_reply}})
         ctx.variables["ia_reply"] = reply;
@@ -2934,12 +2947,28 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
         if (shouldRunPostReplyLookup) {
           console.log("[POST-LLM] Triggered image product lookup after reply");
           try {
-            // Quick AI call to extract barcode number from the image
-            const extractPrompt = `Analise esta imagem e extraia APENAS o número do código de barras visível. Responda SOMENTE com o número (dígitos), nada mais. Se não houver código de barras visível, responda "NENHUM". Se houver texto descrevendo um produto, inclua o nome do produto após o código separado por |. Formato: CODIGO|NOME_PRODUTO ou apenas CODIGO ou NENHUM`;
+            // Quick AI call to extract barcode number AND/OR product name from the image
+            const extractPrompt = `Você é um especialista em leitura de códigos de barras de produtos de supermercado/mini mercado.
+
+Analise esta imagem com MÁXIMA ATENÇÃO e tente identificar:
+1. CÓDIGO DE BARRAS (EAN-13, EAN-8, UPC-A, Code128) — os números impressos ABAIXO ou AO LADO das barras verticais
+2. Se não houver código de barras, tente ler o NOME DO PRODUTO visível no rótulo/embalagem
+
+DICAS PARA LEITURA:
+- O código EAN-13 tem EXATAMENTE 13 dígitos (ex: 7891234567890)
+- Pode estar na parte inferior da embalagem, no verso, ou em etiqueta colada
+- Mesmo que a imagem não esteja perfeita, tente ler os números parcialmente visíveis
+- Se a imagem mostra um RÓTULO ou EMBALAGEM, extraia o nome do produto da marca/logo
+
+FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
+- Se encontrou código de barras: APENAS os dígitos (ex: 7891234567890)
+- Se encontrou produto mas sem código: NOME_DO_PRODUTO (ex: Coca-Cola 350ml)
+- Se encontrou código E nome: CODIGO|NOME_PRODUTO (ex: 7891234567890|Coca-Cola 350ml)
+- Se não conseguiu identificar NADA: NENHUM`;
             
             const { keys: barcodeKeys } = await getUserAIKeys(supabase, ctx.userId);
             if (barcodeKeys.openai || barcodeKeys.gemini) {
-              const extracted = (await callAIVisionWithUserKeys(barcodeKeys, extractPrompt, imageBase64, { maxTokens: 100, temperature: 0.1 })).replace(/\s+/g, " ");
+              const extracted = (await callAIVisionWithUserKeys(barcodeKeys, extractPrompt, imageBase64, { maxTokens: 200, temperature: 0.1 })).replace(/\s+/g, " ").trim();
                 console.log(`[POST-LLM] Barcode extraction result: "${extracted}"`);
 
                 if (extracted && extracted !== "NENHUM" && extracted.length > 3) {
@@ -3008,8 +3037,14 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
                     console.log(`[POST-LLM] Extracted content not usable for search: "${extracted}"`);
                   }
                 } else {
-                  const noBarcode = "⚠️ Não consegui identificar o código de barras nesta imagem. Pode reenviar com mais foco e iluminação?";
-                  await sendWhatsAppMessage(supabase, ctx, noBarcode);
+                  // No barcode detected — send the original LLM reply instead of generic error
+                  if (shouldHoldPrimaryReply && reply) {
+                    console.log("[POST-LLM] No barcode found — sending original LLM reply as fallback");
+                    await sendWhatsAppMessage(supabase, ctx, reply);
+                  } else {
+                    const noBarcode = "⚠️ Não consegui identificar o código de barras nesta imagem. Pode reenviar com mais foco e iluminação?";
+                    await sendWhatsAppMessage(supabase, ctx, noBarcode);
+                  }
                   console.log("[POST-LLM] No readable barcode detected in image");
                 }
             }
