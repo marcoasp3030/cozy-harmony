@@ -220,7 +220,7 @@ Responda APENAS o resumo atualizado (max 200 palavras).`;
                     method: 'POST',
                     headers: { Authorization: `Bearer ${aiKeys.openai}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                      model: 'gpt-4o-mini',
+                      model: 'gpt-4o',
                       messages: [{ role: 'user', content: summaryPrompt }],
                       max_tokens: 300,
                       temperature: 0.2,

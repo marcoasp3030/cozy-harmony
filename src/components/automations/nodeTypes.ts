@@ -272,7 +272,7 @@ export const NODE_TYPES: NodeTypeConfig[] = [
         { value: "tts-1-hd", label: "TTS-1 HD — Texto → áudio alta definição (OpenAI)" },
         { value: "imagen-3", label: "Imagen 3 — Geração de imagens (Google)" },
         { value: "gemini-pro-vision", label: "Gemini Pro Vision — Análise imagens/vídeos" },
-      ], defaultValue: "gpt-4o-mini" },
+      ], defaultValue: "gpt-4o" },
       { key: "max_tokens", label: "Max Tokens", type: "number", placeholder: "500", defaultValue: 500 },
       { key: "suppress_send", label: "Não enviar resposta (apenas salvar em {{ia_reply}})", type: "switch", defaultValue: false },
     ],
