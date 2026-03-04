@@ -165,60 +165,102 @@ serve(async (req) => {
 
         // ── STEP 3: Generate conversation summary for long-term memory ──
         try {
-          const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-          if (LOVABLE_API_KEY && conv.contact_id) {
-            // Load last 30 messages from this conversation
-            const { data: convMessages } = await supabase
-              .from('messages')
-              .select('direction, content, type, created_at')
-              .eq('contact_id', conv.contact_id)
-              .order('created_at', { ascending: false })
-              .limit(30);
+          if (conv.contact_id) {
+            // Load user's API keys
+            const { data: llmSettings } = await supabase
+              .from('settings')
+              .select('key, value')
+              .eq('user_id', setting.user_id)
+              .in('key', ['llm_openai', 'llm_gemini']);
 
-            if (convMessages && convMessages.length >= 3) {
-              const msgHistory = convMessages
-                .reverse()
-                .filter((m: any) => m.content?.trim())
-                .map((m: any) => `[${m.direction === 'inbound' ? 'Cliente' : 'Atendente'}]: ${m.content}`)
-                .join('\n');
+            const aiKeys: Record<string, string> = {};
+            for (const s of llmSettings || []) {
+              const val = s.value as any;
+              if (s.key === 'llm_openai' && val?.apiKey) aiKeys.openai = val.apiKey;
+              if (s.key === 'llm_gemini' && val?.apiKey) aiKeys.gemini = val.apiKey;
+            }
 
-              // Load existing summary for context
-              const { data: existingContact } = await supabase
-                .from('contacts')
-                .select('conversation_summary, name')
-                .eq('id', conv.contact_id)
-                .single();
+            if (aiKeys.openai || aiKeys.gemini) {
+              // Load last 30 messages from this conversation
+              const { data: convMessages } = await supabase
+                .from('messages')
+                .select('direction, content, type, created_at')
+                .eq('contact_id', conv.contact_id)
+                .order('created_at', { ascending: false })
+                .limit(30);
 
-              const existingSummary = existingContact?.conversation_summary || '';
+              if (convMessages && convMessages.length >= 3) {
+                const msgHistory = convMessages
+                  .reverse()
+                  .filter((m: any) => m.content?.trim())
+                  .map((m: any) => `[${m.direction === 'inbound' ? 'Cliente' : 'Atendente'}]: ${m.content}`)
+                  .join('\n');
 
-              const summaryResp = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  model: 'google/gemini-2.5-flash-lite',
-                  messages: [{
-                    role: 'user',
-                    content: `Você é um sistema de memória. Resuma a conversa abaixo em MAX 3 frases focando em: problema relatado, solução dada, preferências do cliente. Seja objetivo.
+                // Load existing summary for context
+                const { data: existingContact } = await supabase
+                  .from('contacts')
+                  .select('conversation_summary, name')
+                  .eq('id', conv.contact_id)
+                  .single();
+
+                const existingSummary = existingContact?.conversation_summary || '';
+
+                const summaryPrompt = `Você é um sistema de memória. Resuma a conversa abaixo em MAX 3 frases focando em: problema relatado, solução dada, preferências do cliente. Seja objetivo.
 ${existingSummary ? `\nRESUMO ANTERIOR:\n${existingSummary}\n\nATUALIZE o resumo incorporando novas informações:` : ''}
 
 CONVERSA:
 ${msgHistory.slice(0, 3000)}
 
-Responda APENAS o resumo atualizado (max 200 palavras).`
-                  }],
-                  max_tokens: 300,
-                  temperature: 0.2,
-                }),
-              });
+Responda APENAS o resumo atualizado (max 200 palavras).`;
 
-              if (summaryResp.ok) {
-                const summaryData = await summaryResp.json();
-                const summary = summaryData.choices?.[0]?.message?.content?.trim() || '';
+                let summary = '';
+
+                if (aiKeys.openai) {
+                  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${aiKeys.openai}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      model: 'gpt-4o-mini',
+                      messages: [{ role: 'user', content: summaryPrompt }],
+                      max_tokens: 300,
+                      temperature: 0.2,
+                    }),
+                  });
+                  if (resp.ok) {
+                    const data = await resp.json();
+                    summary = data.choices?.[0]?.message?.content?.trim() || '';
+                  } else {
+                    const errText = await resp.text();
+                    console.error(`[MEMORY] OpenAI error (${resp.status}):`, errText.slice(0, 100));
+                  }
+                } else if (aiKeys.gemini) {
+                  const resp = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${aiKeys.gemini}`,
+                    {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        contents: [{ role: 'user', parts: [{ text: summaryPrompt }] }],
+                        generationConfig: { maxOutputTokens: 300, temperature: 0.2 },
+                      }),
+                    }
+                  );
+                  if (resp.ok) {
+                    const data = await resp.json();
+                    summary = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+                  } else {
+                    const errText = await resp.text();
+                    console.error(`[MEMORY] Gemini error (${resp.status}):`, errText.slice(0, 100));
+                  }
+                }
+
                 if (summary) {
                   await supabase.from('contacts').update({ conversation_summary: summary }).eq('id', conv.contact_id);
                   console.log(`[MEMORY] Saved conversation summary for contact ${conv.contact_id}: "${summary.slice(0, 80)}"`);
                 }
               }
+            } else {
+              console.log(`[MEMORY] No API keys configured for user ${setting.user_id}, skipping summary`);
             }
           }
         } catch (memErr) {
