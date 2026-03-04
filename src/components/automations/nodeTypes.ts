@@ -510,6 +510,31 @@ export const NODE_TYPES: NodeTypeConfig[] = [
       ], defaultValue: "normal" },
     ],
   },
+  {
+    type: "action_escalate_human",
+    label: "Escalonar p/ Humano",
+    category: "action",
+    icon: Phone,
+    color: "#ef4444",
+    description: "Transfere a conversa para um atendente humano, pausando a IA e notificando o cliente",
+    fields: [
+      { key: "transfer_message", label: "Mensagem de transferência", type: "textarea", placeholder: "Estou transferindo você para um de nossos atendentes. Aguarde um momento! 😊", defaultValue: "Estou transferindo você para um de nossos atendentes. Aguarde um momento! 😊", required: true },
+      { key: "assignment_mode", label: "Modo de atribuição", type: "select", options: [
+        { value: "auto", label: "Automático (menor carga)" },
+        { value: "specific", label: "Atendente específico" },
+        { value: "none", label: "Não atribuir (fila geral)" },
+      ], defaultValue: "auto", required: true },
+      { key: "agent_email", label: "Email do atendente (se específico)", type: "text", placeholder: "atendente@empresa.com" },
+      { key: "set_priority", label: "Definir prioridade", type: "select", options: [
+        { value: "keep", label: "Manter atual" },
+        { value: "normal", label: "Normal" },
+        { value: "high", label: "Alta" },
+        { value: "urgent", label: "Urgente" },
+      ], defaultValue: "high" },
+      { key: "add_tag", label: "Tag ao escalonar (opcional)", type: "text", placeholder: "escalonado-humano", defaultValue: "escalonado-humano" },
+      { key: "pause_automations", label: "Pausar automações para este contato", type: "switch", defaultValue: true },
+    ],
+  },
 ];
 
 export const getNodeTypeConfig = (type: string) =>
