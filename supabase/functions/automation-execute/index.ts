@@ -2624,7 +2624,11 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
       let reply = "";
 
       // Try user's own API key first, fallback to Lovable AI Gateway
-      const selectedProvider = model.startsWith("gemini") ? "gemini" : "openai";
+      // IMPORTANT: When there's an image, ALWAYS prefer Gemini (native vision support)
+      // gpt-4o-mini doesn't support image_url content type
+      const selectedProvider = imageBase64 && keys.gemini 
+        ? "gemini" 
+        : (model.startsWith("gemini") ? "gemini" : "openai");
       const hasUserKey = !!keys[selectedProvider];
 
       if (hasUserKey) {
