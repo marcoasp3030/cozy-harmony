@@ -347,7 +347,7 @@ export const NODE_TYPES: NodeTypeConfig[] = [
     color: "#8b5cf6",
     description: "Usa IA para classificar a intenção do cliente (dúvida, reclamação, compra, suporte, etc.)",
     fields: [
-      { key: "intents", label: "Intenções (separadas por vírgula)", type: "text", placeholder: "dúvida, reclamação, compra, suporte, saudação", required: true, defaultValue: "dúvida, reclamação, compra, suporte, saudação" },
+      { key: "intents", label: "Intenções (separadas por vírgula)", type: "text", placeholder: "dúvida, reclamação, compra, suporte, saudação, falar_com_humano", required: true, defaultValue: "dúvida, reclamação, compra, suporte, saudação, falar_com_humano" },
       { key: "confidence_threshold", label: "Confiança mínima (%)", type: "number", placeholder: "60", defaultValue: 60 },
       { key: "custom_prompt", label: "Prompt adicional (opcional)", type: "textarea", placeholder: "Contexto extra para ajudar na classificação..." },
     ],

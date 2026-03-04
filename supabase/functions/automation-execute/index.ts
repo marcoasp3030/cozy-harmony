@@ -603,7 +603,7 @@ async function executeNode(
     }
 
     if (type === "condition_intent_classifier") {
-      const intentsRaw = String(d.intents || "dúvida, reclamação, compra, suporte, saudação");
+      const intentsRaw = String(d.intents || "dúvida, reclamação, compra, suporte, saudação, falar_com_humano");
       const intents = intentsRaw.split(",").map((i: string) => i.trim().toLowerCase()).filter(Boolean);
       const threshold = parseInt(d.confidence_threshold) || 60;
       const customPrompt = d.custom_prompt || "";
@@ -617,6 +617,9 @@ async function executeNode(
       const classifyPrompt = `Você é um classificador de intenções de mensagens de clientes da Nutricar Brasil (mini mercados autônomos 24h).
 Classifique a mensagem do cliente em UMA das seguintes intenções: ${intents.join(", ")}.
 Considere: reconhecimento facial, acesso bloqueado, totem de pagamento, cobrança indevida, produto vencido, divergência em compra, sugestão, elogio, pagamento, PIX.
+
+IMPORTANTE sobre "falar_com_humano": Classifique como esta intenção quando o cliente expressa desejo de falar com uma pessoa real, atendente, humano, gerente, supervisor ou similar. Exemplos: "quero falar com alguém", "me transfere", "cadê o atendente", "preciso de um humano", "não quero falar com robô", "passa pra alguém de verdade", "quero falar com uma pessoa", "atendente por favor", "tem alguém aí?", "quero falar com o responsável".
+
 ${customPrompt ? `Contexto adicional: ${customPrompt}` : ""}
 
 Responda APENAS com um JSON válido no formato:
@@ -669,6 +672,17 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
           // NO path = any other intent or low confidence
           const isPositive = detectedIntent === positiveIntent && confidence >= threshold;
           console.log(`Intent classified: "${detectedIntent}" (${confidence}%) positive="${positiveIntent}" match=${isPositive} threshold=${threshold}%`);
+
+          // ── AUTO-ESCALATE: If intent is "falar_com_humano" with high confidence, auto-trigger escalation ──
+          if (detectedIntent === "falar_com_humano" && confidence >= threshold) {
+            console.log(`[ESCALATE-AUTO] Intent "falar_com_humano" detected (${confidence}%) — triggering auto-escalation`);
+            ctx.variables["_intent_escalate"] = "true";
+            ctx.variables["intencao"] = "falar_com_humano";
+            ctx.variables["intencao_confianca"] = String(confidence);
+
+            // Auto-escalate: send transfer message, assign agent, update conversation
+            await autoEscalateToHuman(supabase, ctx);
+          }
 
           return isPositive;
         }
@@ -2579,6 +2593,15 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
           console.log(`[PIX GUARD] Stripped PIX text offer from AI reply — interactive buttons will handle PIX offer`);
         }
 
+        // ── AUTO-ESCALATE from LLM: detect if customer wants a human ──
+        const HUMAN_ESCALATION_PATTERN = /\b(quero\s*falar\s*com\s*(uma?\s*)?(pessoa|humano|atendente|gerente|supervisor|responsável|algu[eé]m)|me\s*transfere|cadê\s*o\s*atendente|não\s*quero\s*(falar\s*com\s*)?(robô|bot|máquina|ia)|passa\s*pra\s*(algu[eé]m|uma?\s*pessoa|atendente)|atendente\s*por\s*favor|tem\s*algu[eé]m\s*a[ií]|falar\s*com\s*gente\s*de\s*verdade|atendimento\s*humano|preciso\s*de\s*(um\s*)?atendente|quero\s*um\s*humano)\b/i;
+        const customerFullText = [ctx.messageContent, ctx.variables["mensagens_agrupadas"] || "", ctx.variables["transcricao"] || ""].join(" ");
+        if (HUMAN_ESCALATION_PATTERN.test(customerFullText) && ctx.variables["_escalated_to_human"] !== "true") {
+          console.log(`[ESCALATE-LLM] Human escalation pattern detected in customer message`);
+          await autoEscalateToHuman(supabase, ctx);
+          return { sent: true, model, reply: "[auto-escalated to human]", escalated: true };
+        }
+
         // ── POST-REPLY: decide if we should resolve product from image before sending text ──
         const promisedToCheck = /verificar|vou checar|já te informo|vou consultar|deixa eu ver|momento.*valor/i.test(reply);
         const hasBarcodeMention = /código de barras|barcode|código.*barras|EAN|GTIN/i.test(reply) || /código de barras|barcode|EAN|GTIN/i.test(ctx.messageContent || "");
@@ -4359,6 +4382,82 @@ function interpolate(text: string, ctx: ExecutionContext): string {
     .replace(/\{\{mensagem\}\}/gi, ctx.messageContent)
     .replace(/\{\{message\}\}/gi, ctx.messageContent)
     .replace(/\{\{([^}]+)\}\}/g, (_, key) => ctx.variables[key.trim()] || `{{${key}}}`);
+}
+
+// ── AUTO-ESCALATE HELPER: Reusable function for automatic human escalation ──
+async function autoEscalateToHuman(supabase: any, ctx: ExecutionContext): Promise<void> {
+  const transferMsg = "Entendi! Vou transferir você para um dos nossos atendentes agora. Aguarde um momento, por favor! 😊";
+
+  // 1. Send transfer message
+  const instance = await getCachedInstance(supabase, ctx.userId, ctx.instanceId);
+  if (instance) {
+    try {
+      const sendUrl = `${instance.base_url}/send/text`;
+      await fetch(sendUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${instance.instance_token}` },
+        body: JSON.stringify({ phone: ctx.contactPhone, message: transferMsg }),
+      });
+      await supabase.from("messages").insert({
+        contact_id: ctx.contactId || null,
+        user_id: ctx.userId,
+        content: transferMsg,
+        type: "text",
+        direction: "outbound",
+        status: "sent",
+      });
+    } catch (e) {
+      console.error("[ESCALATE-AUTO] Failed to send transfer message:", e);
+    }
+  }
+
+  // 2. Find agent with lowest workload
+  let assignedToId: string | null = null;
+  const { data: agents } = await supabase
+    .from("profiles")
+    .select("user_id, name")
+    .neq("role", "user");
+
+  if (agents && agents.length > 0) {
+    let minLoad = Infinity;
+    for (const agent of agents) {
+      const { count } = await supabase
+        .from("conversations")
+        .select("id", { count: "exact", head: true })
+        .eq("assigned_to", agent.user_id)
+        .in("status", ["open", "in_progress", "waiting"]);
+      const load = count || 0;
+      if (load < minLoad) {
+        minLoad = load;
+        assignedToId = agent.user_id;
+      }
+    }
+  }
+
+  // 3. Update conversation
+  const convUpdate: Record<string, any> = { status: "waiting", priority: "high" };
+  if (assignedToId) convUpdate.assigned_to = assignedToId;
+  await supabase.from("conversations").update(convUpdate).eq("id", ctx.conversationId);
+
+  // 4. Add escalation tag
+  if (ctx.contactId) {
+    const tagName = "escalonado-humano";
+    let { data: eTag } = await supabase.from("tags").select("id").ilike("name", tagName).maybeSingle();
+    if (!eTag) {
+      const { data: nTag } = await supabase.from("tags").insert({ name: tagName, color: "#ef4444", created_by: ctx.userId }).select("id").single();
+      eTag = nTag;
+    }
+    if (eTag) {
+      await supabase.from("contact_tags").upsert({ contact_id: ctx.contactId, tag_id: eTag.id }, { onConflict: "contact_id,tag_id" });
+    }
+  }
+
+  // 5. Set flags
+  ctx.variables["_escalated_to_human"] = "true";
+  ctx.variables["_escalated_at"] = new Date().toISOString();
+  if (assignedToId) ctx.variables["_escalated_agent_id"] = assignedToId;
+
+  console.log(`[ESCALATE-AUTO] Conversation ${ctx.conversationId} auto-escalated. Agent=${assignedToId || "queue"}`);
 }
 
 async function sendWhatsAppMessage(supabase: any, ctx: ExecutionContext, message: string): Promise<{ messageId: string | null; httpStatus: number; apiResponse: string }> {
