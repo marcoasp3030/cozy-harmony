@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   Plus, Trash2, Star, Loader2, QrCode, Wifi, WifiOff,
   CheckCircle2, RefreshCw, Smartphone, Clock, Unplug, Pencil, Zap,
+  Users, Copy, Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +53,10 @@ const InstanceCard = ({ instance, automations, onUpdate, onSetDefault, onDelete,
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(instance.name);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [groups, setGroups] = useState<{ id: string; name: string; participants: number }[]>([]);
+  const [loadingGroups, setLoadingGroups] = useState(false);
+  const [showGroups, setShowGroups] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Poll status every 5s while QR is visible
   useEffect(() => {
@@ -180,6 +185,37 @@ const InstanceCard = ({ instance, automations, onUpdate, onSetDefault, onDelete,
     }
   };
 
+  const loadGroups = async () => {
+    if (showGroups && groups.length > 0) {
+      setShowGroups(false);
+      return;
+    }
+    setLoadingGroups(true);
+    setShowGroups(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("uazapi-instance", {
+        body: { action: "list-groups", instanceId: instance.id },
+      });
+      if (error) throw error;
+      if (data?.groups) {
+        setGroups(data.groups);
+        if (data.groups.length === 0) toast.info("Nenhum grupo encontrado nesta instância.");
+      } else {
+        toast.error(extractError(data, "Erro ao listar grupos"));
+      }
+    } catch (err: any) {
+      toast.error("Erro ao listar grupos: " + (err.message || "Tente novamente"));
+    }
+    setLoadingGroups(false);
+  };
+
+  const copyJid = (jid: string) => {
+    navigator.clipboard.writeText(jid);
+    setCopiedId(jid);
+    toast.success("JID copiado!");
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   const statusColor = connectionStatus === "connected" ? "border-emerald-500/30" :
     connectionStatus === "disconnected" || connectionStatus === "error" ? "border-destructive/30" : "border-border";
 
@@ -283,11 +319,54 @@ const InstanceCard = ({ instance, automations, onUpdate, onSetDefault, onDelete,
             QR Code
           </Button>
           {connectionStatus === "connected" && (
-            <Button size="sm" variant="destructive" onClick={disconnect}>
-              <Unplug className="mr-1 h-3 w-3" /> Desconectar
-            </Button>
+            <>
+              <Button size="sm" variant="destructive" onClick={disconnect}>
+                <Unplug className="mr-1 h-3 w-3" /> Desconectar
+              </Button>
+              <Button size="sm" variant="outline" onClick={loadGroups} disabled={loadingGroups}>
+                {loadingGroups ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Users className="mr-1 h-3 w-3" />}
+                Grupos
+              </Button>
+            </>
           )}
         </div>
+
+        {/* Groups list */}
+        {showGroups && (
+          <div className="rounded-lg border bg-muted/30 p-2.5 space-y-2">
+            <p className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+              <Users className="h-3 w-3" /> Grupos ({groups.length})
+            </p>
+            {loadingGroups && (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            )}
+            {!loadingGroups && groups.length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-2">Nenhum grupo encontrado.</p>
+            )}
+            {groups.map((group) => (
+              <div key={group.id} className="flex items-center gap-2 rounded-md border bg-card p-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium truncate">{group.name}</p>
+                  <p className="text-[10px] text-muted-foreground font-mono truncate">{group.id}</p>
+                  {group.participants > 0 && (
+                    <p className="text-[10px] text-muted-foreground">{group.participants} participantes</p>
+                  )}
+                </div>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 shrink-0"
+                  onClick={() => copyJid(group.id)}
+                  title="Copiar JID"
+                >
+                  {copiedId === group.id ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Linked automations */}
         {automations.length > 0 && (
