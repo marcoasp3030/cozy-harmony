@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
-import { History, Clock, CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronRight, Phone, Send, ExternalLink, ShieldCheck, CreditCard, Ban, FileSearch } from "lucide-react";
+import { History, Clock, CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronRight, Phone, Send, ExternalLink, ShieldCheck, CreditCard, Ban, FileSearch, Square, RotateCcw } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, differenceInMinutes } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { toast } from "sonner";
 
 interface NodeLogEntry {
   nodeId: string;
@@ -96,6 +98,54 @@ export default function AutomationLogsDialog({ automationId, automationName, ope
   const [logs, setLogs] = useState<AutomationLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedLog, setExpandedLog] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  const forceComplete = async (logId: string) => {
+    setActionLoading(logId);
+    try {
+      const { error } = await supabase
+        .from("automation_logs")
+        .update({
+          status: "completed",
+          completed_at: new Date().toISOString(),
+          error: "Finalizado manualmente pelo usuário",
+        })
+        .eq("id", logId);
+      if (error) throw error;
+      toast.success("Execução finalizada com sucesso");
+    } catch (e: any) {
+      toast.error("Erro ao finalizar: " + e.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const reRunAutomation = async (log: AutomationLog) => {
+    if (!log.contact_phone) {
+      toast.error("Sem telefone de contato para reexecutar");
+      return;
+    }
+    setActionLoading(log.id + "-rerun");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Não autenticado");
+
+      const res = await supabase.functions.invoke("automation-execute", {
+        body: {
+          automationId: log.automation_id,
+          contactPhone: log.contact_phone,
+          contactId: log.contact_id,
+          triggerType: "manual_rerun",
+        },
+      });
+      if (res.error) throw res.error;
+      toast.success("Automação reexecutada com sucesso");
+    } catch (e: any) {
+      toast.error("Erro ao reexecutar: " + e.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -192,6 +242,34 @@ export default function AutomationLogsDialog({ automationId, automationName, ope
                         {log.trigger_type}
                       </Badge>
                     </button>
+
+                    {/* Action buttons for running (stuck) or failed logs */}
+                    {(log.status === "running" || log.status === "error") && (
+                      <div className="flex items-center gap-2 px-4 pb-2">
+                        {log.status === "running" && (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="h-7 text-xs gap-1"
+                            disabled={actionLoading === log.id}
+                            onClick={(e) => { e.stopPropagation(); forceComplete(log.id); }}
+                          >
+                            <Square className="h-3 w-3" />
+                            {actionLoading === log.id ? "Finalizando..." : "Forçar Finalização"}
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs gap-1"
+                          disabled={actionLoading === log.id + "-rerun"}
+                          onClick={(e) => { e.stopPropagation(); reRunAutomation(log); }}
+                        >
+                          <RotateCcw className="h-3 w-3" />
+                          {actionLoading === log.id + "-rerun" ? "Executando..." : "Executar Novamente"}
+                        </Button>
+                      </div>
+                    )}
 
                     {isExpanded && (
                       <div className="border-t bg-muted/20 px-4 py-3 space-y-2">
