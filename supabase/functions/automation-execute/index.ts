@@ -2463,6 +2463,14 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
 - NUNCA registre ocorrência sem confirmação da loja pelo cliente
 - Se o cliente NÃO informou a loja, pergunte de forma natural: "Em qual das nossas lojas vc tá?"
 
+🔖 TAG DE CONFIRMAÇÃO DE LOJA — OBRIGATÓRIO:
+Quando você quiser confirmar a unidade/loja com o cliente, INCLUA na sua resposta a tag:
+[CONFIRMAR_LOJA:NomeDaLoja]
+Exemplo: Se o cliente mencionou "w Ville", inclua [CONFIRMAR_LOJA:W Ville] na resposta.
+Se o perfil tem "Alphavita", inclua [CONFIRMAR_LOJA:Alphavita] na resposta.
+NÃO escreva a pergunta de confirmação de loja por extenso — use APENAS a tag. O sistema vai gerar botões interativos automaticamente.
+Se você NÃO sabe o nome da loja, NÃO use a tag — pergunte normalmente "Em qual loja vc tá?".
+
 📋 PROTOCOLO DE COLETA DE INFORMAÇÕES — ANTES DE REGISTRAR/ENCAMINHAR:
 Para CADA tipo de problema, colete os dados listados ANTES de dizer que vai resolver:
 
@@ -3057,38 +3065,30 @@ O cliente enviou uma IMAGEM. Sua prioridade é:
         // Detect if the AI reply mentions/asks about a store and convert to interactive buttons
         let storeConfirmationHandled = false;
         if (!d.suppress_send && !shouldHoldPrimaryReply && ctx.variables["_store_confirmed"] !== "true") {
-          // Pattern: AI asks "Vc tá na unidade X?" or "É na loja X, certo?" or similar
-          const storeConfirmPatterns = [
-            /(?:vc|voc[eê])\s+(?:tá|está|ta|esta)\s+(?:na|no)\s+(?:unidade|loja|condom[ií]nio)\s+([A-ZÀ-Úa-zà-ú][\w\-']+(?:[\s\-][A-ZÀ-Úa-zà-ú][\w\-']*){0,3})\s*\??/i,
-            /(?:é|e)\s+(?:na|no|da|do)\s+(?:unidade|loja|condom[ií]nio)?\s*([A-ZÀ-Ú][\w\-']+(?:[\s\-][A-ZÀ-Ú][\w\-']*){0,3})\s*,?\s*(?:certo|n[eé]|isso|correto|mesmo)\s*\??/i,
-            /(?:unidade|loja|condom[ií]nio)\s+([A-ZÀ-Ú][\w\-']+(?:[\s\-][A-ZÀ-Ú][\w\-']*){0,3})\s*,?\s*(?:certo|n[eé]|isso|correto|mesmo)\s*\??/i,
-            /(?:tá|está|ta|esta)\s+(?:na|no)\s+([A-ZÀ-Ú][\w\-']+(?:[\s\-][A-ZÀ-Ú][\w\-']*){0,3})\s*,?\s*(?:certo|n[eé]|isso|correto|mesmo)\s*\??/i,
-          ];
-
+          // PRIMARY: Parse structured [CONFIRMAR_LOJA:Name] tag from AI reply
           let detectedStoreName = "";
-          const fullReply = reply.replace(/\n*---\n*/g, " ");
-          for (const pat of storeConfirmPatterns) {
-            const m = fullReply.match(pat);
-            if (m?.[1]) {
-              detectedStoreName = m[1].trim().replace(/[.,;:!?]+$/g, "");
-              break;
-            }
+          const tagMatch = reply.match(/\[CONFIRMAR_LOJA:([^\]]+)\]/i);
+          if (tagMatch?.[1]) {
+            detectedStoreName = tagMatch[1].trim();
+            console.log(`[STORE CONFIRM] Detected via tag: "${detectedStoreName}"`);
           }
 
-          // If no store in AI reply, check if customer just mentioned a store
+          // FALLBACK: Regex patterns for when AI forgets the tag
           if (!detectedStoreName) {
-            const customerText = [ctx.messageContent || "", ctx.variables["mensagens_agrupadas"] || "", ctx.variables["transcricao"] || ""].join(" ");
-            const customerStorePatterns = [
-              /(?:loja|unidade|condom[ií]nio)\s+(?:d[oae]\s+)?([A-ZÀ-Úa-zà-ú][\w\-']+(?:[\s\-][A-ZÀ-Ú][\w\-']*){0,2})/i,
-              /(?:aqui\s+n[oa]\s+|n[oa]\s+|t[ôo]\s+n[oa]\s+)([A-ZÀ-Ú][\w\-']+(?:[\s\-][A-ZÀ-Ú][\w\-']*){0,2})/i,
+            const fullReply = reply.replace(/\n*---\n*/g, " ");
+            const storeConfirmPatterns = [
+              /(?:vc|voc[eê])\s+(?:tá|está|ta|esta)\s+(?:na|no)\s+(?:unidade|loja|condom[ií]nio)\s+([A-ZÀ-Úa-zà-ú][\w\s\-']{2,25}?)\s*[?,!]/i,
+              /(?:é|e)\s+(?:na|no|da|do)\s+(?:unidade|loja|condom[ií]nio)\s+([A-ZÀ-Ú][\w\s\-']{2,25}?)\s*,?\s*(?:certo|n[eé]|isso|correto|mesmo)\s*\??/i,
+              /(?:unidade|loja|condom[ií]nio)\s+([A-ZÀ-Ú][\w\s\-']{2,25}?)\s*,?\s*(?:certo|n[eé]|isso|correto|mesmo)\s*\??/i,
             ];
-            const stopWords = new Set(["aqui","esse","essa","este","esta","isso","muito","mais","como","quando","onde","porque","meu","minha","outro","outra","sim","não","nao"]);
-            for (const pat of customerStorePatterns) {
-              const m = customerText.match(pat);
+            const stopWords = new Set(["aqui","esse","essa","este","esta","isso","muito","mais","como","quando","onde","porque","meu","minha","outro","outra","sim","não","nao","na","no","da","do","de","que","para","por","com","em","um","uma","os","as","ou"]);
+            for (const pat of storeConfirmPatterns) {
+              const m = fullReply.match(pat);
               if (m?.[1]) {
-                const candidate = m[1].trim().replace(/[.,;:!?]+$/g, "");
+                const candidate = m[1].trim().replace(/[.,;:!?\s]+$/g, "");
                 if (candidate.length > 2 && !stopWords.has(candidate.toLowerCase())) {
                   detectedStoreName = candidate;
+                  console.log(`[STORE CONFIRM] Detected via fallback regex: "${detectedStoreName}"`);
                   break;
                 }
               }
@@ -3098,8 +3098,10 @@ O cliente enviou uma IMAGEM. Sua prioridade é:
           if (detectedStoreName && detectedStoreName.length > 1) {
             console.log(`[STORE CONFIRM] Detected store: "${detectedStoreName}" — sending interactive buttons`);
 
-            // Remove the store confirmation question from reply to send rest as text
+            // Remove the store confirmation tag and any confirmation question from reply
             let replyWithoutConfirmation = reply;
+            // Always strip the structured tag
+            replyWithoutConfirmation = replyWithoutConfirmation.replace(/\[CONFIRMAR_LOJA:[^\]]+\]\s*/gi, "").trim();
             const stripPatterns = [
               /(?:vc|voc[eê])\s+(?:tá|está|ta|esta)\s+(?:na|no)\s+(?:unidade|loja|condom[ií]nio)\s+[^\n?]+\??\s*/gi,
               /(?:é|e)\s+(?:na|no|da|do)\s+(?:unidade|loja|condom[ií]nio)?\s*[A-ZÀ-Ú][^\n,?]+,?\s*(?:certo|n[eé]|isso|correto|mesmo)\s*\??\s*/gi,
