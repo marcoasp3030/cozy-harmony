@@ -2731,21 +2731,24 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
         }
 
         // ── SMART TYPING DELAY: simulate human typing before sending ──
+        const shouldShowTyping = d.show_typing !== false;
         if (!d.suppress_send && !shouldHoldPrimaryReply) {
           const typingDelayMs = Math.min(Math.max(reply.length * 25, 1000), 4000); // 1-4s proportional to length
-          try {
-            const typingInstance = await getCachedInstance(supabase, ctx.userId, ctx.instanceId);
-            if (typingInstance) {
-              const typingCleanNumber = String(ctx.contactPhone || "").replace(/\D/g, "");
-              const typingBaseUrl = String(typingInstance.base_url).replace(/\/+$/, "");
-              // Send "composing" presence via UazAPI
-              await fetch(`${typingBaseUrl}/send/presence`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", token: typingInstance.instance_token },
-                body: JSON.stringify({ number: typingCleanNumber, type: "composing" }),
-              }).catch(() => {});
+          if (shouldShowTyping) {
+            try {
+              const typingInstance = await getCachedInstance(supabase, ctx.userId, ctx.instanceId);
+              if (typingInstance) {
+                const typingCleanNumber = String(ctx.contactPhone || "").replace(/\D/g, "");
+                await sendTypingPresence(
+                  String(typingInstance.base_url),
+                  String(typingInstance.instance_token),
+                  typingCleanNumber,
+                );
+              }
+            } catch (err) {
+              console.warn("[TYPING] Presence dispatch error:", err instanceof Error ? err.message : String(err));
             }
-          } catch {}
+          }
           await new Promise((r) => setTimeout(r, typingDelayMs));
           await sendWhatsAppMessage(supabase, ctx, reply);
         } else if (!d.suppress_send && shouldHoldPrimaryReply) {
@@ -4575,6 +4578,65 @@ async function autoEscalateToHuman(supabase: any, ctx: ExecutionContext): Promis
   if (assignedToId) ctx.variables["_escalated_agent_id"] = assignedToId;
 
   console.log(`[ESCALATE-AUTO] Conversation ${ctx.conversationId} auto-escalated. Agent=${assignedToId || "queue"}`);
+}
+
+async function sendTypingPresence(baseUrl: string, instanceToken: string, cleanNumber: string): Promise<void> {
+  if (!baseUrl || !instanceToken || !cleanNumber) return;
+
+  const normalizedBaseUrl = String(baseUrl).replace(/\/+$/, "");
+
+  const attempts: Array<{
+    endpoint: string;
+    headers: Record<string, string>;
+    payload: Record<string, string>;
+    label: string;
+  }> = [
+    {
+      endpoint: "/send/presence",
+      headers: { "Content-Type": "application/json", token: instanceToken },
+      payload: { number: cleanNumber, type: "composing" },
+      label: "token:number+type",
+    },
+    {
+      endpoint: "/send/presence",
+      headers: { "Content-Type": "application/json", token: instanceToken },
+      payload: { phone: cleanNumber, presence: "composing" },
+      label: "token:phone+presence",
+    },
+    {
+      endpoint: "/chat/presence",
+      headers: { "Content-Type": "application/json", token: instanceToken },
+      payload: { number: cleanNumber, type: "composing" },
+      label: "token:/chat/presence",
+    },
+  ];
+
+  for (const attempt of attempts) {
+    try {
+      const res = await fetch(`${normalizedBaseUrl}${attempt.endpoint}`, {
+        method: "POST",
+        headers: attempt.headers,
+        body: JSON.stringify(attempt.payload),
+      });
+
+      const raw = await res.text();
+      if (res.ok) {
+        console.log(`[TYPING] Presence sent (${attempt.label}) to ${cleanNumber}`);
+        return;
+      }
+
+      console.warn(
+        `[TYPING] Failed (${attempt.label}) status=${res.status} response=${raw.slice(0, 180)}`,
+      );
+    } catch (err) {
+      console.warn(
+        `[TYPING] Request error (${attempt.label}):`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  console.warn(`[TYPING] Could not send presence for ${cleanNumber}`);
 }
 
 async function sendWhatsAppMessage(supabase: any, ctx: ExecutionContext, message: string): Promise<{ messageId: string | null; httpStatus: number; apiResponse: string }> {
