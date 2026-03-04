@@ -1560,9 +1560,9 @@ Responda APENAS com o texto da mensagem.`;
       }
 
       // ── Use AI to analyze conversation and decide if we have enough info ──
-      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-      if (!LOVABLE_API_KEY) {
-        console.error("[OCCURRENCE] No LOVABLE_API_KEY available");
+      const { keys: occKeys, aiTimeout: occTimeout } = await getUserAIKeys(supabase, ctx.userId);
+      if (!occKeys.openai && !occKeys.gemini) {
+        console.error("[OCCURRENCE] No AI keys configured for user");
         return { registered: false, reason: "no_ai_key" };
       }
 
@@ -1642,24 +1642,13 @@ REGRAS PARA "ready":
 - IMPORTANTE: Analise TODA a conversa (incluindo mensagens anteriores e respostas do atendente). O cliente pode ter informado o nome da loja em uma mensagem anterior (inclusive por áudio transcrito) e o nome em outra. NÃO peça informações que já foram fornecidas em qualquer ponto da conversa.
 - Se a informação foi dada em qualquer mensagem do histórico, considere-a como coletada.`;
 
-        const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash-lite",
-            messages: [{ role: "user", content: extractPrompt }],
-            max_tokens: 500,
-            temperature: 0.1,
-          }),
-        });
+        const reply = await callAIWithUserKeys(occKeys, extractPrompt, { maxTokens: 500, temperature: 0.1, timeoutMs: occTimeout * 1000 });
 
-        if (!resp.ok) {
-          console.error(`[OCCURRENCE] AI request failed (${resp.status})`);
+        if (!reply) {
+          console.error("[OCCURRENCE] AI returned empty response");
           return { registered: false, reason: "ai_error" };
         }
 
-        const data = await resp.json();
-        const reply = data.choices?.[0]?.message?.content?.trim() || "";
         const jsonMatch = reply.match(/\{[\s\S]*\}/);
         if (!jsonMatch) {
           console.error("[OCCURRENCE] AI returned non-JSON:", reply.slice(0, 200));
@@ -2706,36 +2695,23 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
         }
       }
 
-      // Fallback to Lovable AI Gateway if no reply yet
+      // Fallback: retry with user keys if no reply yet
       if (!reply) {
-        const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-        if (LOVABLE_API_KEY) {
-          console.log("Using Lovable AI Gateway as fallback");
-          // Use vision-capable model when images are present, otherwise fastest model
-          const hasImage = !!imageBase64;
-          const lovableModel = hasImage ? "google/gemini-2.5-flash" : "google/gemini-3-flash-preview";
-          const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${LOVABLE_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: lovableModel,
-              messages: chatMessages,
-              max_tokens: maxTokens,
-              temperature: 0.7,
-            }),
-          });
-          if (resp.ok) {
-            const data = await resp.json();
-            reply = data.choices?.[0]?.message?.content?.trim() || "";
+        const { keys: fallbackKeys, aiTimeout: fallbackTimeout } = await getUserAIKeys(supabase, ctx.userId);
+        if (fallbackKeys.openai || fallbackKeys.gemini) {
+          console.log("Using user AI keys as fallback for LLM reply");
+          // For vision, use callAIVisionWithUserKeys; for text, use callAIWithUserKeys
+          if (imageBase64) {
+            const systemContent = chatMessages.find((m: any) => m.role === "system")?.content || "";
+            const userContent = chatMessages.filter((m: any) => m.role !== "system").map((m: any) => typeof m.content === "string" ? m.content : "").join("\n");
+            reply = await callAIVisionWithUserKeys(fallbackKeys, systemContent + "\n" + userContent, imageBase64, { maxTokens, timeoutMs: fallbackTimeout * 1000 });
           } else {
-            const errText = await resp.text();
-            throw new Error(`Lovable AI error (${resp.status}): ${errText.slice(0, 200)}`);
+            const fullPrompt = chatMessages.map((m: any) => `[${m.role}]: ${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`).join("\n");
+            reply = await callAIWithUserKeys(fallbackKeys, fullPrompt, { maxTokens, temperature: 0.7, timeoutMs: fallbackTimeout * 1000 });
           }
-        } else if (!hasUserKey) {
-          throw new Error("Nenhuma API key configurada (OpenAI/Gemini) e Lovable AI não disponível");
+        }
+        if (!reply) {
+          throw new Error("Nenhuma API key configurada (OpenAI/Gemini) ou todas as tentativas falharam");
         }
       }
 
@@ -2895,28 +2871,9 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
             // Quick AI call to extract barcode number from the image
             const extractPrompt = `Analise esta imagem e extraia APENAS o número do código de barras visível. Responda SOMENTE com o número (dígitos), nada mais. Se não houver código de barras visível, responda "NENHUM". Se houver texto descrevendo um produto, inclua o nome do produto após o código separado por |. Formato: CODIGO|NOME_PRODUTO ou apenas CODIGO ou NENHUM`;
             
-            const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-            if (LOVABLE_API_KEY) {
-              const extractResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-                method: "POST",
-                headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  model: "google/gemini-2.5-flash",
-                  messages: [{
-                    role: "user",
-                    content: [
-                      { type: "text", text: extractPrompt },
-                      { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
-                    ],
-                  }],
-                  max_tokens: 100,
-                  temperature: 0.1,
-                }),
-              });
-
-              if (extractResp.ok) {
-                const extractData = await extractResp.json();
-                const extracted = (extractData.choices?.[0]?.message?.content?.trim() || "").replace(/\s+/g, " ");
+            const { keys: barcodeKeys } = await getUserAIKeys(supabase, ctx.userId);
+            if (barcodeKeys.openai || barcodeKeys.gemini) {
+              const extracted = (await callAIVisionWithUserKeys(barcodeKeys, extractPrompt, imageBase64, { maxTokens: 100, temperature: 0.1 })).replace(/\s+/g, " ");
                 console.log(`[POST-LLM] Barcode extraction result: "${extracted}"`);
 
                 if (extracted && extracted !== "NENHUM" && extracted.length > 3) {
@@ -2989,7 +2946,6 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
                   await sendWhatsAppMessage(supabase, ctx, noBarcode);
                   console.log("[POST-LLM] No readable barcode detected in image");
                 }
-              }
             }
           } catch (e) {
             console.error("[POST-LLM] Barcode extraction error:", e);
@@ -3030,8 +2986,8 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
           const expectedProductName = ctx.variables["produto_nome"] || "";
           const maxHoursAgo = 24;
           
-          const LOVABLE_API_KEY_VERIFY = Deno.env.get("LOVABLE_API_KEY");
-          if (LOVABLE_API_KEY_VERIFY) {
+          const { keys: autoVerifyKeys } = await getUserAIKeys(supabase, ctx.userId);
+          if (autoVerifyKeys.openai || autoVerifyKeys.gemini) {
             try {
               const verifyPrompt = `Você é um analista antifraude. Analise esta imagem:
 
@@ -3075,23 +3031,8 @@ Responda APENAS JSON:
   "notes": "observações"
 }`;
 
-              const verifyResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-                method: "POST",
-                headers: { Authorization: `Bearer ${LOVABLE_API_KEY_VERIFY}`, "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  model: "google/gemini-2.5-flash",
-                  messages: [{ role: "user", content: [
-                    { type: "text", text: verifyPrompt },
-                    { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
-                  ]}],
-                  max_tokens: 800,
-                  temperature: 0.1,
-                }),
-              });
-
-              if (verifyResp.ok) {
-                const verifyData = await verifyResp.json();
-                const verifyReply = verifyData.choices?.[0]?.message?.content?.trim() || "";
+              const verifyReply = await callAIVisionWithUserKeys(autoVerifyKeys, verifyPrompt, imageBase64, { maxTokens: 800, temperature: 0.1 });
+              if (verifyReply) {
                 const jsonMatch = verifyReply.match(/\{[\s\S]*\}/);
                 
                 if (jsonMatch) {
@@ -3408,39 +3349,17 @@ Responda com JSON: {"quality": "boa"|"ruim"|"parcial", "quality_issue": "...", "
 
       const visionPrompt = analysisPrompts[analysisType] || analysisPrompts.product_identify;
 
-      // Call Lovable AI with vision
-      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-      if (!LOVABLE_API_KEY) {
-        console.error("[IMAGE ANALYSIS] No LOVABLE_API_KEY");
+      // Call AI with vision using user keys
+      const { keys: imgKeys } = await getUserAIKeys(supabase, ctx.userId);
+      if (!imgKeys.openai && !imgKeys.gemini) {
+        console.error("[IMAGE ANALYSIS] No AI keys configured");
         return { analyzed: false, reason: "no_ai_key" };
       }
 
       let analysisResult: any = null;
       try {
-        const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
-            messages: [{
-              role: "user",
-              content: [
-                { type: "text", text: visionPrompt },
-                { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imgBase64}` } },
-              ],
-            }],
-            max_tokens: 600,
-            temperature: 0.2,
-          }),
-        });
-
-        if (!resp.ok) {
-          const errText = await resp.text();
-          throw new Error(`Vision API error (${resp.status}): ${errText.slice(0, 200)}`);
-        }
-
-        const data = await resp.json();
-        const reply = data.choices?.[0]?.message?.content?.trim() || "";
+        const reply = await callAIVisionWithUserKeys(imgKeys, visionPrompt, imgBase64, { maxTokens: 600, temperature: 0.2 });
+        if (!reply) throw new Error("AI returned empty response");
         const jsonMatch = reply.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           analysisResult = JSON.parse(jsonMatch[0]);
@@ -3602,9 +3521,9 @@ Responda com JSON: {"quality": "boa"|"ruim"|"parcial", "quality_issue": "...", "
         return { verified: false, reason: "download_failed" };
       }
 
-      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-      if (!LOVABLE_API_KEY) {
-        console.error("[VERIFY PAYMENT] No LOVABLE_API_KEY");
+      const { keys: payKeys } = await getUserAIKeys(supabase, ctx.userId);
+      if (!payKeys.openai && !payKeys.gemini) {
+        console.error("[VERIFY PAYMENT] No AI keys configured");
         return { verified: false, reason: "no_ai_key" };
       }
 
@@ -3657,26 +3576,8 @@ Responda APENAS com JSON válido:
 
       let analysisResult: any = null;
       try {
-        const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
-            messages: [{
-              role: "user",
-              content: [
-                { type: "text", text: visionPrompt },
-                { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imgBase64}` } },
-              ],
-            }],
-            max_tokens: 800,
-            temperature: 0.1,
-          }),
-        });
-
-        if (!resp.ok) throw new Error(`Vision API error (${resp.status})`);
-        const data = await resp.json();
-        const reply = data.choices?.[0]?.message?.content?.trim() || "";
+        const reply = await callAIVisionWithUserKeys(payKeys, visionPrompt, imgBase64, { maxTokens: 800, temperature: 0.1 });
+        if (!reply) throw new Error("AI returned empty response");
         const jsonMatch = reply.match(/\{[\s\S]*\}/);
         if (jsonMatch) analysisResult = JSON.parse(jsonMatch[0]);
       } catch (e) {
@@ -4096,28 +3997,11 @@ Responda APENAS com JSON válido:
 
       // If summarize is enabled and we have text, use AI to summarize
       if (d.summarize && extractedText) {
-        const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-        if (LOVABLE_API_KEY) {
-          const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${LOVABLE_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "google/gemini-3-flash-preview",
-              messages: [
-                { role: "system", content: "Resuma o conteúdo do documento de forma clara e objetiva em português. Máximo 500 palavras." },
-                { role: "user", content: extractedText },
-              ],
-              max_tokens: 600,
-            }),
-          });
-          if (resp.ok) {
-            const data = await resp.json();
-            const summary = data.choices?.[0]?.message?.content?.trim() || "";
-            if (summary) extractedText = summary;
-          }
+        const { keys: pdfKeys } = await getUserAIKeys(supabase, ctx.userId);
+        if (pdfKeys.openai || pdfKeys.gemini) {
+          const summaryPrompt = `Resuma o conteúdo do documento de forma clara e objetiva em português. Máximo 500 palavras.\n\n${extractedText}`;
+          const summary = await callAIWithUserKeys(pdfKeys, summaryPrompt, { maxTokens: 600, temperature: 0.3 });
+          if (summary) extractedText = summary;
         }
       }
 
