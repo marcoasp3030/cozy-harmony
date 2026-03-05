@@ -163,7 +163,7 @@ function enforceConciseNaturalReply(text: string): string {
   let concise = sentences.slice(0, 3).join(" ").trim();
 
   if (!concise) {
-    concise = "Entendi, já vou verificar pra vc 👍";
+    concise = "Entendi! Me envia uma 📸 foto do código de barras do produto para eu consultar o valor 😊";
   }
 
   if (concise.length > 300) {
@@ -2287,7 +2287,7 @@ Responda APENAS com o texto da mensagem.`;
       
       // Always add anti-hallucination instruction for prices
       if (!productContext) {
-        productContext = "\n\n🚫 PREÇOS: Você NÃO tem acesso ao catálogo de produtos neste momento. Se o cliente perguntar sobre preço ou valor de qualquer produto, NUNCA invente um valor. Diga: 'Vou verificar o valor para você' ou peça para enviar uma foto do código de barras. JAMAIS cite valores como R$ 2,50, R$ 7,99 ou qualquer outro número sem dados reais.";
+        productContext = "\n\n🚫 PREÇOS: Você NÃO tem acesso ao catálogo de produtos neste momento. Se o cliente perguntar sobre preço ou valor de qualquer produto, NUNCA invente um valor. Peça para enviar uma 📸 *foto do código de barras* do produto para que o sistema possa consultar o valor no catálogo. JAMAIS diga 'vou verificar' ou 'vou consultar' — isso cria expectativa de resposta que não virá. Sempre PEÇA a foto do código de barras diretamente.";
       }
 
       // ── 4. SENTIMENT ANALYSIS + TONE ADAPTATION: detect emotional tone and communication style ──
@@ -2499,7 +2499,14 @@ Exemplo RUIM (textão único):
 
 - Seja conciso mas NUNCA sacrifique a naturalidade. Frases completas são mais importantes que brevidade extrema.
 - PROIBIDO: parágrafos longos, explicações desnecessárias, frases motivacionais, agradecimentos elaborados.
-- Se o cliente relatou um PROBLEMA: reconheça rapidamente, colete informações que faltam, e SÓ ENTÃO diga que vai resolver.`;
+- Se o cliente relatou um PROBLEMA: reconheça rapidamente, colete informações que faltam, e SÓ ENTÃO diga que vai resolver.
+
+🚫 PROMESSAS VAZIAS — REGRA CRÍTICA:
+- NUNCA diga "vou verificar", "vou consultar", "vou checar", "vou enviar a chave PIX" ou qualquer variação que crie expectativa de resposta futura.
+- Você NÃO pode fazer ações sozinha. O sistema executa ações automaticamente APÓS sua resposta.
+- Em vez de prometer: PEÇA o que precisa diretamente (ex: "Me envia uma foto do código de barras para eu consultar o valor 📸").
+- Em vez de "vou enviar a chave PIX": apenas confirme o produto/valor — o sistema enviará a chave automaticamente via botões.
+- Se NÃO tem informação suficiente: PEÇA ao cliente (código de barras, unidade, detalhes) em vez de prometer que vai buscar.`;
 
       // ── 8. PIX QUALIFICATION + AUTONOMOUS STORE SUPPORT INSTRUCTIONS ──
       const autonomousStoreHint = `\n\n🏪 CONTEXTO CRÍTICO — MINI MERCADO AUTÔNOMO 24H (SEM FUNCIONÁRIOS):
@@ -2695,11 +2702,12 @@ Para CADA tipo de problema, colete os dados listados ANTES de dizer que vai reso
       if (ctx.messageType === "image" || (ctx as any)._lastImageUrl) {
         imageHint = `\n\n📸 IMAGEM RECEBIDA DO CLIENTE — INSTRUÇÕES ESPECIAIS:
 O cliente enviou uma IMAGEM. Sua prioridade é:
-1. Se a imagem contém um CÓDIGO DE BARRAS ou PRODUTO: diga "Vou verificar esse produto no nosso catálogo, um momento! 🔍" — O sistema fará a busca automaticamente.
+1. Se a imagem contém um CÓDIGO DE BARRAS ou PRODUTO: diga "Já estou consultando esse produto no catálogo! 🔍" — O sistema fará a busca automaticamente e enviará o resultado logo em seguida.
 2. NÃO peça nome completo ou unidade quando o cliente envia uma foto de código de barras — isso significa que ele quer saber o preço ou pagar.
-3. Se a imagem é um COMPROVANTE DE PAGAMENTO: o sistema verificará automaticamente.
+3. Se a imagem é um COMPROVANTE DE PAGAMENTO: diga "Recebi seu comprovante, estou analisando! ✅" — o sistema verificará automaticamente.
 4. Se a imagem não é legível: peça para reenviar com mais foco/iluminação.
-5. NUNCA ignore a imagem ou responda como se fosse apenas texto.`;
+5. NUNCA ignore a imagem ou responda como se fosse apenas texto.
+6. NUNCA diga "vou verificar" ou "vou enviar a chave" sem contexto — o sistema cuida dessas ações automaticamente.`;
       }
 
       // ── TTS DICTION: force formal spelling when reply will be audio ──
@@ -3621,7 +3629,92 @@ Responda APENAS JSON:
         }
 
         // After replying, automatically send PIX key if the conversation is about payment
-        await sendPixKeyIfPaymentRelated(supabase, ctx);
+        const pixSent = await sendPixKeyIfPaymentRelated(supabase, ctx);
+
+        // ── PROMISE FULFILLMENT SAFETY NET ──
+        // Detect when the AI promised to verify/check/send something but no concrete action followed
+        // This prevents the customer from being left "on hold" with no response
+        if (!pixSent && !d.suppress_send) {
+          const originalReply = ctx.variables["ia_reply"] || reply || "";
+          const promisedVerify = /\b(vou\s+(verificar|checar|consultar|buscar|conferir|olhar|pesquisar)|deixa\s+eu\s+(ver|verificar|checar|consultar)|j[aá]\s+(te\s+)?(informo|retorno|passo|aviso|digo)|um\s+momento|um\s+instante|aguarde|vou\s+ver\s+(isso|aqui)|vou\s+dar\s+uma\s+(olhada|verificada))\b/i.test(originalReply);
+          const promisedPixSend = /\b(vou\s+(te\s+)?(enviar|mandar|passar)\s*(a\s+)?chave|enviar(ei)?\s*(a\s+)?chave\s*pix|mando\s*(a\s+)?chave|passo\s*(a\s+)?chave)\b/i.test(originalReply);
+          const promisedValue = /\b(vou\s+(te\s+)?(informar|passar|dizer)\s*(o\s+)?valor|j[aá]\s+(te\s+)?passo\s*(o\s+)?valor|vou\s+consultar\s*(o\s+)?(valor|pre[cç]o))\b/i.test(originalReply);
+          
+          const nothingDelivered = 
+            ctx.variables["_pix_key_sent"] !== "true" && 
+            ctx.variables["_pix_buttons_sent"] !== "true" && 
+            ctx.variables["produto_encontrado"] !== "true" &&
+            ctx.variables["_difficulty_detected"] !== "true" &&
+            ctx.variables["_escalated_to_human"] !== "true";
+
+          if ((promisedVerify || promisedPixSend || promisedValue) && nothingDelivered) {
+            const promiseType = promisedPixSend ? "PIX" : promisedValue ? "valor" : "verificação";
+            console.log(`[PROMISE GUARD] AI promised "${promiseType}" but no follow-up action executed — sending fulfillment fallback`);
+            
+            // Try to actually fulfill the promise with a concrete action
+            const { keys: fulfillKeys } = await getUserAIKeys(supabase, ctx.userId);
+            let fulfilled = false;
+            
+            // If we have product context, try searching the catalog
+            if ((fulfillKeys.openai || fulfillKeys.gemini) && ctx.userId) {
+              const searchContext = [
+                ctx.messageContent,
+                ctx.variables["mensagens_agrupadas"] || "",
+                ctx.variables["transcricao"] || "",
+                ctx.variables["produto_identificado"] || "",
+                ctx.variables["descricao_imagem"] || "",
+              ].join(" ");
+              
+              // Extract product-related terms
+              const stopWords = new Set(["para", "como", "quero", "saber", "qual", "esse", "essa", "favor", "pode", "aqui", "mais", "muito", "obrigado", "sobre", "tenho", "estou", "esta", "isso", "peguei", "produto", "valor", "preco", "pagar", "pagamento", "chave", "enviar", "envia", "mandar", "quiser"]);
+              const words = searchContext
+                .replace(/[^\p{L}\p{N}\s]/gu, " ")
+                .split(/\s+/)
+                .filter((w: string) => w.length > 3 && !stopWords.has(w.toLowerCase()));
+              const query = words.slice(0, 5).join(" ");
+              
+              if (query.length > 2) {
+                try {
+                  const { data: products } = await supabase.rpc("search_products", {
+                    _user_id: ctx.userId,
+                    _query: query,
+                    _limit: 3,
+                  });
+                  if (products && products.length > 0) {
+                    const first = products[0];
+                    ctx.variables["produto_encontrado"] = "true";
+                    ctx.variables["produto_nome"] = first.name || "";
+                    ctx.variables["produto_preco"] = String(first.price || 0);
+                    const prodPrice = Number(first.price).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                    
+                    // Send product info + PIX buttons
+                    const qualMsg = `🛒 Encontrei no catálogo: *${first.name}*\n💰 Valor: *${prodPrice}*`;
+                    const btnSent = await sendInteractiveButtons(supabase, ctx, qualMsg, [
+                      { label: "✅ Enviar chave PIX", id: "pix_enviar" },
+                      { label: "❌ Não quero", id: "pix_cancelar" },
+                    ], "Nutricar Brasil - Mini Mercado 24h");
+                    ctx.variables["_pix_buttons_sent"] = "true";
+                    if (!btnSent) {
+                      await sendWhatsAppMessage(supabase, ctx, `${qualMsg}\n\nDeseja receber a chave PIX para pagamento? 😊`);
+                    }
+                    fulfilled = true;
+                    console.log(`[PROMISE GUARD] Fulfilled! Found product: ${first.name} = ${prodPrice}`);
+                  }
+                } catch (e) {
+                  console.error("[PROMISE GUARD] Product search error:", e);
+                }
+              }
+            }
+            
+            // If we couldn't fulfill, send a follow-up asking for what we need
+            if (!fulfilled) {
+              const followUpMsg = `📸 Para te passar o valor certinho e a chave PIX, preciso identificar o produto!\n\nPor favor, envie uma *foto do código de barras* do produto que você pegou. 🔍\n\nAssim consigo buscar no sistema rapidinho! 😊\n\n_Nutricar Brasil - Mini Mercado 24h_ 💚`;
+              await sendWhatsAppMessage(supabase, ctx, followUpMsg);
+              ctx.variables["_audit_promise_guard"] = `AI prometeu "${promiseType}" mas nada foi entregue. Enviado follow-up pedindo código de barras.`;
+              console.log(`[PROMISE GUARD] Could not fulfill — sent follow-up asking for barcode`);
+            }
+          }
+        }
       }
       return { sent: !!reply, model, reply: (reply || "").slice(0, 80), suppressed: !!d.suppress_send };
     }
@@ -3955,7 +4048,7 @@ Responda com JSON: {"quality": "boa"|"ruim"|"parcial", "quality_issue": "...", "
           if (catalogMatch) {
             responseMsg += `\n\n💰 *Preço no catálogo:*\n${catalogMatch}`;
           } else if (searchCatalog) {
-            responseMsg += `\n\n⚠️ Este produto não foi encontrado no nosso catálogo. Vou verificar com a equipe!`;
+            responseMsg += `\n\n⚠️ Este produto não foi encontrado no nosso catálogo. Pode enviar outra foto mais nítida do código de barras? 📸`;
           }
         } else if (analysisResult.quality === "parcial") {
           responseMsg = `Consegui ver parcialmente o produto, mas não tenho certeza. 🤔\n\n${analysisResult.description || ""}`;
