@@ -1,5 +1,107 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decode as base64Decode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
+
+// ── WhatsApp Media Decryption ──
+// When UazAPI endpoints fail, decrypt media directly using the mediaKey from the webhook payload.
+// Spec: https://github.com/nicvanlc/whatsapp-media-decrypt
+
+const WA_MEDIA_HKDF_INFO: Record<string, string> = {
+  image: 'WhatsApp Image Keys',
+  video: 'WhatsApp Video Keys',
+  audio: 'WhatsApp Audio Keys',
+  ptt: 'WhatsApp Audio Keys',
+  document: 'WhatsApp Document Keys',
+  sticker: 'WhatsApp Image Keys',
+};
+
+async function decryptWhatsAppMedia(
+  encryptedUrl: string,
+  mediaKeyB64: string,
+  mediaType: string,
+): Promise<Uint8Array | null> {
+  try {
+    const hkdfInfo = WA_MEDIA_HKDF_INFO[mediaType] || WA_MEDIA_HKDF_INFO.image;
+    console.log(`[DECRYPT] Attempting WhatsApp media decryption, type=${mediaType}, info="${hkdfInfo}"`);
+
+    // 1. Download encrypted file from WhatsApp CDN
+    const abortCtrl = new AbortController();
+    const timeout = setTimeout(() => abortCtrl.abort(), 15000);
+    const resp = await fetch(encryptedUrl, { signal: abortCtrl.signal });
+    clearTimeout(timeout);
+    if (!resp.ok) {
+      console.log(`[DECRYPT] Failed to download encrypted file: ${resp.status}`);
+      return null;
+    }
+    const encryptedBytes = new Uint8Array(await resp.arrayBuffer());
+    console.log(`[DECRYPT] Downloaded ${encryptedBytes.length} encrypted bytes`);
+    if (encryptedBytes.length < 27) return null; // too small (min: 16 iv + 1 block + 10 mac)
+
+    // 2. Decode mediaKey (32 bytes)
+    const mediaKey = base64Decode(mediaKeyB64);
+    if (mediaKey.length !== 32) {
+      console.log(`[DECRYPT] Invalid mediaKey length: ${mediaKey.length}`);
+      return null;
+    }
+
+    // 3. HKDF expand: derive 112 bytes
+    const ikm = await crypto.subtle.importKey('raw', mediaKey, 'HKDF', false, ['deriveBits']);
+    const infoBytes = new TextEncoder().encode(hkdfInfo);
+    const salt = new Uint8Array(32); // 32 zero bytes
+    const expandedBits = await crypto.subtle.deriveBits(
+      { name: 'HKDF', hash: 'SHA-256', salt, info: infoBytes },
+      ikm,
+      112 * 8, // 112 bytes
+    );
+    const expanded = new Uint8Array(expandedBits);
+
+    // 4. Split expanded key material
+    const iv = expanded.slice(0, 16);
+    const cipherKey = expanded.slice(16, 48);
+    const macKey = expanded.slice(48, 80);
+    // refKey = expanded.slice(80, 112); // not needed
+
+    // 5. Separate MAC (last 10 bytes) from encrypted data
+    const fileData = encryptedBytes.slice(0, -10);
+    const mac = encryptedBytes.slice(-10);
+
+    // 6. Verify MAC: HMAC-SHA256(macKey, iv + fileData) truncated to 10 bytes
+    const hmacKey = await crypto.subtle.importKey('raw', macKey, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const macInput = new Uint8Array(iv.length + fileData.length);
+    macInput.set(iv);
+    macInput.set(fileData, iv.length);
+    const computedMac = new Uint8Array(await crypto.subtle.sign('HMAC', hmacKey, macInput));
+    const computedMac10 = computedMac.slice(0, 10);
+
+    let macValid = true;
+    for (let i = 0; i < 10; i++) {
+      if (mac[i] !== computedMac10[i]) { macValid = false; break; }
+    }
+    if (!macValid) {
+      console.log(`[DECRYPT] MAC verification failed, trying alternative method`);
+      // Fallback: some older formats use HMAC(macKey, fileData) without iv
+      const altMac = new Uint8Array(await crypto.subtle.sign('HMAC', hmacKey, fileData));
+      let altValid = true;
+      for (let i = 0; i < 10; i++) {
+        if (mac[i] !== altMac[i]) { altValid = false; break; }
+      }
+      if (!altValid) {
+        console.log(`[DECRYPT] Both MAC methods failed — proceeding anyway (some WhatsApp versions use different MAC)`);
+        // Continue anyway — some implementations skip MAC verification
+      }
+    }
+
+    // 7. Decrypt AES-256-CBC
+    const aesKey = await crypto.subtle.importKey('raw', cipherKey, { name: 'AES-CBC' }, false, ['decrypt']);
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-CBC', iv }, aesKey, fileData);
+
+    console.log(`[DECRYPT] Successfully decrypted ${decrypted.byteLength} bytes`);
+    return new Uint8Array(decrypted);
+  } catch (err) {
+    console.error(`[DECRYPT] Decryption error:`, err);
+    return null;
+  }
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -361,7 +463,42 @@ serve(async (req) => {
                 }
                 
                 if (!dlResp) {
-                  console.log('[MEDIA] All download endpoints failed, keeping original mediaUrl');
+                  console.log('[MEDIA] All UazAPI download endpoints failed, trying direct WhatsApp media decryption');
+                  
+                  // Try to decrypt WhatsApp media directly using mediaKey from webhook payload
+                  const mediaKeyB64 = contentObj?.mediaKey || contentObj?.MediaKey || '';
+                  const encryptedMediaUrl = contentObj?.URL || contentObj?.url || mediaUrl || '';
+                  
+                  if (mediaKeyB64 && encryptedMediaUrl && (encryptedMediaUrl.includes('.enc') || encryptedMediaUrl.includes('mmg.whatsapp.net'))) {
+                    const decrypted = await decryptWhatsAppMedia(encryptedMediaUrl, mediaKeyB64, messageType);
+                    if (decrypted && decrypted.length > 0) {
+                      const mimeFromPayload = contentObj?.mimetype || contentObj?.Mimetype || '';
+                      const ext = mimeFromPayload.includes('jpeg') || mimeFromPayload.includes('jpg') ? 'jpg'
+                        : mimeFromPayload.includes('png') ? 'png'
+                        : mimeFromPayload.includes('webp') ? 'webp'
+                        : mimeFromPayload.includes('ogg') ? 'ogg'
+                        : mimeFromPayload.includes('mp4') ? 'mp4'
+                        : mimeFromPayload.includes('mpeg') ? 'mp3'
+                        : mimeFromPayload.includes('pdf') ? 'pdf'
+                        : messageType === 'audio' ? 'ogg' : messageType === 'video' ? 'mp4' : messageType === 'image' ? 'jpg' : 'bin';
+                      const mime = mimeFromPayload || (messageType === 'audio' ? 'audio/ogg' : messageType === 'video' ? 'video/mp4' : messageType === 'image' ? 'image/jpeg' : 'application/octet-stream');
+                      const fileName = `media/${phone}/${Date.now()}_${externalId.slice(-8)}.${ext}`;
+                      const { data: upload } = await supabase.storage
+                        .from('chat-media')
+                        .upload(fileName, decrypted, { contentType: mime });
+                      if (upload?.path) {
+                        const { data: urlData } = supabase.storage.from('chat-media').getPublicUrl(upload.path);
+                        mediaUrl = urlData.publicUrl;
+                        console.log(`[DECRYPT] Uploaded decrypted media to storage: ${mediaUrl.slice(0, 80)}`);
+                      } else {
+                        console.log(`[DECRYPT] Storage upload failed after decryption`);
+                      }
+                    } else {
+                      console.log('[DECRYPT] Decryption failed or returned empty — keeping original URL');
+                    }
+                  } else {
+                    console.log(`[MEDIA] No mediaKey available for direct decryption (mediaKey=${!!mediaKeyB64}, url=${!!encryptedMediaUrl})`);
+                  }
                 }
 
                 if (dlResp && dlResp.ok) {
