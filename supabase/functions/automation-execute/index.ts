@@ -2969,10 +2969,31 @@ O cliente enviou uma IMAGEM. Sua prioridade é:
         if (!reply) {
           const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
           if (LOVABLE_API_KEY) {
-            console.log("[AI] Trying Lovable AI Gateway with google/gemini-2.5-pro");
+            const gatewayModel = "google/gemini-2.5-flash";
+
+            // Build messages for the gateway: if we have an image, include it as multimodal content
+            let gatewayMessages = chatMessages;
+            if (imageBase64) {
+              const mimeType = imageBase64.startsWith("/9j/") ? "image/jpeg" : imageBase64.startsWith("iVBOR") ? "image/png" : "image/jpeg";
+              const systemMsg = chatMessages.find((m: any) => m.role === "system");
+              const nonSystemMsgs = chatMessages.filter((m: any) => m.role !== "system");
+              const userTextParts = nonSystemMsgs.map((m: any) => typeof m.content === "string" ? m.content : "").filter(Boolean).join("\n");
+              gatewayMessages = [
+                ...(systemMsg ? [systemMsg] : []),
+                {
+                  role: "user",
+                  content: [
+                    { type: "image_url", image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+                    { type: "text", text: userTextParts || "Analise esta imagem." },
+                  ],
+                },
+              ];
+            }
+
+            console.log(`[AI] Trying Lovable AI Gateway with ${gatewayModel}${imageBase64 ? " (with image)" : ""}`);
             try {
               const controller = new AbortController();
-              const tid = setTimeout(() => controller.abort(), 25000);
+              const tid = setTimeout(() => controller.abort(), 30000);
               const gatewayResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
                 method: "POST",
                 headers: {
@@ -2980,8 +3001,8 @@ O cliente enviou uma IMAGEM. Sua prioridade é:
                   "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
-                  model: "google/gemini-2.5-pro",
-                  messages: chatMessages,
+                  model: gatewayModel,
+                  messages: gatewayMessages,
                   max_tokens: maxTokens,
                   temperature: 0.7,
                 }),
@@ -2994,7 +3015,32 @@ O cliente enviou uma IMAGEM. Sua prioridade é:
                 if (reply) console.log(`[AI] Lovable Gateway success (${reply.length} chars)`);
               } else {
                 const errText = await gatewayResp.text();
-                console.error(`[AI] Lovable Gateway error (${gatewayResp.status}): ${errText.slice(0, 100)}`);
+                console.error(`[AI] Lovable Gateway error (${gatewayResp.status}): ${errText.slice(0, 150)}`);
+                // If image caused the error, retry text-only
+                if (imageBase64 && (gatewayResp.status === 400 || gatewayResp.status === 422)) {
+                  console.log("[AI] Retrying Lovable Gateway without image (text-only fallback)");
+                  const textOnlyMsgs = chatMessages.map((m: any) => ({
+                    role: m.role,
+                    content: typeof m.content === "string" ? m.content : Array.isArray(m.content)
+                      ? m.content.filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+                      : JSON.stringify(m.content),
+                  }));
+                  textOnlyMsgs.push({ role: "user", content: "[O cliente enviou uma imagem que não pôde ser processada. Responda com base no contexto da conversa.]" });
+                  const ctrl2 = new AbortController();
+                  const tid2 = setTimeout(() => ctrl2.abort(), 25000);
+                  const retryResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+                    body: JSON.stringify({ model: gatewayModel, messages: textOnlyMsgs, max_tokens: maxTokens, temperature: 0.7 }),
+                    signal: ctrl2.signal,
+                  });
+                  clearTimeout(tid2);
+                  if (retryResp.ok) {
+                    const data = await retryResp.json();
+                    reply = data.choices?.[0]?.message?.content?.trim() || "";
+                    if (reply) console.log(`[AI] Lovable Gateway text-only fallback success (${reply.length} chars)`);
+                  }
+                }
               }
             } catch (e) {
               console.error("[AI] Lovable Gateway call failed:", e);
