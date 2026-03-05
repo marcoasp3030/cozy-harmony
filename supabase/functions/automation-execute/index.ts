@@ -95,6 +95,7 @@ function mapModelForProvider(model: string, targetProvider: "openai" | "gemini")
   if (targetProvider === "gemini") {
     const geminiMap: Record<string, string> = {
       "gpt-4o": "gemini-2.5-flash",
+      "gpt-4o-2024-11-20": "gemini-2.5-flash",
       "gpt-4o-mini": "gemini-2.5-flash",
       "gpt-4-turbo": "gemini-2.5-flash",
       "gpt-4": "gemini-2.5-flash",
@@ -106,11 +107,11 @@ function mapModelForProvider(model: string, targetProvider: "openai" | "gemini")
   }
   if (targetProvider === "openai") {
     const openaiMap: Record<string, string> = {
-      "gemini-2.5-flash": "o1",
-      "gemini-2.5-flash-lite": "o1",
-      "gemini-2.5-pro": "o1",
+      "gemini-2.5-flash": "gpt-4o-2024-11-20",
+      "gemini-2.5-flash-lite": "gpt-4o-2024-11-20",
+      "gemini-2.5-pro": "gpt-4o-2024-11-20",
     };
-    return openaiMap[model] || (model.startsWith("gemini") ? "o1" : model);
+    return openaiMap[model] || (model.startsWith("gemini") ? "gpt-4o-2024-11-20" : model);
   }
   return model;
 }
@@ -228,9 +229,10 @@ async function callAIWithUserKeys(
           method: "POST",
           headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: "o1",
-            messages: [{ role: "developer", content: prompt }],
-            max_completion_tokens: maxTokens,
+            model: "gpt-4o-2024-11-20",
+            messages: [{ role: "system", content: prompt }],
+            max_tokens: maxTokens,
+            temperature: 0.7,
           }),
           signal: controller.signal,
         });
@@ -343,7 +345,7 @@ async function callAIVisionWithUserKeys(
         method: "POST",
         headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "o1",
+          model: "gpt-4o-2024-11-20",
           messages: [{
             role: "user",
             content: [
@@ -1823,7 +1825,7 @@ Responda APENAS com o texto da mensagem.`;
     if (type === "action_llm_reply") {
       const systemPrompt = interpolate(String(d.system_prompt || "Você é um assistente de atendimento."), ctx);
       const provider = d.provider || "openai";
-      const model = d.model || (provider === "openai" ? "o1" : "gemini-2.5-flash");
+      const model = d.model || (provider === "openai" ? "gpt-4o-2024-11-20" : "gemini-2.5-flash");
       const maxTokens = parseInt(d.max_tokens) || 2048;
 
       // Get user API keys
