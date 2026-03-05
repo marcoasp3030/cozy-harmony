@@ -62,6 +62,56 @@ export type Database = {
           },
         ]
       }
+      attendant_instances: {
+        Row: {
+          attendant_user_id: string
+          created_at: string
+          id: string
+          instance_id: string
+        }
+        Insert: {
+          attendant_user_id: string
+          created_at?: string
+          id?: string
+          instance_id: string
+        }
+        Update: {
+          attendant_user_id?: string
+          created_at?: string
+          id?: string
+          instance_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendant_instances_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendant_supervisors: {
+        Row: {
+          attendant_user_id: string
+          created_at: string
+          id: string
+          supervisor_user_id: string
+        }
+        Insert: {
+          attendant_user_id: string
+          created_at?: string
+          id?: string
+          supervisor_user_id: string
+        }
+        Update: {
+          attendant_user_id?: string
+          created_at?: string
+          id?: string
+          supervisor_user_id?: string
+        }
+        Relationships: []
+      }
       automation_logs: {
         Row: {
           automation_id: string
@@ -1050,6 +1100,7 @@ export type Database = {
         Args: { _article_id: string }
         Returns: undefined
       }
+      is_attendant_of: { Args: { _owner_user_id: string }; Returns: boolean }
       search_products: {
         Args: { _limit?: number; _query: string; _user_id: string }
         Returns: {

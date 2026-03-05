@@ -975,7 +975,7 @@ const WhatsAppApiConfig = () => {
 
 const SettingsPage = () => {
   const { user } = useAuth();
-  const { isAdmin } = useUserRole();
+  const { isAdmin, isSupervisor, isAdminOrSupervisor } = useUserRole();
 
   return (
     <div className="space-y-4 md:space-y-6">
@@ -995,7 +995,7 @@ const SettingsPage = () => {
           <TabsTrigger value="company" className="text-xs md:text-sm">Empresa</TabsTrigger>
           <TabsTrigger value="products" className="text-xs md:text-sm">Produtos</TabsTrigger>
           <TabsTrigger value="knowledge" className="text-xs md:text-sm">Base de Conhecimento</TabsTrigger>
-          {isAdmin && <TabsTrigger value="users" className="text-xs md:text-sm">Usuários</TabsTrigger>}
+          {isAdminOrSupervisor && <TabsTrigger value="users" className="text-xs md:text-sm">Usuários</TabsTrigger>}
           {isAdmin && <TabsTrigger value="webhooks" className="text-xs md:text-sm">Webhooks</TabsTrigger>}
         </TabsList>
 
@@ -1048,7 +1048,7 @@ const SettingsPage = () => {
           <KnowledgeBase />
         </TabsContent>
 
-        {isAdmin && (
+        {isAdminOrSupervisor && (
           <TabsContent value="users">
             <UserManagement />
           </TabsContent>
