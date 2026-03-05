@@ -454,13 +454,17 @@ export default function InstanceManager() {
         return;
       }
 
+      // Generate a unique instance name to avoid conflicts between tenants
+      const uniqueSuffix = user.id.slice(0, 6) + "_" + Date.now().toString(36);
+      const instanceNameForApi = `${newName.trim()}_${uniqueSuffix}`;
+
       // First, create instance record in DB
       const result = await addInstance({
         name: newName.trim(),
         base_url: globalConfig.baseUrl,
         admin_token: globalConfig.adminToken,
         instance_token: "",
-        instance_name: newName.trim(),
+        instance_name: instanceNameForApi,
       });
 
       if (result?.error) {
@@ -473,7 +477,7 @@ export default function InstanceManager() {
 
       // Call create-instance on UazAPI to auto-generate instance token
       const { data: createData, error: createError } = await supabase.functions.invoke("uazapi-instance", {
-        body: { action: "create-instance", instanceId, instanceName: newName.trim() },
+        body: { action: "create-instance", instanceId, instanceName: instanceNameForApi },
       });
 
       if (createError) {
