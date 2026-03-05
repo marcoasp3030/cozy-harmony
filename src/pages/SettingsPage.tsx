@@ -17,6 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useUserRole } from "@/hooks/useUserRole";
 
 /** Extract a readable error message from edge function response */
 const extractError = (data: any, fallback: string): string => {
@@ -974,6 +975,7 @@ const WhatsAppApiConfig = () => {
 
 const SettingsPage = () => {
   const { user } = useAuth();
+  const { isAdmin } = useUserRole();
 
   return (
     <div className="space-y-4 md:space-y-6">
@@ -982,9 +984,9 @@ const SettingsPage = () => {
         <p className="text-xs md:text-sm text-muted-foreground">Gerencie as configurações do sistema</p>
       </div>
 
-      <Tabs defaultValue="apiwhatsapp" className="space-y-4">
+      <Tabs defaultValue={isAdmin ? "apiwhatsapp" : "connection"} className="space-y-4">
         <TabsList className="w-full flex overflow-x-auto">
-          <TabsTrigger value="apiwhatsapp" className="text-xs md:text-sm">API WhatsApp</TabsTrigger>
+          {isAdmin && <TabsTrigger value="apiwhatsapp" className="text-xs md:text-sm">API WhatsApp</TabsTrigger>}
           <TabsTrigger value="connection" className="text-xs md:text-sm">Instâncias</TabsTrigger>
           <TabsTrigger value="expediente" className="text-xs md:text-sm">Expediente</TabsTrigger>
           <TabsTrigger value="inactivity" className="text-xs md:text-sm">Inatividade</TabsTrigger>
@@ -993,13 +995,15 @@ const SettingsPage = () => {
           <TabsTrigger value="company" className="text-xs md:text-sm">Empresa</TabsTrigger>
           <TabsTrigger value="products" className="text-xs md:text-sm">Produtos</TabsTrigger>
           <TabsTrigger value="knowledge" className="text-xs md:text-sm">Base de Conhecimento</TabsTrigger>
-          <TabsTrigger value="users" className="text-xs md:text-sm">Usuários</TabsTrigger>
-          <TabsTrigger value="webhooks" className="text-xs md:text-sm">Webhooks</TabsTrigger>
+          {isAdmin && <TabsTrigger value="users" className="text-xs md:text-sm">Usuários</TabsTrigger>}
+          {isAdmin && <TabsTrigger value="webhooks" className="text-xs md:text-sm">Webhooks</TabsTrigger>}
         </TabsList>
 
-        <TabsContent value="apiwhatsapp" className="space-y-4">
-          <WhatsAppApiConfig />
-        </TabsContent>
+        {isAdmin && (
+          <TabsContent value="apiwhatsapp" className="space-y-4">
+            <WhatsAppApiConfig />
+          </TabsContent>
+        )}
 
         <TabsContent value="connection" className="space-y-4">
           <InstanceManager />
@@ -1044,13 +1048,17 @@ const SettingsPage = () => {
           <KnowledgeBase />
         </TabsContent>
 
-        <TabsContent value="users">
-          <UserManagement />
-        </TabsContent>
+        {isAdmin && (
+          <TabsContent value="users">
+            <UserManagement />
+          </TabsContent>
+        )}
 
-        <TabsContent value="webhooks">
-          <WebhookConfig />
-        </TabsContent>
+        {isAdmin && (
+          <TabsContent value="webhooks">
+            <WebhookConfig />
+          </TabsContent>
+        )}
 
         <TabsContent value="apillm" className="space-y-4">
           <LlmApiConfig />

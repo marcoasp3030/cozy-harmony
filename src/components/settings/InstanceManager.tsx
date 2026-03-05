@@ -427,17 +427,29 @@ export default function InstanceManager() {
 
     setSaving(true);
     try {
-      // Load global config
-      const { data: settings } = await supabase
+      // Try user's own config first, then fallback to admin's global config
+      let globalConfig: any = null;
+      const { data: ownSettings } = await supabase
         .from("settings")
         .select("value")
         .eq("user_id", user.id)
         .eq("key", "uazapi_global")
-        .single();
+        .maybeSingle();
 
-      const globalConfig = settings?.value as any;
+      if (ownSettings?.value) {
+        globalConfig = ownSettings.value as any;
+      }
+
+      // Fallback: fetch admin's config via security definer function
       if (!globalConfig?.baseUrl || !globalConfig?.adminToken) {
-        toast.error("Configure a URL e o Admin Token na aba 'API WhatsApp' primeiro.");
+        const { data: adminConfig } = await supabase.rpc("get_admin_uazapi_config");
+        if (adminConfig) {
+          globalConfig = adminConfig as any;
+        }
+      }
+
+      if (!globalConfig?.baseUrl || !globalConfig?.adminToken) {
+        toast.error("Nenhuma configuração de API WhatsApp encontrada. Solicite ao administrador.");
         setSaving(false);
         return;
       }
