@@ -454,12 +454,22 @@ serve(async (req) => {
         }
       }
 
-      // Find or create contact
-      let { data: contact } = await supabase
+      // Find or create contact scoped by owner to avoid cross-tenant collisions on same phone
+      let contactLookup = supabase
         .from('contacts')
         .select('id')
-        .eq('phone', phone)
-        .single();
+        .eq('phone', phone);
+
+      if (ownerUserId) {
+        contactLookup = contactLookup.eq('user_id', ownerUserId);
+      }
+
+      const { data: existingContact, error: contactLookupError } = await contactLookup.maybeSingle();
+      if (contactLookupError) {
+        console.error('Contact lookup error:', contactLookupError.message);
+      }
+
+      let contact = existingContact;
 
       if (!contact) {
         const { data: newContact } = await supabase
