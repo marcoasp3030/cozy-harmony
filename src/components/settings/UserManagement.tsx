@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -17,6 +17,7 @@ import {
   EyeOff,
   Pencil,
   KeyRound,
+  MonitorSmartphone,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -44,6 +46,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
@@ -69,12 +72,20 @@ interface UserData {
   avatar_url: string | null;
   role: AppRole | null;
   created_at: string;
+  supervisor_user_id?: string | null;
+}
+
+interface InstanceOption {
+  id: string;
+  name: string;
 }
 
 const UserManagement = () => {
   const { user } = useAuth();
-  const { isAdmin } = useUserRole();
+  const { isAdmin, isSupervisor, role: currentRole } = useUserRole();
   const queryClient = useQueryClient();
+
+  const canManage = isAdmin || isSupervisor;
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -82,6 +93,7 @@ const UserManagement = () => {
   const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState<AppRole>("atendente");
   const [showPassword, setShowPassword] = useState(false);
+  const [selectedInstances, setSelectedInstances] = useState<string[]>([]);
   const [removeTarget, setRemoveTarget] = useState<UserData | null>(null);
   const [editTarget, setEditTarget] = useState<UserData | null>(null);
   const [editName, setEditName] = useState("");
@@ -89,10 +101,64 @@ const UserManagement = () => {
   const [resetTarget, setResetTarget] = useState<UserData | null>(null);
   const [resetPassword, setResetPassword] = useState("");
   const [showResetPassword, setShowResetPassword] = useState(false);
+  const [instancesDialogTarget, setInstancesDialogTarget] = useState<UserData | null>(null);
+  const [editInstances, setEditInstances] = useState<string[]>([]);
 
-  const { data: users = [], isLoading } = useQuery({
-    queryKey: ["all-users"],
+  // Load supervisor's instances for assignment
+  const { data: myInstances = [] } = useQuery({
+    queryKey: ["my-instances", user?.id],
     queryFn: async () => {
+      if (!user?.id) return [];
+      const { data } = await supabase
+        .from("whatsapp_instances")
+        .select("id, name")
+        .eq("user_id", user.id)
+        .order("created_at");
+      return (data || []) as InstanceOption[];
+    },
+    enabled: !!user?.id && (isSupervisor || isAdmin),
+  });
+
+  // Load users
+  const { data: users = [], isLoading } = useQuery({
+    queryKey: ["all-users", currentRole],
+    queryFn: async () => {
+      if (!user?.id) return [];
+
+      // If supervisor, only load their own attendants
+      if (isSupervisor && !isAdmin) {
+        const { data: links } = await supabase
+          .from("attendant_supervisors")
+          .select("attendant_user_id")
+          .eq("supervisor_user_id", user.id);
+
+        const attendantIds = (links || []).map((l: any) => l.attendant_user_id);
+        if (attendantIds.length === 0) return [];
+
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("user_id, name, email, avatar_url, created_at")
+          .in("user_id", attendantIds);
+
+        const { data: roles } = await supabase
+          .from("user_roles")
+          .select("user_id, role")
+          .in("user_id", attendantIds);
+
+        const roleMap = new Map((roles || []).map((r: any) => [r.user_id, r.role]));
+
+        return (profiles || []).map((p): UserData => ({
+          user_id: p.user_id,
+          name: p.name,
+          email: p.email,
+          avatar_url: p.avatar_url,
+          role: (roleMap.get(p.user_id) as AppRole) ?? null,
+          created_at: p.created_at,
+          supervisor_user_id: user.id,
+        }));
+      }
+
+      // Admin: load all
       const { data: profiles, error } = await supabase
         .from("profiles")
         .select("user_id, name, email, avatar_url, created_at")
@@ -105,7 +171,13 @@ const UserManagement = () => {
         .select("user_id, role")
         .in("user_id", userIds);
 
+      const { data: supervisorLinks } = await supabase
+        .from("attendant_supervisors")
+        .select("attendant_user_id, supervisor_user_id")
+        .in("attendant_user_id", userIds);
+
       const roleMap = new Map((roles || []).map((r: any) => [r.user_id, r.role]));
+      const supervisorMap = new Map((supervisorLinks || []).map((l: any) => [l.attendant_user_id, l.supervisor_user_id]));
 
       return (profiles || []).map((p): UserData => ({
         user_id: p.user_id,
@@ -114,13 +186,14 @@ const UserManagement = () => {
         avatar_url: p.avatar_url,
         role: (roleMap.get(p.user_id) as AppRole) ?? null,
         created_at: p.created_at,
+        supervisor_user_id: supervisorMap.get(p.user_id) || null,
       }));
     },
+    enabled: !!user?.id && canManage,
   });
 
   const createUserMutation = useMutation({
     mutationFn: async () => {
-      // Create user via edge function
       const { data, error } = await supabase.functions.invoke("create-admin", {
         body: { email: newEmail.trim(), password: newPassword, name: newName.trim() },
       });
@@ -131,10 +204,28 @@ const UserManagement = () => {
       if (!newUserId) throw new Error("Erro ao obter ID do novo usuário");
 
       // Assign role
+      const roleToAssign = isSupervisor && !isAdmin ? "atendente" : newRole;
       const { error: roleErr } = await supabase
         .from("user_roles")
-        .insert({ user_id: newUserId, role: newRole });
+        .insert({ user_id: newUserId, role: roleToAssign });
       if (roleErr) throw roleErr;
+
+      // If supervisor creating attendant, link hierarchy
+      if (isSupervisor || (isAdmin && roleToAssign === "atendente")) {
+        const supervisorId = user!.id;
+        await supabase
+          .from("attendant_supervisors")
+          .insert({ attendant_user_id: newUserId, supervisor_user_id: supervisorId });
+
+        // Assign selected instances
+        if (selectedInstances.length > 0) {
+          const rows = selectedInstances.map((instanceId) => ({
+            attendant_user_id: newUserId,
+            instance_id: instanceId,
+          }));
+          await supabase.from("attendant_instances").insert(rows);
+        }
+      }
 
       return newUserId;
     },
@@ -146,13 +237,13 @@ const UserManagement = () => {
       setNewEmail("");
       setNewPassword("");
       setNewRole("atendente");
+      setSelectedInstances([]);
     },
     onError: (err: any) => toast.error(err.message || "Erro ao criar usuário"),
   });
 
   const changeRoleMutation = useMutation({
     mutationFn: async ({ userId, role }: { userId: string; role: AppRole }) => {
-      // Upsert role
       const { data: existing } = await supabase
         .from("user_roles")
         .select("id")
@@ -187,6 +278,9 @@ const UserManagement = () => {
         .delete()
         .eq("user_id", userId);
       if (error) throw error;
+      // Also remove supervisor link
+      await supabase.from("attendant_supervisors").delete().eq("attendant_user_id", userId);
+      await supabase.from("attendant_instances").delete().eq("attendant_user_id", userId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["all-users"] });
@@ -228,6 +322,27 @@ const UserManagement = () => {
     onError: (err: any) => toast.error(err.message),
   });
 
+  const updateInstancesMutation = useMutation({
+    mutationFn: async ({ userId, instanceIds }: { userId: string; instanceIds: string[] }) => {
+      // Delete existing
+      await supabase.from("attendant_instances").delete().eq("attendant_user_id", userId);
+      // Insert new
+      if (instanceIds.length > 0) {
+        const rows = instanceIds.map((instanceId) => ({
+          attendant_user_id: userId,
+          instance_id: instanceId,
+        }));
+        const { error } = await supabase.from("attendant_instances").insert(rows);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      toast.success("Instâncias atualizadas!");
+      setInstancesDialogTarget(null);
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
+
   const openEditDialog = (u: UserData) => {
     setEditTarget(u);
     setEditName(u.name);
@@ -240,16 +355,38 @@ const UserManagement = () => {
     setShowResetPassword(false);
   };
 
+  const openInstancesDialog = async (u: UserData) => {
+    setInstancesDialogTarget(u);
+    // Load current assignments
+    const { data } = await supabase
+      .from("attendant_instances")
+      .select("instance_id")
+      .eq("attendant_user_id", u.user_id);
+    setEditInstances((data || []).map((d: any) => d.instance_id));
+  };
+
+  const toggleInstance = (instanceId: string) => {
+    setSelectedInstances((prev) =>
+      prev.includes(instanceId) ? prev.filter((id) => id !== instanceId) : [...prev, instanceId]
+    );
+  };
+
+  const toggleEditInstance = (instanceId: string) => {
+    setEditInstances((prev) =>
+      prev.includes(instanceId) ? prev.filter((id) => id !== instanceId) : [...prev, instanceId]
+    );
+  };
+
   const getInitials = (name: string) =>
     name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
-  if (!isAdmin) {
+  if (!canManage) {
     return (
       <Card>
         <CardContent className="py-12 text-center">
           <Shield className="mx-auto h-10 w-10 text-muted-foreground mb-3" />
           <p className="text-sm text-muted-foreground">
-            Apenas administradores podem gerenciar usuários.
+            Apenas administradores e supervisores podem gerenciar usuários.
           </p>
         </CardContent>
       </Card>
@@ -264,25 +401,34 @@ const UserManagement = () => {
     );
   }
 
+  const showRoleToAssign = newRole === "atendente" || isSupervisor;
+
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="font-heading">Usuários</CardTitle>
+            <CardTitle className="font-heading">
+              {isSupervisor && !isAdmin ? "Meus Atendentes" : "Usuários"}
+            </CardTitle>
             <CardDescription>
-              Gerencie os usuários do sistema e seus papéis
+              {isSupervisor && !isAdmin
+                ? "Gerencie os atendentes da sua equipe e suas instâncias"
+                : "Gerencie os usuários do sistema e seus papéis"}
             </CardDescription>
           </div>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
               <Button size="sm">
-                <UserPlus className="mr-2 h-4 w-4" /> Novo Usuário
+                <UserPlus className="mr-2 h-4 w-4" />
+                {isSupervisor && !isAdmin ? "Novo Atendente" : "Novo Usuário"}
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle>Criar Novo Usuário</DialogTitle>
+                <DialogTitle>
+                  {isSupervisor && !isAdmin ? "Criar Novo Atendente" : "Criar Novo Usuário"}
+                </DialogTitle>
                 <DialogDescription>
                   O usuário será criado com email já confirmado.
                 </DialogDescription>
@@ -324,26 +470,55 @@ const UserManagement = () => {
                     </button>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Papel</Label>
-                  <Select value={newRole} onValueChange={(v) => setNewRole(v as AppRole)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="atendente">Atendente</SelectItem>
-                      <SelectItem value="supervisor">Supervisor</SelectItem>
-                      <SelectItem value="admin">Admin</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+
+                {/* Role selector - only for admins */}
+                {isAdmin && (
+                  <div className="space-y-2">
+                    <Label>Papel</Label>
+                    <Select value={newRole} onValueChange={(v) => setNewRole(v as AppRole)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="atendente">Atendente</SelectItem>
+                        <SelectItem value="supervisor">Supervisor</SelectItem>
+                        <SelectItem value="admin">Admin</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Instance assignment - when creating atendente */}
+                {(isSupervisor || (isAdmin && newRole === "atendente")) && myInstances.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5">
+                      <MonitorSmartphone className="h-4 w-4" />
+                      Instâncias com acesso
+                    </Label>
+                    <div className="space-y-2 rounded-lg border p-3 max-h-40 overflow-y-auto">
+                      {myInstances.map((inst) => (
+                        <label key={inst.id} className="flex items-center gap-2 cursor-pointer text-sm">
+                          <Checkbox
+                            checked={selectedInstances.includes(inst.id)}
+                            onCheckedChange={() => toggleInstance(inst.id)}
+                          />
+                          {inst.name}
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Selecione quais instâncias o atendente poderá visualizar
+                    </p>
+                  </div>
+                )}
+
                 <Button
                   className="w-full"
                   disabled={!newName.trim() || !newEmail.trim() || newPassword.length < 6 || createUserMutation.isPending}
                   onClick={() => createUserMutation.mutate()}
                 >
                   {createUserMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Criar Usuário
+                  {isSupervisor && !isAdmin ? "Criar Atendente" : "Criar Usuário"}
                 </Button>
               </div>
             </DialogContent>
@@ -408,23 +583,36 @@ const UserManagement = () => {
                           <DropdownMenuItem onClick={() => openResetDialog(u)}>
                             <KeyRound className="mr-2 h-4 w-4" /> Resetar senha
                           </DropdownMenuItem>
-                          {(["admin", "supervisor", "atendente"] as AppRole[]).map((role) => (
-                            <DropdownMenuItem
-                              key={role}
-                              onClick={() => changeRoleMutation.mutate({ userId: u.user_id, role })}
-                              disabled={u.role === role}
-                            >
-                              {ROLE_CONFIG[role].label}
-                              {u.role === role && " ✓"}
+
+                          {/* Instance visibility - for attendants */}
+                          {u.role === "atendente" && (
+                            <DropdownMenuItem onClick={() => openInstancesDialog(u)}>
+                              <MonitorSmartphone className="mr-2 h-4 w-4" /> Instâncias
                             </DropdownMenuItem>
-                          ))}
-                          {u.role && (
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => setRemoveTarget(u)}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" /> Remover papel
-                            </DropdownMenuItem>
+                          )}
+
+                          {isAdmin && (
+                            <>
+                              <DropdownMenuSeparator />
+                              {(["admin", "supervisor", "atendente"] as AppRole[]).map((role) => (
+                                <DropdownMenuItem
+                                  key={role}
+                                  onClick={() => changeRoleMutation.mutate({ userId: u.user_id, role })}
+                                  disabled={u.role === role}
+                                >
+                                  {ROLE_CONFIG[role].label}
+                                  {u.role === role && " ✓"}
+                                </DropdownMenuItem>
+                              ))}
+                              {u.role && (
+                                <DropdownMenuItem
+                                  className="text-destructive"
+                                  onClick={() => setRemoveTarget(u)}
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" /> Remover papel
+                                </DropdownMenuItem>
+                              )}
+                            </>
                           )}
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -436,7 +624,9 @@ const UserManagement = () => {
 
             {users.length === 0 && (
               <p className="py-8 text-center text-sm text-muted-foreground">
-                Nenhum usuário encontrado.
+                {isSupervisor && !isAdmin
+                  ? "Nenhum atendente cadastrado. Crie um novo atendente para começar."
+                  : "Nenhum usuário encontrado."}
               </p>
             )}
           </div>
@@ -556,6 +746,51 @@ const UserManagement = () => {
             >
               {resetPasswordMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Alterar Senha
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manage instances dialog */}
+      <Dialog open={!!instancesDialogTarget} onOpenChange={(open) => !open && setInstancesDialogTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Instâncias de {instancesDialogTarget?.name}</DialogTitle>
+            <DialogDescription>
+              Selecione quais instâncias este atendente pode visualizar.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            {myInstances.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Nenhuma instância disponível.
+              </p>
+            ) : (
+              <div className="space-y-2 rounded-lg border p-3 max-h-60 overflow-y-auto">
+                {myInstances.map((inst) => (
+                  <label key={inst.id} className="flex items-center gap-2 cursor-pointer text-sm">
+                    <Checkbox
+                      checked={editInstances.includes(inst.id)}
+                      onCheckedChange={() => toggleEditInstance(inst.id)}
+                    />
+                    {inst.name}
+                  </label>
+                ))}
+              </div>
+            )}
+            <Button
+              className="w-full"
+              disabled={updateInstancesMutation.isPending}
+              onClick={() =>
+                instancesDialogTarget &&
+                updateInstancesMutation.mutate({
+                  userId: instancesDialogTarget.user_id,
+                  instanceIds: editInstances,
+                })
+              }
+            >
+              {updateInstancesMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Salvar Instâncias
             </Button>
           </div>
         </DialogContent>
