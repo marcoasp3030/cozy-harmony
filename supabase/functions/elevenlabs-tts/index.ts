@@ -625,17 +625,23 @@ function normalizeSymbols(text: string): string {
 }
 
 function insertBreathingPauses(text: string): string {
-  // LESS aggressive pauses — only at natural sentence boundaries
-  // Remove the overly aggressive clause-based pausing that caused robotic rhythm
+  let result = text;
   
-  // Natural pause between sentences (period, exclamation, question)
-  let result = text.replace(/([.!?])\s+/g, '$1 ');
+  // Add micro-pauses with commas at natural clause boundaries for human-like rhythm
+  // After conjunctions followed by longer clauses
+  result = result.replace(/\b(mas|porém|então|porque|pois|quando|enquanto|embora)\s+/gi, '$1, ');
   
-  // Pause after colons (but shorter)
-  result = result.replace(/:\s+/g, ': ');
+  // Add natural pause after greetings/interjections
+  result = result.replace(/^(oi|olá|bom dia|boa tarde|boa noite|tudo bem|e aí)\b/gi, '$1, ');
   
-  // Remove any triple dots that aren't original (cleanup from previous normalization)
-  result = result.replace(/\.{3,}/g, '...');
+  // Ensure sentence endings have proper spacing for natural pause
+  result = result.replace(/([.!?])\s+/g, '$1 ');
+  
+  // Replace ellipsis with a natural pause marker
+  result = result.replace(/\.{3,}/g, '... ');
+  
+  // Remove double commas that might have been created
+  result = result.replace(/,\s*,/g, ',');
   
   return result;
 }
@@ -759,7 +765,7 @@ serve(async (req) => {
     }
 
     const selectedVoice = voiceId || "EXAVITQu4vr4xnSDxMaL";
-    const selectedModel = model || "eleven_multilingual_v2";
+    const selectedModel = model || "eleven_turbo_v2_5";
     const format = outputFormat || "mp3_44100_128";
 
     // ── Normalize text for natural pronunciation ──
@@ -772,13 +778,16 @@ serve(async (req) => {
       model_id: selectedModel,
     };
 
-    // Voice settings optimized for natural, humanized speech in Portuguese
+    // Voice settings optimized for maximum humanization in Portuguese
+    // Low stability = more expressive variation (human-like inflections)
+    // Higher style = more emotional range and prosody variation
+    // Speed slightly under 1.0 = more deliberate, natural pacing
     body.voice_settings = {
-      stability: voiceSettings?.stability ?? 0.35,
-      similarity_boost: voiceSettings?.similarity_boost ?? 0.78,
-      style: voiceSettings?.style ?? 0.45,
+      stability: voiceSettings?.stability ?? 0.25,
+      similarity_boost: voiceSettings?.similarity_boost ?? 0.72,
+      style: voiceSettings?.style ?? 0.55,
       use_speaker_boost: voiceSettings?.use_speaker_boost ?? true,
-      speed: voiceSettings?.speed ?? 0.92,
+      speed: voiceSettings?.speed ?? 0.95,
     };
 
     const resp = await fetch(

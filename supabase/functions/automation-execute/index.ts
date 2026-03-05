@@ -4885,9 +4885,23 @@ function normalizeSymbolsTTS(text: string): string {
 }
 
 function insertBreathingPausesTTS(text: string): string {
-  let result = text.replace(/([^.!?\n]{60,}?)(,|;)\s/g, '$1$2... ');
-  result = result.replace(/([.!?])\s+(?=[A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇ])/g, '$1 ... ');
-  result = result.replace(/:\s+/g, ':... ');
+  let result = text;
+  
+  // Add micro-pauses at natural clause boundaries for human-like rhythm
+  result = result.replace(/\b(mas|porém|então|porque|pois|quando|enquanto|embora)\s+/gi, '$1, ');
+  
+  // Natural pause after greetings/interjections
+  result = result.replace(/^(oi|olá|bom dia|boa tarde|boa noite|tudo bem|e aí)\b/gi, '$1, ');
+  
+  // Sentence endings with proper spacing
+  result = result.replace(/([.!?])\s+/g, '$1 ');
+  
+  // Ellipsis as natural pause
+  result = result.replace(/\.{3,}/g, '... ');
+  
+  // Remove double commas
+  result = result.replace(/,\s*,/g, ',');
+  
   return result;
 }
 
@@ -4918,7 +4932,7 @@ async function sendElevenLabsAudioFromText(
   // Try user setting first, fallback to project secret (ELEVENLABS_API_KEY)
   let elevenlabsKey = "";
   let userVoiceId = voiceId;
-  let userModel = "eleven_multilingual_v2";
+  let userModel = "eleven_turbo_v2_5";
   let voiceSettings: Record<string, any> | null = null;
 
   if (ctx.userId) {
@@ -4941,11 +4955,11 @@ async function sendElevenLabsAudioFromText(
       // Apply user's voice settings
       if (elConfig.stability !== undefined) {
         voiceSettings = {
-          stability: elConfig.stability ?? 0.3,
-          similarity_boost: elConfig.similarityBoost ?? 0.75,
-          style: elConfig.style ?? 0,
+          stability: elConfig.stability ?? 0.25,
+          similarity_boost: elConfig.similarityBoost ?? 0.72,
+          style: elConfig.style ?? 0.55,
           use_speaker_boost: elConfig.useSpeakerBoost ?? true,
-          speed: elConfig.speed ?? 1.0,
+          speed: elConfig.speed ?? 0.95,
         };
       }
     }
@@ -4970,8 +4984,17 @@ async function sendElevenLabsAudioFromText(
     text: ttsText,
     model_id: userModel,
   };
+  // Apply humanized defaults if no user overrides
   if (voiceSettings) {
     ttsBody.voice_settings = voiceSettings;
+  } else {
+    ttsBody.voice_settings = {
+      stability: 0.25,
+      similarity_boost: 0.72,
+      style: 0.55,
+      use_speaker_boost: true,
+      speed: 0.95,
+    };
   }
 
   const ttsResp = await fetch(
