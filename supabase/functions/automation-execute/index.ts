@@ -1841,15 +1841,17 @@ Responda APENAS com o texto da mensagem.`;
         .from("settings")
         .select("key, value")
         .eq("user_id", ownerAutomation.created_by)
-        .in("key", ["llm_openai", "llm_gemini", "ai_timeout"]);
+        .in("key", ["llm_openai", "llm_gemini", "ai_timeout", "ai_audio_reply"]);
 
       const keys: Record<string, string> = {};
       let aiTimeoutSeconds = 15; // default 15s for automations (fast fallback)
+      let aiAudioReplyEnabled = false;
       for (const s of (settings || [])) {
         const val = s.value as any;
         if (s.key === "llm_openai" && val?.apiKey) keys.openai = val.apiKey;
         if (s.key === "llm_gemini" && val?.apiKey) keys.gemini = val.apiKey;
         if (s.key === "ai_timeout" && val?.seconds) aiTimeoutSeconds = val.seconds;
+        if (s.key === "ai_audio_reply") aiAudioReplyEnabled = val === true || val?.enabled === true;
       }
 
       // ── Whisper: transcribe last inbound audio ──
@@ -3143,9 +3145,10 @@ O cliente enviou uma IMAGEM. Sua prioridade é:
         // Store IA reply as variable for downstream nodes (e.g. TTS with {{ia_reply}})
         ctx.variables["ia_reply"] = reply;
 
-        // If this run came through audio transcription route, prioritize audio reply
+        // If this run came through audio transcription route OR client sent audio and ai_audio_reply is enabled, prioritize audio reply
         const cameFromAudioRoute = Object.prototype.hasOwnProperty.call(ctx.variables, "transcricao");
-        if (cameFromAudioRoute) {
+        const clientSentAudio = (ctx.messageType === "audio" || ctx.messageType === "ptt") && aiAudioReplyEnabled;
+        if (cameFromAudioRoute || clientSentAudio) {
           const voiceId = d.voice_id || "EXAVITQu4vr4xnSDxMaL";
           const audioResult = await sendElevenLabsAudioFromText(supabase, ctx, reply, voiceId);
           if (audioResult.sent) {

@@ -375,6 +375,69 @@ const GEMINI_MODELS = [
   { id: "cloud-tts", name: "Cloud TTS", desc: "Text-to-Speech com vozes naturais", icon: Volume2 },
 ];
 
+const AiAudioReplyToggle = () => {
+  const { user } = useAuth();
+  const [enabled, setEnabled] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from("settings")
+      .select("value")
+      .eq("user_id", user.id)
+      .eq("key", "ai_audio_reply")
+      .maybeSingle()
+      .then(({ data }) => {
+        const val = data?.value;
+        setEnabled(val === true || (val as any)?.enabled === true);
+        setLoading(false);
+      });
+  }, [user]);
+
+  const toggle = async (checked: boolean) => {
+    if (!user) return;
+    setEnabled(checked);
+    await supabase
+      .from("settings")
+      .upsert(
+        { user_id: user.id, key: "ai_audio_reply", value: { enabled: checked } as any },
+        { onConflict: "user_id,key" }
+      );
+    toast.success(checked ? "Resposta em áudio ativada" : "Resposta em áudio desativada");
+  };
+
+  if (loading) return null;
+
+  return (
+    <Card className="mt-4">
+      <CardHeader>
+        <CardTitle className="font-heading">Resposta em Áudio da IA</CardTitle>
+        <CardDescription>Quando o cliente envia áudio, a IA responde também em áudio</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Mic className={`h-5 w-5 ${enabled ? "text-primary" : "text-muted-foreground"}`} />
+            <div>
+              <Label className="text-sm font-medium">Responder áudio com áudio</Label>
+              <p className="text-xs text-muted-foreground">
+                A IA converte a resposta de texto em áudio usando ElevenLabs e envia como mensagem de voz
+              </p>
+            </div>
+          </div>
+          <Switch checked={enabled} onCheckedChange={toggle} />
+        </div>
+        {enabled && (
+          <p className="text-xs text-muted-foreground mt-3 bg-muted/50 rounded p-2">
+            ⚠️ Requer API Key do ElevenLabs configurada em <strong>Configurações → ElevenLabs</strong>.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 const LlmApiConfig = () => {
   const { user } = useAuth();
   const [openaiKey, setOpenaiKey] = useState("");
@@ -991,6 +1054,7 @@ const SettingsPage = () => {
 
         <TabsContent value="apillm" className="space-y-4">
           <LlmApiConfig />
+          <AiAudioReplyToggle />
           <LlmUsageDashboard />
         </TabsContent>
 
