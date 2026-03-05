@@ -5008,8 +5008,58 @@ function insertBreathingPausesTTS(text: string): string {
   return result;
 }
 
+// ── Pronunciation corrections for proper nouns & brands commonly mispronounced by TTS ──
+const TTS_PRONUNCIATION_FIXES: Record<string, string> = {
+  'Audi': 'áudi', 'audi': 'áudi', 'AUDI': 'áudi',
+  'Hyundai': 'riundái', 'hyundai': 'riundái',
+  'Chevrolet': 'chevrôlé', 'chevrolet': 'chevrôlé',
+  'Peugeot': 'pejô', 'peugeot': 'pejô',
+  'Renault': 'renô', 'renault': 'renô',
+  'Porsche': 'pórche', 'porsche': 'pórche',
+  'Volkswagen': 'fólquisváguen', 'volkswagen': 'fólquisváguen',
+  'BMW': 'bê ême dáblio',
+  'Nissan': 'níçan', 'nissan': 'níçan',
+  'Toyota': 'toiôta', 'toyota': 'toiôta',
+  'Honda': 'rônda', 'honda': 'rônda',
+  'Jeep': 'djípe', 'jeep': 'djípe',
+  'Mitsubishi': 'mitsubíchi', 'Suzuki': 'suzúqui', 'Subaru': 'subáru',
+  'Land Rover': 'lând rôver', 'Range Rover': 'rêindj rôver',
+  'WhatsApp': 'uótsapp', 'whatsapp': 'uótsapp',
+  'Instagram': 'instagrãm', 'instagram': 'instagrãm',
+  'Facebook': 'feicebuk', 'facebook': 'feicebuk',
+  'Google': 'gúgol', 'google': 'gúgol',
+  'YouTube': 'iutúbi', 'youtube': 'iutúbi',
+  'iPhone': 'aifôni', 'iphone': 'aifôni',
+  'Wi-Fi': 'uaifai', 'wifi': 'uaifai', 'WiFi': 'uaifai',
+  'delivery': 'delivéri', 'Delivery': 'delivéri',
+  'online': 'onlaine', 'Online': 'onlaine',
+  'email': 'iméil', 'Email': 'iméil', 'e-mail': 'iméil',
+  'login': 'lóguin', 'Login': 'lóguin',
+  'feedback': 'fídbéque', 'Feedback': 'fídbéque',
+  'link': 'linque', 'Link': 'linque',
+  'site': 'sáite', 'app': 'épp', 'App': 'épp',
+  'shopping': 'chóping', 'Shopping': 'chóping',
+  'QR code': 'quiú-ár côde', 'QR Code': 'quiú-ár côde',
+  'drive-thru': 'dráive trú', 'self-service': 'sélfi sérvice',
+  'checkout': 'tchéquiaut', 'Checkout': 'tchéquiaut',
+  'cashback': 'quéchbéque', 'Cashback': 'quéchbéque',
+};
+
+function normalizePronunciationTTS(text: string): string {
+  const entries = Object.entries(TTS_PRONUNCIATION_FIXES).sort((a, b) => b[0].length - a[0].length);
+  for (const [word, phonetic] of entries) {
+    if (word.includes(' ') || word.includes('-')) {
+      text = text.replace(new RegExp(word.replace(/[-\s]/g, '[-\\s]'), 'gi'), phonetic);
+    } else {
+      text = text.replace(new RegExp(`\\b${word}\\b`, 'g'), phonetic);
+    }
+  }
+  return text;
+}
+
 function normalizeNumbersForTTS(text: string): string {
   let normalized = text;
+  normalized = normalizePronunciationTTS(normalized);
   normalized = normalizeCurrencyTTS(normalized);
   normalized = normalizePercentagesTTS(normalized);
   normalized = normalizeOrdinalsTTS(normalized);
