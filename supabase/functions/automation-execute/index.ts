@@ -93,26 +93,31 @@ const disabledProviders = new Set<string>();
 // ── Model name mapping: translate OpenAI model names to Gemini equivalents ──
 function mapModelForProvider(model: string, targetProvider: "openai" | "gemini"): string {
   if (targetProvider === "gemini") {
-    // Map OpenAI model names to Gemini equivalents
     const geminiMap: Record<string, string> = {
       "gpt-4o": "gemini-2.5-flash",
       "gpt-4o-mini": "gemini-2.5-flash",
       "gpt-4-turbo": "gemini-2.5-flash",
       "gpt-4": "gemini-2.5-flash",
       "gpt-3.5-turbo": "gemini-2.5-flash-lite",
+      "o1": "gemini-2.5-pro",
+      "o3-mini": "gemini-2.5-flash",
     };
-    return geminiMap[model] || (model.startsWith("gpt") ? "gemini-2.5-flash" : model);
+    return geminiMap[model] || (model.startsWith("gpt") || model.startsWith("o") ? "gemini-2.5-flash" : model);
   }
   if (targetProvider === "openai") {
-    // Map Gemini model names to OpenAI equivalents
     const openaiMap: Record<string, string> = {
-      "gemini-2.5-flash": "gpt-4o",
-      "gemini-2.5-flash-lite": "gpt-4o-mini",
-      "gemini-2.5-pro": "gpt-4o",
+      "gemini-2.5-flash": "o1",
+      "gemini-2.5-flash-lite": "o1",
+      "gemini-2.5-pro": "o1",
     };
-    return openaiMap[model] || (model.startsWith("gemini") ? "gpt-4o" : model);
+    return openaiMap[model] || (model.startsWith("gemini") ? "o1" : model);
   }
   return model;
+}
+
+// Check if a model is an OpenAI reasoning model (o1, o3, etc.) that uses different API params
+function isReasoningModel(model: string): boolean {
+  return /^o[0-9]/.test(model);
 }
 
 // ── Reply style guard: enforce natural WhatsApp responses (supports multi-message) ──
@@ -223,10 +228,9 @@ async function callAIWithUserKeys(
           method: "POST",
           headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: "gpt-4o",
-            messages: [{ role: "user", content: prompt }],
-            max_tokens: maxTokens,
-            temperature,
+            model: "o1",
+            messages: [{ role: "developer", content: prompt }],
+            max_completion_tokens: maxTokens,
           }),
           signal: controller.signal,
         });
@@ -339,7 +343,7 @@ async function callAIVisionWithUserKeys(
         method: "POST",
         headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "gpt-4o",
+          model: "o1",
           messages: [{
             role: "user",
             content: [
@@ -1819,7 +1823,7 @@ Responda APENAS com o texto da mensagem.`;
     if (type === "action_llm_reply") {
       const systemPrompt = interpolate(String(d.system_prompt || "Você é um assistente de atendimento."), ctx);
       const provider = d.provider || "openai";
-      const model = d.model || (provider === "openai" ? "gpt-4o" : "gemini-2.5-flash");
+      const model = d.model || (provider === "openai" ? "o1" : "gemini-2.5-flash");
       const maxTokens = parseInt(d.max_tokens) || 2048;
 
       // Get user API keys
@@ -2850,10 +2854,26 @@ O cliente enviou uma IMAGEM. Sua prioridade é:
           if (selectedProvider === "openai") {
             const controller = new AbortController();
             const tid = setTimeout(() => controller.abort(), aiTimeoutSeconds * 1000);
+            const openaiModel = mapModelForProvider(model, "openai");
+            const isReasoning = isReasoningModel(openaiModel);
+            
+            // o1/o3 models: use "developer" instead of "system", max_completion_tokens instead of max_tokens, no temperature
+            const openaiMessages = isReasoning
+              ? chatMessages.map((m: any) => ({ ...m, role: m.role === "system" ? "developer" : m.role }))
+              : chatMessages;
+            
+            const openaiBody: any = { model: openaiModel, messages: openaiMessages };
+            if (isReasoning) {
+              openaiBody.max_completion_tokens = maxTokens;
+            } else {
+              openaiBody.max_tokens = maxTokens;
+              openaiBody.temperature = 0.7;
+            }
+            
             const resp = await fetch("https://api.openai.com/v1/chat/completions", {
               method: "POST",
               headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ model: mapModelForProvider(model, "openai"), messages: chatMessages, max_tokens: maxTokens, temperature: 0.7 }),
+              body: JSON.stringify(openaiBody),
               signal: controller.signal,
             });
             clearTimeout(tid);
