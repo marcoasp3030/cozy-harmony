@@ -2692,8 +2692,27 @@ O cliente enviou uma IMAGEM. Sua prioridade é:
 5. NUNCA ignore a imagem ou responda como se fosse apenas texto.`;
       }
 
+      // ── TTS DICTION: force formal spelling when reply will be audio ──
+      let ttsDictionHint = "";
+      const willBeAudio = Object.prototype.hasOwnProperty.call(ctx.variables, "transcricao") ||
+        ((ctx.messageType === "audio" || ctx.messageType === "ptt") && aiAudioReplyEnabled);
+      if (willBeAudio) {
+        ttsDictionHint = `
+
+⚠️ REGRA OBRIGATÓRIA — DICÇÃO PARA ÁUDIO (TTS):
+Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COMPLETA e FORMAL.
+- NUNCA use abreviações: "vc" → "você", "tá" → "está", "tô" → "estou", "pra" → "para", "né" → "não é", "tb" → "também", "qdo" → "quando", "q" → "que", "td" → "tudo", "blz" → "beleza", "msg" → "mensagem", "info" → "informação", "dps" → "depois", "hj" → "hoje", "obg" → "obrigado", "vlw" → "valeu", "pfv" → "por favor", "tbm" → "também", "cmg" → "comigo", "ctz" → "certeza", "mt" → "muito", "msm" → "mesmo", "vdd" → "verdade", "bom d+" → "muito bom", "d+" → "demais"
+- Escreva TODAS as palavras por EXTENSO sem exceção.
+- Use pontuação correta para ritmo natural de fala.
+- Valores monetários por extenso: "cento e cinquenta reais" em vez de "R$ 150,00".
+- Números por extenso: "três dias" em vez de "3 dias".
+- Mantenha o tom amigável e natural, mas com palavras COMPLETAS.
+- Exemplo CORRETO: "Você está bem? Vou verificar isso para você!"
+- Exemplo ERRADO: "vc tá bem? vou verificar pra vc!"`;
+      }
+
       // ── Compose final enriched system prompt ──
-      const enrichedSystemPrompt = systemPrompt + profileContext + memoryHint + productContext + knowledgeContext + sentimentHint + toneHint + fewShotHint + languageHint + variationHint + autonomousStoreHint + pixQualificationHint + imageHint;
+      const enrichedSystemPrompt = systemPrompt + profileContext + memoryHint + productContext + knowledgeContext + sentimentHint + toneHint + fewShotHint + languageHint + variationHint + autonomousStoreHint + pixQualificationHint + imageHint + ttsDictionHint;
 
       // Merge and sort by created_at
       const allRecent = [
