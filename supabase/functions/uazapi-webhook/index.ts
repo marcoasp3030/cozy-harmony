@@ -222,29 +222,52 @@ serve(async (req) => {
 
       // ── Resolve owner user_id from matching WhatsApp instance ──
       let ownerUserId: string | null = null;
+      let resolvedInstanceId: string | null = null;
       const baseUrlFromPayloadEarly = body.BaseUrl || body.baseUrl || '';
+      const instanceNameFromPayload = body.instanceName || body.instance || '';
+      
       if (baseUrlFromPayloadEarly) {
         const { data: ownerInstances } = await supabase
           .from('whatsapp_instances')
-          .select('user_id, base_url')
-          .limit(10);
-        const matched = (ownerInstances || []).find((inst: any) => {
+          .select('id, user_id, base_url, instance_name')
+          .limit(50);
+        
+        // Priority 1: match by both base_url AND instance_name (exact tenant match)
+        let matched = (ownerInstances || []).find((inst: any) => {
           const a = String(inst.base_url || '').replace(/\/+$/, '');
           const b = String(baseUrlFromPayloadEarly).replace(/\/+$/, '');
-          return a === b || a.includes(b) || b.includes(a);
+          const urlMatch = a === b || a.includes(b) || b.includes(a);
+          const nameMatch = instanceNameFromPayload && String(inst.instance_name || '') === String(instanceNameFromPayload);
+          return urlMatch && nameMatch;
         });
-        if (matched) ownerUserId = matched.user_id;
+        
+        // Priority 2: match by base_url only (legacy / single-tenant)
+        if (!matched) {
+          matched = (ownerInstances || []).find((inst: any) => {
+            const a = String(inst.base_url || '').replace(/\/+$/, '');
+            const b = String(baseUrlFromPayloadEarly).replace(/\/+$/, '');
+            return a === b || a.includes(b) || b.includes(a);
+          });
+        }
+        
+        if (matched) {
+          ownerUserId = matched.user_id;
+          resolvedInstanceId = matched.id;
+        }
       }
       if (!ownerUserId) {
         // Fallback: pick the first instance's owner
         const { data: fallbackInst } = await supabase
           .from('whatsapp_instances')
-          .select('user_id')
+          .select('id, user_id')
           .limit(1)
           .maybeSingle();
-        if (fallbackInst) ownerUserId = fallbackInst.user_id;
+        if (fallbackInst) {
+          ownerUserId = fallbackInst.user_id;
+          resolvedInstanceId = fallbackInst.id;
+        }
       }
-      console.log(`Resolved owner user_id: ${ownerUserId}`);
+      console.log(`Resolved owner user_id: ${ownerUserId}, instanceId: ${resolvedInstanceId}, instanceName: ${instanceNameFromPayload}`);
 
       // ── Download encrypted media via UazAPI and upload to Storage ──
       if (messageType !== 'text' && externalId) {
@@ -256,17 +279,34 @@ serve(async (req) => {
             // Get UazAPI instance config to download media
             const baseUrlFromPayload = body.BaseUrl || body.baseUrl || '';
             if (baseUrlFromPayload) {
-              // Find instance token by matching base_url
+              // Find instance token by matching base_url + instance_name
               const { data: instances } = await supabase
                 .from('whatsapp_instances')
-                .select('instance_token, base_url')
-                .limit(10);
+                .select('instance_token, base_url, instance_name')
+                .limit(50);
               
-              const matchedInstance = (instances || []).find((inst: any) => {
-                const instUrl = String(inst.base_url || '').replace(/\/+$/, '');
-                const payloadUrl = String(baseUrlFromPayload).replace(/\/+$/, '');
-                return instUrl === payloadUrl || instUrl.includes(payloadUrl) || payloadUrl.includes(instUrl);
-              });
+              // Prefer exact match by resolvedInstanceId, then by name+url, then url only
+              let matchedInstance = resolvedInstanceId
+                ? (instances || []).find((inst: any) => inst.instance_name === instanceNameFromPayload)
+                : null;
+              
+              if (!matchedInstance) {
+                matchedInstance = (instances || []).find((inst: any) => {
+                  const instUrl = String(inst.base_url || '').replace(/\/+$/, '');
+                  const payloadUrl = String(baseUrlFromPayload).replace(/\/+$/, '');
+                  const urlMatch = instUrl === payloadUrl || instUrl.includes(payloadUrl) || payloadUrl.includes(instUrl);
+                  const nameMatch = instanceNameFromPayload && String(inst.instance_name || '') === String(instanceNameFromPayload);
+                  return urlMatch && nameMatch;
+                });
+              }
+              
+              if (!matchedInstance) {
+                matchedInstance = (instances || []).find((inst: any) => {
+                  const instUrl = String(inst.base_url || '').replace(/\/+$/, '');
+                  const payloadUrl = String(baseUrlFromPayload).replace(/\/+$/, '');
+                  return instUrl === payloadUrl || instUrl.includes(payloadUrl) || payloadUrl.includes(instUrl);
+                });
+              }
 
               if (matchedInstance?.instance_token) {
                 const apiBase = String(baseUrlFromPayload).replace(/\/+$/, '');
