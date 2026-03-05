@@ -2422,6 +2422,20 @@ Responda APENAS com o texto da mensagem.`;
 - NUNCA use despedidas genéricas como "Qualquer coisa, estou aqui!", "Fico à disposição", "Estou aqui pra ajudar", "A sua colaboração é importante".
 - Seja natural como uma pessoa real conversando no WhatsApp, não como um bot.
 
+🚫 REGRA ANTI-REPETIÇÃO (CRÍTICO):
+- Releia TODAS as suas mensagens anteriores nesta conversa.
+- Se você JÁ FEZ uma pergunta e o cliente respondeu (mesmo que com algo vago), NÃO repita a mesma pergunta.
+- Se o cliente repetiu a mesma mensagem, ele está frustrado — AVANCE no atendimento em vez de repetir a pergunta.
+- Se o cliente disse "sim" ou "não" a uma pergunta, interprete a resposta e PROSSIGA.
+- Se você perguntou sobre erro na tela e o cliente respondeu qualquer coisa: aceite e avance.
+- NUNCA envie a mesma mensagem duas vezes na mesma conversa.
+
+📚 PRIORIDADE DA BASE DE CONHECIMENTO (OBRIGATÓRIO):
+- Quando houver informações na seção "📚 BASE DE CONHECIMENTO", elas têm PRIORIDADE ABSOLUTA sobre seu conhecimento geral.
+- Siga EXATAMENTE as instruções da base de conhecimento, incluindo o que NÃO fazer.
+- Se a base diz "NÃO peça X", você NÃO pede X — mesmo que pareça lógico.
+- Se a base tem um roteiro de diagnóstico, siga-o na ORDEM indicada.
+
 📱 FORMATO DE RESPOSTA — MÚLTIPLAS MENSAGENS:
 - Responda como um HUMANO REAL faria no WhatsApp: envie 2-3 mensagens curtas em sequência, NÃO um textão.
 - Separe cada mensagem com "---" em uma linha sozinha.
@@ -2435,9 +2449,9 @@ Antes de dizer "vou registrar" ou "vou encaminhar", CERTIFIQUE-SE de ter coletad
 3. ✅ DETALHES ESPECÍFICOS — varia por tipo:
    - Produto: nome, código de barras, prateleira/seção
    - Pagamento: valor, o que tentou, erro exibido
-   - Acesso: tipo de erro, primeira vez ou recorrente
+   - Acesso: tipo de erro, primeira vez ou recorrente, se já tem cadastro
    - Limpeza/higiene: qual área, gravidade
-   - Equipamento: qual aparelho, que erro mostra
+   - Equipamento: qual aparelho, que erro mostra na tela
 
 Se FALTAM informações, pergunte de forma natural e amigável antes de prosseguir.
 NÃO registre/encaminhe com dados incompletos.
@@ -2456,6 +2470,11 @@ Exemplo BOM (cliente perguntou preço):
 Deixa eu ver aqui pra vc
 ---
 Manda uma foto do código de barras que eu consulto rapidinho 📸
+
+Exemplo BOM (problema de acesso/reconhecimento facial):
+Poxa, que chato 😕 Vc já fez o cadastro facial na loja?
+---
+Se já fez, a tela do equipamento na porta tá mostrando algum erro? Pode mandar uma foto da tela pra eu analisar 📸
 
 Exemplo RUIM (textão único):
 "Obrigada por nos avisar sobre a falta de produtos na loja Nilville. Vou encaminhar essa informação para a equipe responsável pelo abastecimento, para que eles possam resolver isso o mais rápido possível. A sua colaboração é fundamental para mantermos a loja completa."
@@ -2488,11 +2507,14 @@ Se você NÃO sabe o nome da loja, NÃO use a tag — pergunte normalmente "Em q
 📋 PROTOCOLO DE COLETA DE INFORMAÇÕES — ANTES DE REGISTRAR/ENCAMINHAR:
 Para CADA tipo de problema, colete os dados listados ANTES de dizer que vai resolver:
 
-🔴 ACESSO BLOQUEADO / PORTA NÃO ABRE:
+🔴 ACESSO BLOQUEADO / RECONHECIMENTO FACIAL / PORTA NÃO ABRE:
 - ✅ Qual unidade/loja? (confirmar)
-- ✅ O reconhecimento facial não funcionou? Primeira vez?
-- Oriente: limpar câmera, centralizar rosto, remover óculos/boné
-- Se não resolver: registre ocorrência
+- ✅ O cliente já possui cadastro facial? Se NÃO: orientar a escanear QR Code na porta.
+- ✅ Se já tem cadastro: perguntar se a TELA DO EQUIPAMENTO NA PORTA mostra algum erro.
+- 📸 Pedir foto da tela do equipamento para análise: "Pode tirar uma foto da tela do equipamento na porta? Assim consigo ver o erro certinho 📸"
+- ⚠️ O reconhecimento facial é um EQUIPAMENTO FIXO na PORTA da loja, NÃO é a câmera do celular do cliente!
+- ⚠️ NUNCA peça para "limpar a câmera do celular" ou "centralizar o rosto" — isso não faz sentido.
+- Se problema persistente: registre ocorrência com detalhes do erro.
 
 ⚡ LOJA SEM ENERGIA / EQUIPAMENTOS DESLIGADOS:
 - ✅ Qual unidade? (confirmar)
@@ -2917,6 +2939,42 @@ O cliente enviou uma IMAGEM. Sua prioridade é:
           } else {
             const fullPrompt = chatMessages.map((m: any) => `[${m.role}]: ${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`).join("\n");
             reply = await callAIWithUserKeys(effectiveKeys, fullPrompt, { maxTokens, temperature: 0.7, timeoutMs: fallbackTimeout * 1000 });
+          }
+        }
+        // Lovable AI Gateway fallback (superior model)
+        if (!reply) {
+          const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+          if (LOVABLE_API_KEY) {
+            console.log("[AI] Trying Lovable AI Gateway with google/gemini-2.5-pro");
+            try {
+              const controller = new AbortController();
+              const tid = setTimeout(() => controller.abort(), 25000);
+              const gatewayResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${LOVABLE_API_KEY}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  model: "google/gemini-2.5-pro",
+                  messages: chatMessages,
+                  max_tokens: maxTokens,
+                  temperature: 0.7,
+                }),
+                signal: controller.signal,
+              });
+              clearTimeout(tid);
+              if (gatewayResp.ok) {
+                const data = await gatewayResp.json();
+                reply = data.choices?.[0]?.message?.content?.trim() || "";
+                if (reply) console.log(`[AI] Lovable Gateway success (${reply.length} chars)`);
+              } else {
+                const errText = await gatewayResp.text();
+                console.error(`[AI] Lovable Gateway error (${gatewayResp.status}): ${errText.slice(0, 100)}`);
+              }
+            } catch (e) {
+              console.error("[AI] Lovable Gateway call failed:", e);
+            }
           }
         }
         if (!reply) {
