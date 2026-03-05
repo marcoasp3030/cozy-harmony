@@ -2086,24 +2086,38 @@ Responda APENAS com o texto da mensagem.`;
       // ── HANDLE STORE BUTTON RESPONSES ──
       // ══════════════════════════════════════════════════════════
       const msgTrimmed = (ctx.messageContent || "").trim().toLowerCase();
-      const isStoreYes = /^(store_yes_|✅\s*sim|sim,?\s+[a-záàâãéèêíïóôõöúç])/i.test(msgTrimmed) || msgTrimmed === "sim";
-      const isStoreNo = msgTrimmed === "store_change" || /^(❌\s*n[ãa]o|n[ãa]o,?\s*outra)/i.test(msgTrimmed);
+      // Only match button IDs or explicit button text patterns — NOT bare "sim"
+      const isStoreYes = /^store_yes_/i.test(msgTrimmed) || /^✅\s*sim/i.test(msgTrimmed);
+      const isStoreNo = msgTrimmed === "store_change" || /^❌\s*n[ãa]o/i.test(msgTrimmed);
 
-      // Only handle as store button if there was a recent store confirmation message
+      // Stop words to validate pendingStore extraction
+      const storeStopWords = new Set(["no","na","da","do","de","que","para","por","com","em","um","uma","os","as","ou","sim","não","nao","aqui","loja","unidade","condominio","condomínio","problema","produto","acesso","acessar"]);
+
+      // Only handle as store button if there was a RECENT store confirmation message (within 5 min)
       if (isStoreYes || isStoreNo) {
         let pendingStore = "";
         try {
+          const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
           const { data: recentInt } = await supabase
             .from("messages")
-            .select("content")
+            .select("content, created_at")
             .eq("contact_id", ctx.contactId)
             .eq("direction", "outbound")
             .eq("type", "interactive")
+            .gte("created_at", fiveMinAgo)
             .order("created_at", { ascending: false })
             .limit(3);
           for (const msg of recentInt || []) {
-            const sm = (msg.content || "").match(/unidade\s+\*([^*]+)\*/i);
-            if (sm?.[1]) { pendingStore = sm[1].trim(); break; }
+            // Match the confirmation button format: "📍 Você está na unidade *StoreName*?"
+            const sm = (msg.content || "").match(/está\s+na\s+unidade\s+\*([^*]+)\*/i);
+            if (sm?.[1]) {
+              const candidate = sm[1].trim();
+              // Validate: not a stop word and minimum length
+              if (candidate.length > 2 && !storeStopWords.has(candidate.toLowerCase())) {
+                pendingStore = candidate;
+                break;
+              }
+            }
           }
         } catch {}
 
