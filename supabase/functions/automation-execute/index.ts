@@ -3068,9 +3068,15 @@ O cliente enviou uma IMAGEM. Sua prioridade é:
           // PRIMARY: Parse structured [CONFIRMAR_LOJA:Name] tag from AI reply
           let detectedStoreName = "";
           const tagMatch = reply.match(/\[CONFIRMAR_LOJA:([^\]]+)\]/i);
+          const invalidStoreNames = new Set(["no","na","da","do","de","que","para","por","com","em","um","uma","os","as","ou","sim","não","nao","aqui","esse","essa","este","esta","isso","muito","mais","como","quando","onde","porque","meu","minha","outro","outra","loja","unidade","condominio","condomínio","problema","produto","acesso","acessar"]);
           if (tagMatch?.[1]) {
-            detectedStoreName = tagMatch[1].trim();
-            console.log(`[STORE CONFIRM] Detected via tag: "${detectedStoreName}"`);
+            const tagCandidate = tagMatch[1].trim();
+            if (tagCandidate.length > 2 && !invalidStoreNames.has(tagCandidate.toLowerCase())) {
+              detectedStoreName = tagCandidate;
+              console.log(`[STORE CONFIRM] Detected via tag: "${detectedStoreName}"`);
+            } else {
+              console.log(`[STORE CONFIRM] Tag value "${tagCandidate}" rejected (stop word or too short)`);
+            }
           }
 
           // FALLBACK: Regex patterns for when AI forgets the tag
@@ -3081,7 +3087,7 @@ O cliente enviou uma IMAGEM. Sua prioridade é:
               /(?:é|e)\s+(?:na|no|da|do)\s+(?:unidade|loja|condom[ií]nio)\s+([A-ZÀ-Ú][\w\s\-']{2,25}?)\s*,?\s*(?:certo|n[eé]|isso|correto|mesmo)\s*\??/i,
               /(?:unidade|loja|condom[ií]nio)\s+([A-ZÀ-Ú][\w\s\-']{2,25}?)\s*,?\s*(?:certo|n[eé]|isso|correto|mesmo)\s*\??/i,
             ];
-            const stopWords = new Set(["aqui","esse","essa","este","esta","isso","muito","mais","como","quando","onde","porque","meu","minha","outro","outra","sim","não","nao","na","no","da","do","de","que","para","por","com","em","um","uma","os","as","ou"]);
+            const stopWords = invalidStoreNames;
             for (const pat of storeConfirmPatterns) {
               const m = fullReply.match(pat);
               if (m?.[1]) {
