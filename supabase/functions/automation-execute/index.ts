@@ -2846,11 +2846,11 @@ O cliente enviou uma IMAGEM. Sua prioridade é:
       let reply = "";
 
       // Try user's own API key first
-      // IMPORTANT: When there's an image, ALWAYS prefer Gemini (native vision support)
-      // Also prefer Gemini if OpenAI has been disabled due to quota/auth errors
-      const selectedProvider = (imageBase64 && keys.gemini) || disabledProviders.has("openai")
-        ? "gemini" 
-        : (model.startsWith("gemini") ? "gemini" : "openai");
+      // OpenAI gpt-4o supports vision natively (images, PDFs), prefer it when available
+      // This avoids needing Lovable AI fallback for multimodal content
+      const selectedProvider = disabledProviders.has("openai")
+        ? "gemini"
+        : (keys.openai ? "openai" : (keys.gemini ? "gemini" : "openai"));
       const hasUserKey = !!keys[selectedProvider];
 
       if (hasUserKey) {
@@ -2858,8 +2858,9 @@ O cliente enviou uma IMAGEM. Sua prioridade é:
           if (selectedProvider === "openai") {
             const controller = new AbortController();
             const tid = setTimeout(() => controller.abort(), aiTimeoutSeconds * 1000);
-            const openaiModel = mapModelForProvider(model, "openai");
-            const isReasoning = isReasoningModel(openaiModel);
+            // Force gpt-4o for multimodal (images/vision) - it has the best vision support
+            const openaiModel = imageBase64 ? "gpt-4o" : mapModelForProvider(model, "openai");
+            const isReasoning = imageBase64 ? false : isReasoningModel(openaiModel);
             
             // o1/o3 models: use "developer" instead of "system", max_completion_tokens instead of max_tokens, no temperature
             const openaiMessages = isReasoning
