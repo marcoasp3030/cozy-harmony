@@ -68,6 +68,20 @@ serve(async (req) => {
       globalAdminToken = gv.adminToken || '';
     }
 
+    // Fallback to admin's global config if user doesn't have their own
+    if (!globalBaseUrl || !globalAdminToken) {
+      const serviceSupabase = createClient(
+        Deno.env.get('SUPABASE_URL')!,
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+      );
+      const { data: adminConfig } = await serviceSupabase.rpc('get_admin_uazapi_config');
+      if (adminConfig) {
+        const ac = adminConfig as any;
+        if (!globalBaseUrl) globalBaseUrl = ac.baseUrl || '';
+        if (!globalAdminToken) globalAdminToken = ac.adminToken || '';
+      }
+    }
+
     // ── RESOLVE CONFIG: from whatsapp_instances table or legacy settings ──
     let config: { baseUrl: string; adminToken: string; instanceToken: string; instanceName?: string } = {
       baseUrl: '', adminToken: '', instanceToken: '',
