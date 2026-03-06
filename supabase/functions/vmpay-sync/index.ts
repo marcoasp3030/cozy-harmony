@@ -127,21 +127,50 @@ Deno.serve(async (req) => {
     const machines = await vmpayGetSafe("/machines", vmpayToken);
     console.log(`Fetched ${machines.length} machines`);
 
-    // 3. Collect products from planograms using correct endpoint:
-    // GET /machines/{machine_id}/installations/{installation_id}/planograms
+    // Debug: log first machine structure to understand fields
+    if (machines.length > 0) {
+      console.log("First machine keys:", JSON.stringify(Object.keys(machines[0])));
+      console.log("First machine sample:", JSON.stringify(machines[0]).substring(0, 500));
+    }
+
+    // 3. Collect products from planograms
+    // Strategy: iterate all installations × machines, try planogram endpoint for each pair
     const allProducts: Map<string, any> = new Map();
 
-    for (const machine of machines) {
-      const installationId = machine.installation_id;
-      if (!installationId) {
-        console.warn(`Machine ${machine.id} has no installation_id, skipping planograms`);
-        continue;
-      }
+    // First try: extract installation_id from machine object (various possible fields)
+    const machineInstallationPairs: Array<{machineId: number, installationId: number}> = [];
 
-      const planogramPath = `/machines/${machine.id}/installations/${installationId}/planograms`;
+    for (const machine of machines) {
+      const instId = machine.installation_id
+        || machine.installation?.id
+        || machine.current_installation_id
+        || machine.current_installation?.id;
+      if (instId) {
+        machineInstallationPairs.push({ machineId: machine.id, installationId: instId });
+      }
+    }
+
+    console.log(`Found ${machineInstallationPairs.length} machine-installation pairs from machine data`);
+
+    // Fallback: if no pairs found from machine data, iterate all installations × machines
+    if (machineInstallationPairs.length === 0 && installations.length > 0 && machines.length > 0) {
+      console.log("No installation_id in machines. Trying all installation × machine combinations...");
+      for (const inst of installations) {
+        for (const machine of machines) {
+          machineInstallationPairs.push({ machineId: machine.id, installationId: inst.id });
+        }
+      }
+      console.log(`Generated ${machineInstallationPairs.length} combinations to try`);
+    }
+
+    let planogramsFetched = 0;
+    for (const pair of machineInstallationPairs) {
+      const planogramPath = `/machines/${pair.machineId}/installations/${pair.installationId}/planograms`;
       try {
         const planograms = await vmpayGetAll(planogramPath, vmpayToken);
-        console.log(`Machine ${machine.id}/Installation ${installationId}: ${planograms.length} planograms`);
+        if (!planograms.length) continue;
+        planogramsFetched++;
+        console.log(`Machine ${pair.machineId}/Installation ${pair.installationId}: ${planograms.length} planograms`);
 
         for (const plan of planograms) {
           const items = plan.items || plan.planogram_items || [];
@@ -153,7 +182,7 @@ Deno.serve(async (req) => {
             const name = product.name || item.name || `Produto ${productId}`;
             const price = item.current_price ?? item.price ?? product.price ?? 0;
             const barcode = product.barcode || product.ean || item.barcode || null;
-            const storeName = installationMap.get(installationId) || null;
+            const storeName = installationMap.get(pair.installationId) || null;
             const category = product.category?.name || product.category || storeName;
 
             allProducts.set(String(productId), {
@@ -166,9 +195,10 @@ Deno.serve(async (req) => {
           }
         }
       } catch (e) {
-        console.warn(`Error fetching planograms ${planogramPath}:`, e.message);
+        // Silently skip 404s/errors for invalid combinations
       }
     }
+    console.log(`Planograms fetched successfully from ${planogramsFetched} pairs, ${allProducts.size} unique products`);
 
     // 3b. Try fetching products directly as fallback
     const directProducts = await vmpayGetSafe("/products", vmpayToken);
