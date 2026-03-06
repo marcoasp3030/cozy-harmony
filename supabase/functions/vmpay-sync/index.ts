@@ -85,6 +85,38 @@ Deno.serve(async (req) => {
       );
     }
 
+    if (action === "sync_clients") {
+      // Fetch clients (stores) and save them
+      const clients = await vmpayGetAll("/clients", vmpayToken);
+      console.log(`Fetched ${clients.length} clients (stores)`);
+
+      const stores = clients.map((c: any) => ({
+        id: c.id,
+        name: c.name || `Cliente ${c.id}`,
+        corporate_name: c.corporate_name || null,
+        cnpj: c.cnpj || c.cpf || null,
+        contact_name: c.contact_name || null,
+        contact_phone: c.contact_phone || null,
+        contact_email: c.contact_email || null,
+      }));
+
+      await supabase
+        .from("settings")
+        .upsert(
+          {
+            user_id: user.id,
+            key: "vmpay_stores",
+            value: { stores, synced_at: new Date().toISOString() },
+          },
+          { onConflict: "user_id,key" }
+        );
+
+      return new Response(
+        JSON.stringify({ success: true, stores }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Full sync
     console.log("Starting VMPay sync for user", user.id);
 
