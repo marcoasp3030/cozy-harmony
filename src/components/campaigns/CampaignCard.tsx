@@ -62,6 +62,10 @@ export default function CampaignCard({ campaign, executing, onExecute, onEdit, o
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const { instances } = useWhatsAppInstances();
+  const instanceName = campaign.instance_id
+    ? instances.find((i) => i.id === campaign.instance_id)?.name
+    : null;
 
   const s = (campaign.stats as CampaignStats) || { total: 0, sent: 0, delivered: 0, read: 0, failed: 0 };
   const progress = s.total > 0 ? ((s.sent + s.failed) / s.total) * 100 : 0;
