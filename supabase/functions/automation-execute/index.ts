@@ -3788,9 +3788,23 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
                 const firstPriceStr = firstProd.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
                 
                 // Store remaining products in queue (skip first, it's being asked now)
+                // PERSIST in conversation notes so it survives across webhook executions
                 if (pendingQtyProducts.length > 1) {
-                  ctx.variables["_pending_qty_queue"] = JSON.stringify(pendingQtyProducts.slice(1));
-                  console.log(`[POST-LLM] ${pendingQtyProducts.length} products found — asking qty for first, ${pendingQtyProducts.length - 1} queued`);
+                  const queueData = pendingQtyProducts.slice(1);
+                  ctx.variables["_pending_qty_queue"] = JSON.stringify(queueData);
+                  console.log(`[POST-LLM] ${pendingQtyProducts.length} products found — asking qty for first, ${queueData.length} queued`);
+                  try {
+                    await supabase.from("conversations").update({
+                      notes: JSON.stringify({
+                        ...((() => { try { return JSON.parse(ctx.variables["_conv_notes_raw"] || "{}"); } catch { return {}; } })()),
+                        pending_qty_queue: queueData,
+                        pending_qty_updated: new Date().toISOString(),
+                      }),
+                    }).eq("id", ctx.conversationId);
+                    console.log(`[POST-LLM] Queue persisted to conversation notes (${queueData.length} items)`);
+                  } catch (e) {
+                    console.error("[POST-LLM] Failed to persist queue:", e);
+                  }
                 }
                 
                 // Store current product being asked
