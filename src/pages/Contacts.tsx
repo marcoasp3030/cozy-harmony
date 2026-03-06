@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Upload, Search, MoreHorizontal, Tag, Trash2, Send, Ban, Loader2 } from "lucide-react";
+import { Plus, Upload, Search, MoreHorizontal, Trash2, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -16,6 +16,9 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
@@ -36,6 +39,8 @@ interface Contact {
   last_message_at: string | null;
 }
 
+const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
+
 const Contacts = () => {
   const [selected, setSelected] = useState<string[]>([]);
   const [search, setSearch] = useState("");
@@ -46,16 +51,40 @@ const Contacts = () => {
   const [detailContact, setDetailContact] = useState<Contact | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(50);
   const queryClient = useQueryClient();
 
-  const { data: contacts = [], isLoading } = useQuery({
-    queryKey: ["contacts", search],
+  const { data: totalCount = 0 } = useQuery({
+    queryKey: ["contacts-count", search],
     queryFn: async () => {
+      let query = supabase
+        .from("contacts")
+        .select("id", { count: "exact", head: true });
+
+      if (search.trim()) {
+        query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`);
+      }
+
+      const { count, error } = await query;
+      if (error) throw error;
+      return count || 0;
+    },
+  });
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+
+  const { data: contacts = [], isLoading } = useQuery({
+    queryKey: ["contacts", search, page, pageSize],
+    queryFn: async () => {
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+
       let query = supabase
         .from("contacts")
         .select("id, name, phone, email, about, is_blocked, created_at, last_message_at")
         .order("created_at", { ascending: false })
-        .limit(500);
+        .range(from, to);
 
       if (search.trim()) {
         query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`);
@@ -67,7 +96,22 @@ const Contacts = () => {
     },
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["contacts"] });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["contacts"] });
+    queryClient.invalidateQueries({ queryKey: ["contacts-count"] });
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearch(value);
+    setPage(0);
+    setSelected([]);
+  };
+
+  const handlePageSizeChange = (value: string) => {
+    setPageSize(Number(value));
+    setPage(0);
+    setSelected([]);
+  };
 
   const toggleSelect = (id: string) => {
     setSelected((prev) =>
@@ -100,7 +144,6 @@ const Contacts = () => {
   const handleBulkDelete = async () => {
     setDeleting(true);
     try {
-      // Delete related tags first
       await supabase.from("contact_tags").delete().in("contact_id", selected);
       const { error } = await supabase.from("contacts").delete().in("id", selected);
       if (error) throw error;
@@ -133,6 +176,9 @@ const Contacts = () => {
     invalidate();
   };
 
+  const fromItem = totalCount > 0 ? page * pageSize + 1 : 0;
+  const toItem = Math.min((page + 1) * pageSize, totalCount);
+
   return (
     <div className="space-y-4 md:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -163,11 +209,11 @@ const Contacts = () => {
                 placeholder="Buscar por nome, telefone ou email..."
                 className="pl-9"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
               />
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">{contacts.length} contato(s)</span>
+              <span className="text-xs text-muted-foreground">{totalCount} contato(s)</span>
               {selected.length > 0 && (
                 <>
                   <Badge variant="secondary">{selected.length} selecionado(s)</Badge>
@@ -303,6 +349,50 @@ const Contacts = () => {
             </TableBody>
           </Table>
         </CardContent>
+
+        {/* Pagination */}
+        {totalCount > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-border">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>Exibindo {fromItem}–{toItem} de {totalCount}</span>
+              <span className="mx-1">•</span>
+              <span>Por página:</span>
+              <Select value={String(pageSize)} onValueChange={handlePageSizeChange}>
+                <SelectTrigger className="h-7 w-[70px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAGE_SIZE_OPTIONS.map((s) => (
+                    <SelectItem key={s} value={String(s)}>{s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8"
+                disabled={page === 0}
+                onClick={() => setPage((p) => p - 1)}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-xs text-muted-foreground px-2">
+                Página {page + 1} de {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8"
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
 
       {/* Dialogs */}
