@@ -429,7 +429,7 @@ serve(async (req) => {
 
           const messageId = normalizeMsgId(extractMsgId(resData));
 
-          if (res.ok && resData.error === undefined) {
+          if (res.ok && !resData.error) {
             sent++;
             consecutiveFailures = 0;
             await supabase.from('campaign_contacts').update({
@@ -441,9 +441,11 @@ serve(async (req) => {
           } else {
             failed++;
             consecutiveFailures++;
+            const errMsg = resData.message || resData.error || `HTTP ${res.status}`;
+            console.error(`Failed to send to ${cleanNumber}: ${errMsg}`);
             await supabase.from('campaign_contacts').update({
               status: 'failed',
-              error: resData.error || `HTTP ${res.status}`,
+              error: typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg),
             }).eq('id', contact.id);
           }
         } catch (err) {
