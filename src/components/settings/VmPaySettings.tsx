@@ -159,7 +159,6 @@ const VmPaySettings = () => {
                 <p className="text-xs text-muted-foreground">ID da instalação na VMPay</p>
               </div>
             </div>
-            </div>
 
             <div className="flex flex-wrap gap-2">
               <Button onClick={handleSave} disabled={saving || !token.trim()}>
