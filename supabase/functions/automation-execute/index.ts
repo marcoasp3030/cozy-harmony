@@ -580,7 +580,9 @@ serve(async (req) => {
           }).eq("id", recentRuns[0].id);
           console.log(`Auto-fixed stale running log ${recentRuns[0].id}, proceeding with new execution`);
         } else {
-          // ── BATCH CART BYPASS: allow new images through when cart is active ──
+          // ── IMAGE BATCHING: when images arrive, let the FIRST execution handle all of them ──
+          // Instead of bypassing debounce for each image (causing multiple AI responses),
+          // we DROP subsequent image executions and let the first one collect all images.
           const isImageMessage = messageType === "image";
           const previousRunCompleted = recentRuns[0].status === "completed";
           const previousRunRunning = recentRuns[0].status === "running";
@@ -599,43 +601,33 @@ serve(async (req) => {
                 .gte("created_at", new Date(Date.now() - 30 * 60 * 1000).toISOString())
                 .limit(1);
 
-              if (cartMarkers && cartMarkers.length > 0) {
+              // Only bypass if previous run COMPLETED (not running)
+              // If previous is still running, it will collect our image via the wait window
+              if (cartMarkers && cartMarkers.length > 0 && previousRunCompleted) {
                 allowBatchBypass = true;
-                console.log(`[BATCH] Cart session active for ${contactPhone}, allowing image through debounce`);
+                console.log(`[BATCH] Cart session active + previous completed, allowing image through for ${contactPhone}`);
               }
             }
 
-            // Even without cart markers, if previous run completed, allow new images
-            // (first image completed → second image should go through to auto-add)
-            if (previousRunCompleted) {
-              allowBatchBypass = true;
-              console.log(`[BATCH] Previous run completed, allowing new image for ${contactPhone}`);
+            // If previous run completed (no active cart), allow — it's a new image after the last one was fully processed
+            if (previousRunCompleted && !allowBatchBypass) {
+              // Check if the previous run finished MORE than 5s ago (outside the batch window)
+              const prevFinishedAgo = Date.now() - new Date(recentRuns[0].started_at).getTime();
+              if (prevFinishedAgo > 8000) {
+                allowBatchBypass = true;
+                console.log(`[BATCH] Previous run completed ${Math.round(prevFinishedAgo/1000)}s ago, allowing new image for ${contactPhone}`);
+              } else {
+                // Previous run just finished — this image was likely sent during the batch window
+                // but arrived after processing. DROP it — the first run should have collected it.
+                console.log(`[BATCH] Dropping image for ${contactPhone} — previous run just finished ${Math.round(prevFinishedAgo/1000)}s ago (within batch window)`);
+              }
             }
 
-            // If previous run is still running, wait briefly for it to finish
-            if (previousRunRunning && !allowBatchBypass) {
-              console.log(`[BATCH] Previous run still running for ${contactPhone}, waiting...`);
-              let waited = 0;
-              const maxWaitMs = 10000; // wait up to 10s
-              const pollMs = 2000;
-              while (waited < maxWaitMs) {
-                await new Promise(r => setTimeout(r, pollMs));
-                waited += pollMs;
-                const { data: checkRun } = await supabase
-                  .from("automation_logs")
-                  .select("status")
-                  .eq("id", recentRuns[0].id)
-                  .maybeSingle();
-                if (!checkRun || checkRun.status !== "running") {
-                  allowBatchBypass = true;
-                  console.log(`[BATCH] Previous run finished after ${waited}ms, proceeding`);
-                  break;
-                }
-              }
-              if (!allowBatchBypass) {
-                console.log(`[BATCH] Timeout waiting for previous run, proceeding anyway`);
-                allowBatchBypass = true;
-              }
+            // If previous run is STILL RUNNING, DROP this execution entirely
+            // The running execution will collect all images via its wait window
+            if (previousRunRunning) {
+              console.log(`[BATCH] Dropping image for ${contactPhone} — previous run still processing (will collect this image)`);
+              // Don't set allowBatchBypass — this execution will be dropped
             }
           }
 
@@ -722,6 +714,45 @@ serve(async (req) => {
       let execError: string | null = null;
 
       try {
+        // ── IMAGE BATCHING: wait briefly for more images before processing ──
+        if (ctx.messageType === "image" && contactId) {
+          const IMAGE_BATCH_WAIT_MS = 5000; // wait 5s for more images
+          console.log(`[IMG-BATCH] Waiting ${IMAGE_BATCH_WAIT_MS}ms for additional images from ${contactPhone}...`);
+          
+          // Send a "please wait" message so the customer knows we're processing
+          try {
+            await sendWhatsAppMessage(supabase, ctx, "📸 Recebi! Aguarde enquanto verifico...");
+          } catch (e) {
+            console.error("[IMG-BATCH] Failed to send wait message:", e);
+          }
+          
+          await new Promise(r => setTimeout(r, IMAGE_BATCH_WAIT_MS));
+          
+          // Collect all images that arrived during the wait window
+          const imgCutoff = new Date(Date.now() - IMAGE_BATCH_WAIT_MS - 10000).toISOString(); // extra 10s buffer
+          const { data: batchedImages } = await supabase
+            .from("messages")
+            .select("content, type, media_url, created_at")
+            .eq("contact_id", contactId)
+            .eq("direction", "inbound")
+            .eq("type", "image")
+            .gte("created_at", imgCutoff)
+            .order("created_at", { ascending: true })
+            .limit(10);
+          
+          if (batchedImages && batchedImages.length > 1) {
+            console.log(`[IMG-BATCH] Collected ${batchedImages.length} images for ${contactPhone}`);
+            // Store all image URLs for multi-image vision analysis
+            const imageUrls = batchedImages.map((m: any) => m.media_url).filter(Boolean);
+            (ctx as any)._batchedImageUrls = imageUrls;
+            ctx.variables["total_imagens"] = String(imageUrls.length);
+            // Update message content to reflect all images
+            ctx.messageContent = imageUrls.map((url: string) => `[Imagem enviada: ${url}]`).join("\n");
+          } else {
+            console.log(`[IMG-BATCH] Only 1 image received for ${contactPhone}`);
+          }
+        }
+
         // Execute flow starting from trigger nodes
         const visited = new Set<string>();
         for (const trigger of triggerNodes) {
@@ -2921,9 +2952,13 @@ Para CADA tipo de problema, colete os dados listados ANTES de dizer que vai reso
       }
 
       let imageHint = "";
+      const batchedImageCount = (ctx as any)._batchedImageUrls?.length || 0;
       if (ctx.messageType === "image" || (ctx as any)._lastImageUrl) {
-        imageHint = `\n\n📸 IMAGEM RECEBIDA DO CLIENTE — INSTRUÇÕES ESPECIAIS:
-O cliente enviou uma IMAGEM. Sua prioridade é:
+        const multiImageNote = batchedImageCount > 1
+          ? `\n⚠️ O CLIENTE ENVIOU ${batchedImageCount} IMAGENS DE UMA VEZ. Analise CADA imagem separadamente e identifique TODOS os produtos. Para cada produto encontrado, informe nome e preço individualmente.`
+          : "";
+        imageHint = `\n\n📸 IMAGEM RECEBIDA DO CLIENTE — INSTRUÇÕES ESPECIAIS:${multiImageNote}
+O cliente enviou ${batchedImageCount > 1 ? `${batchedImageCount} IMAGENS` : "uma IMAGEM"}. Sua prioridade é:
 1. Se a imagem contém um CÓDIGO DE BARRAS ou PRODUTO: diga "Já estou consultando esse produto no catálogo! 🔍" — O sistema fará a busca automaticamente e enviará o resultado logo em seguida.
 2. NÃO peça nome completo ou unidade quando o cliente envia uma foto de código de barras — isso significa que ele quer saber o preço ou pagar.
 3. Se a imagem é um COMPROVANTE DE PAGAMENTO: diga "Recebi seu comprovante, estou analisando! ✅" — o sistema verificará automaticamente.
@@ -3030,19 +3065,33 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
       }
 
       // ── Multimodal: if last message is image, include as vision content ──
+      // Support batched images: download ALL images and compose into a single vision request
       let imageBase64: string | null = null;
+      let allImageBase64: string[] = [];
+      const batchedImageUrls = (ctx as any)._batchedImageUrls as string[] | undefined;
       const lastImageUrl = (ctx as any)._lastImageUrl;
-      if (lastImageUrl) {
-        try {
-          const imgResp = await fetch(lastImageUrl);
-          if (imgResp.ok) {
-            const imgBuffer = await imgResp.arrayBuffer();
-            const { encode: base64Encode } = await import("https://deno.land/std@0.168.0/encoding/base64.ts");
-            imageBase64 = base64Encode(imgBuffer);
-            console.log(`Image downloaded for vision analysis (${Math.round(imgBuffer.byteLength / 1024)}KB)`);
+      
+      const imageUrlsToProcess = batchedImageUrls || (lastImageUrl ? [lastImageUrl] : []);
+      
+      if (imageUrlsToProcess.length > 0) {
+        const { encode: base64Encode } = await import("https://deno.land/std@0.168.0/encoding/base64.ts");
+        for (const imgUrl of imageUrlsToProcess) {
+          try {
+            const imgResp = await fetch(imgUrl);
+            if (imgResp.ok) {
+              const imgBuffer = await imgResp.arrayBuffer();
+              const b64 = base64Encode(imgBuffer);
+              allImageBase64.push(b64);
+              console.log(`Image downloaded for vision analysis (${Math.round(imgBuffer.byteLength / 1024)}KB) — ${allImageBase64.length}/${imageUrlsToProcess.length}`);
+            }
+          } catch (e) {
+            console.error("Failed to download image for vision:", e);
           }
-        } catch (e) {
-          console.error("Failed to download image for vision:", e);
+        }
+        // Use last image for backward-compatible single-image code paths
+        imageBase64 = allImageBase64.length > 0 ? allImageBase64[allImageBase64.length - 1] : null;
+        if (allImageBase64.length > 1) {
+          console.log(`[IMG-BATCH] ${allImageBase64.length} images ready for multi-image vision analysis`);
         }
       }
 
@@ -3087,16 +3136,20 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
         chatMessages.push({ role, content: m.content });
       }
 
-      // If we have an image, add it as multimodal content to the last user message
+      // If we have image(s), add as multimodal content to the last user message
       if (imageBase64) {
         // Find last user message and make it multimodal
         for (let i = chatMessages.length - 1; i >= 0; i--) {
           if (chatMessages[i].role === "user") {
             const textContent = chatMessages[i].content || "Analise esta imagem enviada pelo cliente.";
-            chatMessages[i].content = [
-              { type: "text", text: textContent },
-              { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
-            ];
+            const imageContentParts: any[] = [{ type: "text", text: allImageBase64.length > 1 
+              ? `${textContent}\n\n[O cliente enviou ${allImageBase64.length} imagens. Analise TODAS e identifique cada produto separadamente.]`
+              : textContent }];
+            // Add all batched images
+            for (const imgB64 of (allImageBase64.length > 0 ? allImageBase64 : [imageBase64])) {
+              imageContentParts.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${imgB64}` } });
+            }
+            chatMessages[i].content = imageContentParts;
             break;
           }
         }
@@ -3234,19 +3287,20 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
             // Build messages for the gateway: if we have an image, include it as multimodal content
             let gatewayMessages = chatMessages;
             if (imageBase64) {
-              const mimeType = imageBase64.startsWith("/9j/") ? "image/jpeg" : imageBase64.startsWith("iVBOR") ? "image/png" : "image/jpeg";
               const systemMsg = chatMessages.find((m: any) => m.role === "system");
               const nonSystemMsgs = chatMessages.filter((m: any) => m.role !== "system");
               const userTextParts = nonSystemMsgs.map((m: any) => typeof m.content === "string" ? m.content : "").filter(Boolean).join("\n");
+              const imageContentParts: any[] = [
+                { type: "text", text: userTextParts || "Analise esta imagem." },
+              ];
+              // Add all batched images
+              for (const imgB64 of (allImageBase64.length > 0 ? allImageBase64 : [imageBase64])) {
+                const mimeType = imgB64.startsWith("/9j/") ? "image/jpeg" : imgB64.startsWith("iVBOR") ? "image/png" : "image/jpeg";
+                imageContentParts.push({ type: "image_url", image_url: { url: `data:${mimeType};base64,${imgB64}` } });
+              }
               gatewayMessages = [
                 ...(systemMsg ? [systemMsg] : []),
-                {
-                  role: "user",
-                  content: [
-                    { type: "image_url", image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
-                    { type: "text", text: userTextParts || "Analise esta imagem." },
-                  ],
-                },
+                { role: "user", content: imageContentParts },
               ];
             }
 
