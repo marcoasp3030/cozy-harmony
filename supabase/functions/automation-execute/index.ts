@@ -1736,6 +1736,80 @@ Responda APENAS com o texto da mensagem.`;
           loja = cf.condominio || cf.loja || cf.unidade || "";
           if (loja) console.log(`[NOTIFY_GROUP] Loja from profile fallback: "${loja}"`);
         }
+
+        // Priority 3: AI-powered fuzzy matching against VMPay store list
+        // Handles abbreviations like "t5" → "Tamboré 5", "alpha 5" → "Alphaville 5"
+        if (ctx.userId) {
+          try {
+            const { data: storesSetting } = await supabase
+              .from("settings")
+              .select("value")
+              .eq("user_id", ctx.userId)
+              .eq("key", "vmpay_stores")
+              .maybeSingle();
+
+            const vmpayStores = (storesSetting?.value as any)?.stores || [];
+            
+            if (vmpayStores.length > 0) {
+              const storeNames = vmpayStores.map((s: any) => s.name).filter(Boolean);
+              const storeList = storeNames.join(", ");
+              
+              // Use AI to match if: we have a candidate OR the raw text might contain a store reference
+              const needsAiMatch = loja || textPool.trim().length > 1;
+              
+              if (needsAiMatch) {
+                const { keys: storeKeys } = await getUserAIKeys(supabase, ctx.userId);
+                
+                if (storeKeys.openai || storeKeys.gemini) {
+                  const matchPrompt = `Você é um sistema de identificação de lojas. Dado o texto do cliente, identifique qual loja da lista ele está se referindo.
+
+LISTA DE LOJAS CADASTRADAS:
+${storeList}
+
+TEXTO DO CLIENTE: "${textPool.slice(0, 500)}"
+${loja ? `CANDIDATO DETECTADO POR REGEX: "${loja}"` : ""}
+
+REGRAS IMPORTANTES:
+- Clientes usam abreviações: "t5" = "Tamboré 5", "alpha 5" = "Alphaville 5", "cp" = "Central Park", etc.
+- Números após letras geralmente indicam unidades: "t5" → unidade com "5" no nome
+- Considere similaridade fonética e abreviações comuns
+- Se o texto NÃO menciona nenhuma loja, responda "NONE"
+- Se encontrar correspondência, responda EXATAMENTE com o nome da loja da lista
+
+Responda APENAS com o nome exato da loja da lista OU "NONE". Nada mais.`;
+
+                  const aiStoreMatch = await callAIWithUserKeys(storeKeys, matchPrompt, { 
+                    maxTokens: 50, 
+                    temperature: 0.1,
+                    timeoutMs: 8000 
+                  });
+
+                  if (aiStoreMatch && aiStoreMatch.trim() !== "NONE" && aiStoreMatch.trim().length > 1) {
+                    const matchedStore = aiStoreMatch.trim().replace(/^"|"$/g, "").replace(/\.$/, "");
+                    // Verify the AI response matches one of our actual stores (case-insensitive)
+                    const verified = storeNames.find((s: string) => 
+                      s.toLowerCase() === matchedStore.toLowerCase() ||
+                      s.toLowerCase().includes(matchedStore.toLowerCase()) ||
+                      matchedStore.toLowerCase().includes(s.toLowerCase())
+                    );
+                    
+                    if (verified) {
+                      console.log(`[STORE-AI] Matched "${loja || textPool.slice(0, 50)}" → "${verified}" (AI response: "${matchedStore}")`);
+                      loja = verified;
+                    } else {
+                      console.log(`[STORE-AI] AI suggested "${matchedStore}" but not in store list, keeping "${loja}"`);
+                    }
+                  } else {
+                    console.log(`[STORE-AI] No match found by AI for "${loja || textPool.slice(0, 50)}"`);
+                  }
+                }
+              }
+            }
+          } catch (storeErr) {
+            console.error("[STORE-AI] Error loading/matching VMPay stores:", storeErr);
+          }
+        }
+
         ctx.variables["loja"] = loja || "Não identificada";
       }
 
@@ -1930,6 +2004,23 @@ Responda APENAS com o texto da mensagem.`;
         const savedStore = (contactData?.custom_fields as any)?.condominio || "";
         const confirmedStore = ctx.variables["loja"] || savedStore || "";
 
+        // Load VMPay stores for AI context
+        let vmpayStoreList = "";
+        if (ctx.userId) {
+          try {
+            const { data: storesSetting } = await supabase
+              .from("settings")
+              .select("value")
+              .eq("user_id", ctx.userId)
+              .eq("key", "vmpay_stores")
+              .maybeSingle();
+            const stores = (storesSetting?.value as any)?.stores || [];
+            if (stores.length > 0) {
+              vmpayStoreList = stores.map((s: any) => s.name).filter(Boolean).join(", ");
+            }
+          } catch {}
+        }
+
         const extractPrompt = `Você é um analisador de conversas de atendimento da Nutricar Brasil (rede de mini mercados autônomos 24h).
 
 Analise a conversa abaixo e determine se há informações SUFICIENTES para registrar uma ocorrência.
@@ -1956,6 +2047,7 @@ DADOS DO CONTATO:
 - Nome: "${contactName}"
 - Telefone: ${contactPhone}
 - Loja confirmada: ${confirmedStore || "Não confirmada"}
+${vmpayStoreList ? `\nLOJAS CADASTRADAS (use para identificar a loja mesmo com abreviações como "t5"=Tamboré 5, "alpha 5"=Alphaville 5):\n${vmpayStoreList}` : ""}
 
 CONVERSA:
 ${conversationContext.slice(0, 4000)}
