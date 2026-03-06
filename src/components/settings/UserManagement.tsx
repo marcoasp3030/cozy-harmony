@@ -629,6 +629,12 @@ const UserManagement = () => {
                                   <Trash2 className="mr-2 h-4 w-4" /> Remover papel
                                 </DropdownMenuItem>
                               )}
+                              <DropdownMenuItem
+                                className="text-destructive"
+                                onClick={() => setDeleteTarget(u)}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" /> Excluir usuário
+                              </DropdownMenuItem>
                             </>
                           )}
                         </DropdownMenuContent>
