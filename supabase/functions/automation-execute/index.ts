@@ -5396,8 +5396,19 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
           ctx.variables["_awaiting_qty_interactive"] = "true";
           ctx.variables["_awaiting_quantity"] = "true";
           
+          // Persist updated queue to conversation notes
+          try {
+            await supabase.from("conversations").update({
+              notes: JSON.stringify({
+                pending_qty_queue: pendingQueue,
+                pending_qty_updated: new Date().toISOString(),
+              }),
+            }).eq("id", ctx.conversationId);
+          } catch {}
+          
           const nextPriceStr = nextProd.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-          const qtyMsg = `🛒 *${nextProd.name}*\n💰 Valor unitário: *${nextPriceStr}*${pendingQueue.length > 0 ? `\n\n📦 Ainda ${pendingQueue.length + 1} produto(s) restante(s)` : ""}\n\n📦 *Quantas unidades você pegou?*`;
+          const remainingText = pendingQueue.length > 0 ? `\n\n📦 Ainda ${pendingQueue.length} produto(s) na fila` : "";
+          const qtyMsg = `🛒 *Próximo produto:*\n\n*${nextProd.name}*\n💰 Valor unitário: *${nextPriceStr}*${remainingText}\n\n📦 *Quantas unidades você pegou?*`;
           
           await sendInteractiveButtons(
             supabase, ctx, qtyMsg,
@@ -5410,7 +5421,14 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
           );
           console.log(`[QTY] Next product in queue: ${nextProd.name} — ${pendingQueue.length} remaining`);
         } else {
-          // No more in queue — show cart summary
+          // No more in queue — clear conversation notes and show cart summary
+          try {
+            await supabase.from("conversations").update({
+              notes: JSON.stringify({ pending_qty_queue: [] }),
+            }).eq("id", ctx.conversationId);
+          } catch {}
+          
+          // Show cart summary
           const cart = await recoverCartFromMessages(supabase, ctx);
           let grandTotal = 0;
           let cartSummary = "🛒 *Carrinho atual:*\n\n";
