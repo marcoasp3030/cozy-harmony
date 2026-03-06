@@ -1046,6 +1046,12 @@ const SettingsPage = () => {
           <ProductCatalog />
         </TabsContent>
 
+        {isAdmin && (
+          <TabsContent value="vmpay">
+            <VmPaySettings />
+          </TabsContent>
+        )}
+
         <TabsContent value="knowledge">
           <KnowledgeBase />
         </TabsContent>
