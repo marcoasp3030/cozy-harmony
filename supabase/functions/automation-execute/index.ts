@@ -3521,9 +3521,9 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
           console.log("[POST-LLM] Triggered image product lookup after reply");
           try {
             // Quick AI call to extract barcode number AND/OR product name from the image
-            const extractPrompt = `Você é um LEITOR DE CÓDIGO DE BARRAS ultra-preciso para produtos de supermercado/mini mercado.
+            const extractPrompt = `Você é um LEITOR DE CÓDIGO DE BARRAS e CONTADOR DE PRODUTOS ultra-preciso para produtos de supermercado/mini mercado.
 
-TAREFA: Leia o código de barras na imagem com MÁXIMA PRECISÃO.
+TAREFA: Leia o código de barras na imagem E conte QUANTOS ITENS do mesmo produto aparecem.
 
 INSTRUÇÕES CRÍTICAS PARA LEITURA:
 1. Localize as BARRAS VERTICAIS e os NÚMEROS IMPRESSOS abaixo/ao lado delas
@@ -3531,14 +3531,19 @@ INSTRUÇÕES CRÍTICAS PARA LEITURA:
 3. EAN-13 = EXATAMENTE 13 dígitos (ex: 7891234567890) — é o mais comum no Brasil
 4. EAN-8 = EXATAMENTE 8 dígitos
 5. Códigos brasileiros geralmente começam com 789
-6. Se houver números impressos abaixo das barras, use-os como FONTE PRINCIPAL (são mais legíveis que as barras)
+6. Se houver números impressos abaixo das barras, use-os como FONTE PRINCIPAL
 7. NUNCA invente dígitos — se não conseguir ler um número, coloque "?" no lugar
-8. Se não houver código de barras, leia o NOME DO PRODUTO no rótulo/embalagem
+
+CONTAGEM DE QUANTIDADE (OBRIGATÓRIO):
+- Conte TODOS os itens/unidades do MESMO produto visíveis na imagem
+- Se a foto mostra 3 garrafas iguais, quantidade = 3
+- Se mostra apenas 1 produto, quantidade = 1
+- Se houver produtos empilhados, conte cada unidade individual visível
+- Se não conseguir contar com certeza, informe a quantidade mínima visível
 
 FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
-- Se encontrou código de barras: APENAS os dígitos (ex: 7891234567890)
-- Se encontrou produto mas sem código: NOME_DO_PRODUTO (ex: Coca-Cola 350ml)
-- Se encontrou código E nome: CODIGO|NOME_PRODUTO (ex: 7891234567890|Coca-Cola 350ml)
+- Se encontrou código: CODIGO|NOME_PRODUTO|QUANTIDADE (ex: 7891234567890|Coca-Cola 350ml|3)
+- Se encontrou produto sem código: NOME_PRODUTO|QUANTIDADE (ex: Coca-Cola 350ml|2)
 - Se não conseguiu identificar NADA: NENHUM`;
             
             const { keys: barcodeKeys } = await getUserAIKeys(supabase, ctx.userId);
@@ -3547,11 +3552,42 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
                 console.log(`[POST-LLM] Barcode extraction result: "${extracted}"`);
 
                 if (extracted && extracted !== "NENHUM" && extracted.length > 3) {
-                  // Parse barcode and optional product name
+                  // Parse: BARCODE|NAME|QTY or NAME|QTY or BARCODE
                   const parts = extracted.split("|").map((p: string) => p.trim());
-                  const rawBarcode = parts[0].replace(/[\s\-\.?]/g, "");
-                  const barcodeNum = /^\d{6,13}$/.test(rawBarcode) ? rawBarcode : rawBarcode.replace(/\D/g, "");
-                  const productHint = parts[1] || "";
+                  let barcodeNum = "";
+                  let productHint = "";
+                  let quantity = 1;
+
+                  if (parts.length >= 3) {
+                    // BARCODE|NAME|QTY
+                    const rawBarcode = parts[0].replace(/[\s\-\.?]/g, "");
+                    barcodeNum = /^\d{6,13}$/.test(rawBarcode) ? rawBarcode : rawBarcode.replace(/\D/g, "");
+                    productHint = parts[1];
+                    quantity = Math.max(1, parseInt(parts[2]) || 1);
+                  } else if (parts.length === 2) {
+                    const rawFirst = parts[0].replace(/[\s\-\.?]/g, "");
+                    if (/^\d{6,13}$/.test(rawFirst)) {
+                      // BARCODE|NAME or BARCODE|QTY
+                      barcodeNum = rawFirst;
+                      if (/^\d{1,3}$/.test(parts[1])) {
+                        quantity = Math.max(1, parseInt(parts[1]) || 1);
+                      } else {
+                        productHint = parts[1];
+                      }
+                    } else {
+                      // NAME|QTY
+                      productHint = parts[0];
+                      quantity = Math.max(1, parseInt(parts[1]) || 1);
+                    }
+                  } else {
+                    const rawBarcode = parts[0].replace(/[\s\-\.?]/g, "");
+                    barcodeNum = /^\d{6,13}$/.test(rawBarcode) ? rawBarcode : rawBarcode.replace(/\D/g, "");
+                    if (!barcodeNum) productHint = parts[0];
+                  }
+
+                  // Cap quantity to reasonable limit
+                  if (quantity > 50) quantity = 50;
+                  console.log(`[POST-LLM] Parsed: barcode="${barcodeNum}", name="${productHint}", qty=${quantity}`);
 
                   let products: any[] | null = null;
 
@@ -3606,10 +3642,16 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
 
                   if (products && products.length > 0) {
                       const first = products[0];
+                      const unitPrice = Number(first.price || 0);
+                      const totalPrice = unitPrice * quantity;
+                      const unitPriceStr = unitPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                      const totalPriceStr = totalPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
                       ctx.variables["produto_encontrado"] = "true";
                       ctx.variables["produto_nome"] = first.name || "";
-                      ctx.variables["produto_preco"] = String(first.price || 0);
-                      const prodPrice = Number(first.price).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                      ctx.variables["produto_preco"] = String(unitPrice);
+                      ctx.variables["produto_quantidade"] = String(quantity);
+                      ctx.variables["produto_total"] = String(totalPrice);
 
                       const customerContext = [
                         ctx.messageContent,
@@ -3619,14 +3661,17 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
                       const customerAskedPix = PIX_EXPLICIT_REQUEST.test(customerContext);
 
                       if (customerAskedPix) {
-                        const followUp = buildPixPaymentMessage(first.name || "", first.price);
+                        const followUp = buildPixPaymentMessage(first.name || "", unitPrice, quantity);
                         ctx.variables["_pix_key_sent"] = "true";
-                        ctx.variables["_audit_pix_auto_sent"] = `PIX enviado via solicitação explícita (barcode lookup): ${first.name} = ${prodPrice} (código: ${searchQuery})`;
+                        ctx.variables["_audit_pix_auto_sent"] = `PIX enviado via solicitação explícita (barcode lookup): ${first.name} x${quantity} = ${totalPriceStr} (código: ${searchQuery})`;
                         await sendWhatsAppMessage(supabase, ctx, followUp);
-                        console.log(`[AUDIT] PIX key auto-sent (explicit request) at ${new Date().toISOString()} — product: ${first.name}, price: ${prodPrice}`);
+                        console.log(`[AUDIT] PIX key auto-sent (explicit request) at ${new Date().toISOString()} — product: ${first.name} x${quantity}, total: ${totalPriceStr}`);
                       } else {
-                        // Send interactive buttons for PIX confirmation instead of plain text
-                        const qualificationMsg = `🛒 Encontrei no catálogo: *${first.name}*\n💰 Valor: *${prodPrice}*`;
+                        // Build message with quantity, unit price, and total
+                        let qualificationMsg = `🛒 Encontrei no catálogo: *${first.name}*\n💰 Valor unitário: *${unitPriceStr}*`;
+                        if (quantity > 1) {
+                          qualificationMsg += `\n📦 Quantidade: *${quantity} unidade(s)*\n🧾 *Total: ${totalPriceStr}*`;
+                        }
                         const buttonsSent = await sendInteractiveButtons(
                           supabase,
                           ctx,
@@ -3639,10 +3684,9 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
                         );
                         ctx.variables["_pix_buttons_sent"] = "true";
                         if (!buttonsSent) {
-                          // Fallback to text if buttons fail
                           await sendWhatsAppMessage(supabase, ctx, `${qualificationMsg}\n\nDeseja receber a chave PIX para pagamento? 😊`);
                         }
-                        console.log(`[PIX] Product found via barcode lookup — sent interactive PIX buttons`);
+                        console.log(`[PIX] Product found via barcode lookup — ${first.name} x${quantity} = ${totalPriceStr}`);
                       }
                     } else {
                       // Product not in catalog
@@ -4890,15 +4934,24 @@ const PIX_CONFIRMATION = /^(pode\s*(enviar|mandar)|sim|quero|manda|envia|pode\s*
 const PIX_DIFFICULTY_KEYWORDS = /(n[aã]o.*consig[ou].*pag|n[aã]o.*conseg.*pag|n[aã]o.*consigo.*fazer.*pag|n[aã]o.*consegui.*pag|n[aã]o.*passou|n[aã]o.*aceito[ua]?|n[aã]o.*aceita|n[aã]o.*funciono[ua]|problema.*pag|erro.*pag|erro.*totem|pag.*erro|pag.*n[aã]o.*foi|cobran[cç]a.*indevid|valor.*cobrado.*errado|cobrou.*errado|cobrou.*mais|cobrou.*a\s*mais|cobrou.*diferente|estorno|reembolso|devolu[cç][aã]o|totem.*n[aã]o|totem.*com.*defeito|totem.*erro|totem.*travou|totem.*desligad|c[ao]r[tl]?[aã]o.*recus|c[ao]r[tl]?[aã]o.*n[aã]o|c[ao]r[tl]?[aã]o.*dando|c[ao]r[tl]?[aã]o.*erro|c[ao]r[tl]?[aã]o.*revis|dando.*recus|dando.*erro|dando.*revis|pix.*n[aã]o.*funciono|pix.*erro|pix.*problema|dificuldade.*pag|n[aã]o.*conseg.*pix|n[aã]o.*consig.*pix|n[aã]o.*conseg.*fazer.*pag|n[aã]o.*estou.*conseguindo|n[aã]o.*t[aá].*conseguindo|n[aã]o.*consigo.*pix)/i;
 const PIX_KEY_MESSAGE = `💳 *Segue as opções de pagamento via PIX da Nutricar Brasil:*\n\n📧 *Chave PIX:* financeiro@nutricarbrasil.com.br\n\nApós o pagamento, envie o comprovante aqui pra gente confirmar! 😊\n_Nutricar Brasil - Mini Mercado 24h_`;
 
-function buildPixPaymentMessage(productName?: string, productPrice?: string | number): string {
+function buildPixPaymentMessage(productName?: string, productPrice?: string | number, quantity?: number): string {
   const safeName = String(productName || "").trim();
   const numericPrice = Number(productPrice);
+  const qty = Math.max(1, quantity || 1);
   const hasProduct = !!safeName;
   const hasPrice = Number.isFinite(numericPrice) && numericPrice > 0;
 
   if (hasProduct && hasPrice) {
-    const priceFormatted = numericPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-    return `🛒 *Produto:* ${safeName}\n💰 *Valor:* ${priceFormatted}\n\n${PIX_KEY_MESSAGE}`;
+    const unitFormatted = numericPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    const total = numericPrice * qty;
+    const totalFormatted = total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    
+    let msg = `🛒 *Produto:* ${safeName}\n💰 *Valor unitário:* ${unitFormatted}`;
+    if (qty > 1) {
+      msg += `\n📦 *Quantidade:* ${qty} unidade(s)\n🧾 *Total: ${totalFormatted}*`;
+    }
+    msg += `\n\n${PIX_KEY_MESSAGE}`;
+    return msg;
   }
 
   return PIX_KEY_MESSAGE;
@@ -5027,7 +5080,7 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
   if (isConfirmation && productAlreadyIdentified && recentPixOffer) {
     console.log(`[PIX] Confirmation detected ("${ctx.messageContent}") + product already identified — auto-sending PIX key`);
     ctx.variables["_pix_key_sent"] = "true";
-    const pixMessage = buildPixPaymentMessage(ctx.variables["produto_nome"], ctx.variables["produto_preco"]);
+    const pixMessage = buildPixPaymentMessage(ctx.variables["produto_nome"], ctx.variables["produto_preco"], parseInt(ctx.variables["produto_quantidade"]) || 1);
     ctx.variables["_audit_pix_auto_sent"] = `PIX enviado via confirmação curta ("${ctx.messageContent}"): produto=${ctx.variables["produto_nome"] || "N/A"}, valor=${ctx.variables["produto_preco"] || "N/A"}`;
     console.log(`[AUDIT] PIX key auto-sent (confirmation) at ${new Date().toISOString()} — ${ctx.contactPhone}`);
     await sendWhatsAppMessage(supabase, ctx, pixMessage);
