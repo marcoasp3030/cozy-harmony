@@ -129,6 +129,12 @@ export default function CampaignCard({ campaign, executing, onExecute, onEdit, o
                 {s.total > 0 && (
                   <span className="font-medium">{s.total.toLocaleString()} contatos</span>
                 )}
+                {instanceName && (
+                  <span className="flex items-center gap-1">
+                    <Smartphone className="h-3 w-3" />
+                    {instanceName}
+                  </span>
+                )}
               </div>
             </div>
 
