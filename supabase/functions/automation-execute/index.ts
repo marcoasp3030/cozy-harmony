@@ -1754,8 +1754,9 @@ Responda APENAS com o texto da mensagem.`;
               const storeNames = vmpayStores.map((s: any) => s.name).filter(Boolean);
               const storeList = storeNames.join(", ");
               
-              // Use AI to match if: we have a candidate OR the raw text might contain a store reference
-              const needsAiMatch = loja || textPool.trim().length > 1;
+              // Only use AI matching when there's a regex candidate OR the text explicitly mentions a store/location keyword
+              const storeKeywords = /\b(loja|unidade|condom[ií]nio|aqui\s+n[oa]|moro\s+n[oa]|t\d|alpha|cp\b|park|ville|tamb|resident)/i;
+              const needsAiMatch = loja || storeKeywords.test(textPool);
               
               if (needsAiMatch) {
                 const { keys: storeKeys } = await getUserAIKeys(supabase, ctx.userId);
@@ -1773,22 +1774,24 @@ REGRAS IMPORTANTES:
 - Clientes usam abreviações: "t5" = "Tamboré 5", "alpha 5" = "Alphaville 5", "cp" = "Central Park", etc.
 - Números após letras geralmente indicam unidades: "t5" → unidade com "5" no nome
 - Considere similaridade fonética e abreviações comuns
-- Se o texto NÃO menciona nenhuma loja, responda "NONE"
+- MUITO IMPORTANTE: Se o texto NÃO menciona CLARAMENTE nenhuma loja, local ou unidade, responda "NONE"
+- NÃO chute uma loja quando não houver evidência clara no texto
 - Se encontrar correspondência, responda EXATAMENTE com o nome da loja da lista
 
 Responda APENAS com o nome exato da loja da lista OU "NONE". Nada mais.`;
 
                   const aiStoreMatch = await callAIWithUserKeys(storeKeys, matchPrompt, { 
                     maxTokens: 50, 
-                    temperature: 0.1,
+                    temperature: 0.0,
                     timeoutMs: 8000 
                   });
 
                   if (aiStoreMatch && aiStoreMatch.trim() !== "NONE" && aiStoreMatch.trim().length > 1) {
                     const matchedStore = aiStoreMatch.trim().replace(/^"|"$/g, "").replace(/\.$/, "");
-                    // Verify the AI response matches one of our actual stores (case-insensitive)
+                    // Verify the AI response matches one of our actual stores (exact or contained match)
                     const verified = storeNames.find((s: string) => 
-                      s.toLowerCase() === matchedStore.toLowerCase() ||
+                      s.toLowerCase() === matchedStore.toLowerCase()
+                    ) || storeNames.find((s: string) =>
                       s.toLowerCase().includes(matchedStore.toLowerCase()) ||
                       matchedStore.toLowerCase().includes(s.toLowerCase())
                     );
