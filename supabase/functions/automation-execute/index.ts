@@ -2047,6 +2047,7 @@ DADOS DO CONTATO:
 - Nome: "${contactName}"
 - Telefone: ${contactPhone}
 - Loja confirmada: ${confirmedStore || "Não confirmada"}
+${vmpayStoreList ? `\nLOJAS CADASTRADAS (use para identificar a loja mesmo com abreviações como "t5"=Tamboré 5, "alpha 5"=Alphaville 5):\n${vmpayStoreList}` : ""}
 
 CONVERSA:
 ${conversationContext.slice(0, 4000)}
