@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -37,6 +38,10 @@ const ProductCatalog = () => {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const pageSize = 20;
+
+  // Selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
 
   // Import dialog
   const [importOpen, setImportOpen] = useState(false);
@@ -80,12 +85,71 @@ const ProductCatalog = () => {
 
   useEffect(() => { loadProducts(); }, [loadProducts]);
 
+  // Clear selection when page/search changes
+  useEffect(() => { setSelectedIds(new Set()); }, [page, search]);
+
   // Debounced search
   const [searchInput, setSearchInput] = useState("");
   useEffect(() => {
     const t = setTimeout(() => { setSearch(searchInput); setPage(0); }, 300);
     return () => clearTimeout(t);
   }, [searchInput]);
+
+  // Selection handlers
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === products.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(products.map(p => p.id)));
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Excluir ${selectedIds.size} produto(s) selecionado(s)?`)) return;
+    setDeleting(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const { error } = await supabase.from("products" as any).delete().in("id", ids);
+      if (error) throw error;
+      toast.success(`${ids.length} produto(s) excluído(s)`);
+      setSelectedIds(new Set());
+      loadProducts();
+    } catch (err: any) {
+      toast.error("Erro ao excluir: " + err.message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleDeleteZeroPrice = async () => {
+    if (!user) return;
+    if (!confirm("Excluir todos os produtos com preço R$ 0,00?")) return;
+    setDeleting(true);
+    try {
+      const { error, count } = await supabase
+        .from("products" as any)
+        .delete({ count: "exact" })
+        .eq("user_id", user.id)
+        .eq("price", 0);
+      if (error) throw error;
+      toast.success(`${count || 0} produto(s) sem valor excluído(s)`);
+      setSelectedIds(new Set());
+      loadProducts();
+    } catch (err: any) {
+      toast.error("Erro ao excluir: " + err.message);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -109,7 +173,6 @@ const ProductCatalog = () => {
         setPreviewData(json.slice(0, 5));
         setImportStats(null);
 
-        // Auto-map columns
         const autoMap: ColumnMapping = { name: "", barcode: "", price: "", category: "" };
         for (const col of cols) {
           const lower = col.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -120,8 +183,6 @@ const ProductCatalog = () => {
         }
         setMapping(autoMap);
         setImportOpen(true);
-
-        // Store full data for import
         (window as any).__importData = json;
       } catch (err) {
         toast.error("Erro ao ler arquivo. Verifique se é um CSV ou XLSX válido.");
@@ -254,12 +315,14 @@ const ProductCatalog = () => {
   };
 
   const totalPages = Math.ceil(totalCount / pageSize);
+  const allSelected = products.length > 0 && selectedIds.size === products.length;
+  const someSelected = selectedIds.size > 0 && selectedIds.size < products.length;
 
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <Package className="h-5 w-5 text-primary" />
               <div>
@@ -269,7 +332,7 @@ const ProductCatalog = () => {
                 </CardDescription>
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button variant="outline" size="sm" onClick={downloadTemplate}>
                 <Download className="mr-1.5 h-3.5 w-3.5" /> Modelo
               </Button>
@@ -284,22 +347,35 @@ const ProductCatalog = () => {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Search */}
-          <div className="flex gap-2">
-            <div className="relative flex-1">
+          {/* Search & Actions */}
+          <div className="flex gap-2 flex-wrap">
+            <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Buscar por nome ou código de barras..."
+                placeholder="Pesquisar por nome ou código de barras..."
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 className="pl-9"
               />
             </div>
-            {totalCount > 0 && (
-              <Button variant="destructive" size="sm" onClick={handleDeleteAll}>
-                <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Limpar tudo
-              </Button>
-            )}
+            <div className="flex gap-2">
+              {selectedIds.size > 0 && (
+                <Button variant="destructive" size="sm" onClick={handleDeleteSelected} disabled={deleting}>
+                  {deleting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-1.5 h-3.5 w-3.5" />}
+                  Excluir {selectedIds.size} selecionado(s)
+                </Button>
+              )}
+              {totalCount > 0 && (
+                <>
+                  <Button variant="outline" size="sm" onClick={handleDeleteZeroPrice} disabled={deleting}>
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Sem valor
+                  </Button>
+                  <Button variant="destructive" size="sm" onClick={handleDeleteAll} disabled={deleting}>
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Limpar tudo
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
 
           {/* Table */}
@@ -320,6 +396,15 @@ const ProductCatalog = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-10">
+                        <Checkbox
+                          checked={allSelected}
+                          ref={(el) => {
+                            if (el) (el as any).indeterminate = someSelected;
+                          }}
+                          onCheckedChange={toggleSelectAll}
+                        />
+                      </TableHead>
                       <TableHead>Nome</TableHead>
                       <TableHead>Código de Barras</TableHead>
                       <TableHead className="text-right">Preço</TableHead>
@@ -329,11 +414,19 @@ const ProductCatalog = () => {
                   </TableHeader>
                   <TableBody>
                     {products.map((p) => (
-                      <TableRow key={p.id}>
+                      <TableRow key={p.id} className={selectedIds.has(p.id) ? "bg-muted/50" : ""}>
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedIds.has(p.id)}
+                            onCheckedChange={() => toggleSelect(p.id)}
+                          />
+                        </TableCell>
                         <TableCell className="font-medium">{p.name}</TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground">{p.barcode || "—"}</TableCell>
                         <TableCell className="text-right">
-                          {p.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                          <span className={p.price === 0 ? "text-destructive" : ""}>
+                            {p.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                          </span>
                         </TableCell>
                         <TableCell>
                           {p.category ? (
@@ -383,7 +476,6 @@ const ProductCatalog = () => {
           </DialogHeader>
 
           <div className="space-y-4">
-            {/* Column mapping */}
             <div className="space-y-3">
               <p className="text-sm font-medium">Mapeie as colunas da planilha:</p>
               <div className="grid grid-cols-2 gap-3">
@@ -429,7 +521,6 @@ const ProductCatalog = () => {
               </div>
             </div>
 
-            {/* Preview */}
             <div className="space-y-2">
               <p className="text-sm font-medium">Pré-visualização (primeiras 5 linhas):</p>
               <div className="rounded-md border overflow-x-auto">
@@ -457,7 +548,6 @@ const ProductCatalog = () => {
               </p>
             </div>
 
-            {/* Import stats */}
             {importStats && (
               <div className={`rounded-lg p-4 ${importStats.errors > 0 ? "bg-destructive/10" : "bg-success/10"}`}>
                 <div className="flex items-center gap-2">
