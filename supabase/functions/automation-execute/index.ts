@@ -3627,12 +3627,69 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
                       ctx.variables["produto_encontrado"] = "true";
                       ctx.variables["produto_nome"] = first.name || "";
                       ctx.variables["produto_preco"] = String(unitPrice);
-                      ctx.variables["_awaiting_quantity"] = "true";
 
-                      // Always ask quantity — customer may have picked multiple items
-                      const askQtyMsg = `🛒 Encontrei no catálogo: *${first.name}*\n💰 Valor unitário: *${unitPriceStr}*\n\n📦 *Quantas unidades você pegou?*\n\n_Responda com o número (ex: 1, 2, 3...)_`;
-                      await sendWhatsAppMessage(supabase, ctx, askQtyMsg);
-                      console.log(`[POST-LLM] Product found: ${first.name} (${unitPriceStr}) — asking quantity`);
+                      // ── BATCH MODE: If already in cart session, auto-add with qty=1 ──
+                      let inCartSession = ctx.variables["_awaiting_more_products"] === "true";
+                      if (!inCartSession) {
+                        // Check if there are recent cart items (✅ Adicionado!) — means active cart
+                        try {
+                          let cartCheckQ = supabase
+                            .from("messages")
+                            .select("content")
+                            .eq("contact_id", ctx.contactId)
+                            .eq("direction", "outbound")
+                            .order("created_at", { ascending: false })
+                            .limit(10);
+                          if (ctx.sessionStartedAt) cartCheckQ = cartCheckQ.gte("created_at", ctx.sessionStartedAt);
+                          const { data: cartCheckMsgs } = await cartCheckQ;
+                          inCartSession = (cartCheckMsgs || []).some((m: any) =>
+                            /✅ Adicionado!/.test(m.content || "") || /pegou mais algum produto/i.test(m.content || "")
+                          );
+                        } catch {}
+                      }
+
+                      if (inCartSession) {
+                        // Auto-add with qty=1, show updated cart
+                        const itemTotalStr = unitPriceStr;
+                        const confirmMsg = `✅ Adicionado!\n\n🛒 *${first.name}*\n💰 Unitário: *${unitPriceStr}*\n📦 Quantidade: *1*\n🧾 Subtotal: *${unitPriceStr}*\n\n📸 Envie mais fotos ou finalize!`;
+                        await sendWhatsAppMessage(supabase, ctx, confirmMsg);
+
+                        ctx.variables["produto_quantidade"] = "1";
+                        ctx.variables["produto_total"] = String(unitPrice);
+                        ctx.variables["_awaiting_quantity"] = "false";
+                        ctx.variables["_awaiting_more_products"] = "true";
+
+                        // Show cart summary with buttons
+                        const cart = await recoverCartFromMessages(supabase, ctx);
+                        let grandTotal = 0;
+                        let cartSummary = "🛒 *Carrinho atual:*\n\n";
+                        for (const item of cart) {
+                          const iTotal = item.price * item.qty;
+                          grandTotal += iTotal;
+                          const uStr = item.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                          const tStr = iTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                          cartSummary += `• *${item.name}* — ${uStr} x ${item.qty} = *${tStr}*\n`;
+                        }
+                        const grandTotalStr = grandTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                        cartSummary += `\n🧾 *Total: ${grandTotalStr}*\n\n📸 *Envie mais fotos* ou finalize!`;
+
+                        await sendInteractiveButtons(
+                          supabase, ctx, cartSummary,
+                          [
+                            { label: "✅ Sim, mais produto", id: "mais_produto" },
+                            { label: "❌ Não, finalizar", id: "finalizar_compra" },
+                            { label: "📋 Ver carrinho", id: "ver_carrinho" },
+                          ],
+                          "Nutricar Brasil - Mini Mercado 24h"
+                        );
+                        console.log(`[POST-LLM] BATCH: Auto-added ${first.name} (${unitPriceStr}) qty=1 — cart has ${cart.length} items, total=${grandTotalStr}`);
+                      } else {
+                        // First product — ask quantity as before
+                        ctx.variables["_awaiting_quantity"] = "true";
+                        const askQtyMsg = `🛒 Encontrei no catálogo: *${first.name}*\n💰 Valor unitário: *${unitPriceStr}*\n\n📦 *Quantas unidades você pegou?*\n\n_Responda com o número (ex: 1, 2, 3...)_`;
+                        await sendWhatsAppMessage(supabase, ctx, askQtyMsg);
+                        console.log(`[POST-LLM] Product found: ${first.name} (${unitPriceStr}) — asking quantity`);
+                      }
                     } else {
                       // Product not in catalog
                       const notFound = `❌ Não encontrei esse produto no nosso catálogo${barcodeNum ? ` (código lido: ${barcodeNum})` : ""}. Poderia enviar outra foto mais nítida do código de barras ou me dizer o nome do produto?`;
