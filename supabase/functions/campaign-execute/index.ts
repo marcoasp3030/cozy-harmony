@@ -212,8 +212,32 @@ serve(async (req) => {
         console.error('campaign-execute: No UazAPI config found for user', userId);
         return json({ error: 'UazAPI não configurada. Verifique se há uma instância WhatsApp conectada.' });
       }
-      console.log(`campaign-execute: Using baseUrl=${config.baseUrl}`);
+      console.log(`campaign-execute: Using baseUrl=${config.baseUrl}, token=${config.instanceToken.slice(0, 8)}...`);
       const baseUrl = config.baseUrl.replace(/\/+$/, '');
+
+      // ── VERIFY WHATSAPP CONNECTION BEFORE SENDING ─────────
+      try {
+        const statusRes = await fetch(`${baseUrl}/instance/status`, {
+          method: 'GET',
+          headers: { 'token': config.instanceToken },
+        });
+        const statusData = await statusRes.json();
+        const instanceStatus = statusData?.instance?.status || statusData?.status || 'unknown';
+        console.log(`campaign-execute: Instance status check: ${instanceStatus}`, JSON.stringify(statusData).slice(0, 300));
+        
+        if (instanceStatus === 'disconnected' || instanceStatus === 'close') {
+          // Update DB status to reflect reality
+          if (campaign.instance_id) {
+            await supabase.from('whatsapp_instances').update({ status: 'disconnected' }).eq('id', campaign.instance_id);
+          }
+          return json({ 
+            error: 'WhatsApp desconectado. Reconecte a instância em Configurações > Instâncias WhatsApp antes de iniciar a campanha.',
+            code: 'WHATSAPP_DISCONNECTED',
+          });
+        }
+      } catch (statusErr) {
+        console.warn('campaign-execute: Could not verify instance status, proceeding anyway:', statusErr);
+      }
 
       // Mark campaign as running
       const updates: Record<string, unknown> = { status: 'running' };
