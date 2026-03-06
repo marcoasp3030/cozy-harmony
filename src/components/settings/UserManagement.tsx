@@ -103,6 +103,7 @@ const UserManagement = () => {
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [instancesDialogTarget, setInstancesDialogTarget] = useState<UserData | null>(null);
   const [editInstances, setEditInstances] = useState<string[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<UserData | null>(null);
 
   // Load supervisor's instances for assignment
   const { data: myInstances = [] } = useQuery({
@@ -320,6 +321,22 @@ const UserManagement = () => {
       setResetPassword("");
     },
     onError: (err: any) => toast.error(err.message),
+  });
+
+  const deleteUserMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const { data, error } = await supabase.functions.invoke("delete-user", {
+        body: { user_id: userId },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["all-users"] });
+      toast.success("Usuário excluído com sucesso!");
+      setDeleteTarget(null);
+    },
+    onError: (err: any) => toast.error(err.message || "Erro ao excluir usuário"),
   });
 
   const updateInstancesMutation = useMutation({
@@ -612,6 +629,12 @@ const UserManagement = () => {
                                   <Trash2 className="mr-2 h-4 w-4" /> Remover papel
                                 </DropdownMenuItem>
                               )}
+                              <DropdownMenuItem
+                                className="text-destructive"
+                                onClick={() => setDeleteTarget(u)}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" /> Excluir usuário
+                              </DropdownMenuItem>
                             </>
                           )}
                         </DropdownMenuContent>
@@ -750,6 +773,28 @@ const UserManagement = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Delete user confirmation */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir usuário</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir permanentemente <strong>{deleteTarget?.name}</strong> ({deleteTarget?.email})?
+              Esta ação não pode ser desfeita. O usuário perderá todo o acesso ao sistema.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteTarget && deleteUserMutation.mutate(deleteTarget.user_id)}
+            >
+              Excluir Permanentemente
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Manage instances dialog */}
       <Dialog open={!!instancesDialogTarget} onOpenChange={(open) => !open && setInstancesDialogTarget(null)}>
