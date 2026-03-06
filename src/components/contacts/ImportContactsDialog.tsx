@@ -311,6 +311,18 @@ const ImportContactsDialog = ({
               }}
             />
           </div>
+
+          <div className="flex items-center justify-center gap-3 mt-3">
+            <span className="text-xs text-muted-foreground">Baixar modelo:</span>
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={downloadTemplateExcel}>
+              <Download className="h-3 w-3" />
+              Excel (.xlsx)
+            </Button>
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={downloadTemplateCsv}>
+              <Download className="h-3 w-3" />
+              CSV
+            </Button>
+          </div>
         )}
 
         {/* Step 2: Column Mapping */}
