@@ -6,6 +6,7 @@ import BusinessHoursSettings from "@/components/settings/BusinessHoursSettings";
 import InactivitySettings from "@/components/settings/InactivitySettings";
 import ElevenLabsSettings from "@/components/settings/ElevenLabsSettings";
 import ProductCatalog from "@/components/settings/ProductCatalog";
+import VmPaySettings from "@/components/settings/VmPaySettings";
 import KnowledgeBase from "@/components/settings/KnowledgeBase";
 import LlmUsageDashboard from "@/components/settings/LlmUsageDashboard";
 import { Button } from "@/components/ui/button";
@@ -994,6 +995,7 @@ const SettingsPage = () => {
           <TabsTrigger value="elevenlabs" className="text-xs md:text-sm">ElevenLabs</TabsTrigger>
           <TabsTrigger value="company" className="text-xs md:text-sm">Empresa</TabsTrigger>
           <TabsTrigger value="products" className="text-xs md:text-sm">Produtos</TabsTrigger>
+          {isAdmin && <TabsTrigger value="vmpay" className="text-xs md:text-sm">VMPay</TabsTrigger>}
           <TabsTrigger value="knowledge" className="text-xs md:text-sm">Base de Conhecimento</TabsTrigger>
           {isAdminOrSupervisor && <TabsTrigger value="users" className="text-xs md:text-sm">Usuários</TabsTrigger>}
           {isAdmin && <TabsTrigger value="webhooks" className="text-xs md:text-sm">Webhooks</TabsTrigger>}
@@ -1043,6 +1045,12 @@ const SettingsPage = () => {
         <TabsContent value="products">
           <ProductCatalog />
         </TabsContent>
+
+        {isAdmin && (
+          <TabsContent value="vmpay">
+            <VmPaySettings />
+          </TabsContent>
+        )}
 
         <TabsContent value="knowledge">
           <KnowledgeBase />
