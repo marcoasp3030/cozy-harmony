@@ -4897,9 +4897,10 @@ function buildPixPaymentMessage(productName?: string, productPrice?: string | nu
 }
 
 // ── Helper: Recover shopping cart items from recent outbound messages ──
+// Handles corrections (uses LATEST qty for duplicate product names) and removals (🗑️ markers)
 async function recoverCartFromMessages(supabase: any, ctx: ExecutionContext): Promise<Array<{ name: string; price: number; qty: number }>> {
-  const cart: Array<{ name: string; price: number; qty: number }> = [];
-  const seen = new Set<string>();
+  const cartMap = new Map<string, { name: string; price: number; qty: number }>();
+  const removedItems = new Set<string>();
 
   try {
     let cartQuery = supabase
@@ -4907,37 +4908,47 @@ async function recoverCartFromMessages(supabase: any, ctx: ExecutionContext): Pr
       .select("content")
       .eq("contact_id", ctx.contactId)
       .eq("direction", "outbound")
-      .order("created_at", { ascending: false })
-      .limit(30);
+      .order("created_at", { ascending: true }) // oldest first so latest overwrites
+      .limit(50);
     if (ctx.sessionStartedAt) cartQuery = cartQuery.gte("created_at", ctx.sessionStartedAt);
     const { data: msgs } = await cartQuery;
 
     // Pattern matches: "✅ Adicionado!\n\n🛒 *PRODUCT*\n💰 Unitário: *R$ X,XX*\n📦 Quantidade: *N*"
     const cartItemPattern = /🛒\s*\*([^*]+)\*\s*\n💰\s*Unitário:\s*\*R\$\s*([\d.,]+)\*\s*\n📦\s*Quantidade:\s*\*(\d+)\*/g;
+    // Removal pattern: "🗑️ Removido do carrinho: *PRODUCT*"
+    const removePattern = /🗑️\s*Removido do carrinho:\s*\*([^*]+)\*/;
     
     for (const m of (msgs || [])) {
       const content = m.content || "";
+      
+      // Check for removal markers
+      const removeMatch = content.match(removePattern);
+      if (removeMatch) {
+        const removedName = removeMatch[1].trim().toLowerCase();
+        removedItems.add(removedName);
+        cartMap.delete(removedName);
+        continue;
+      }
+      
+      // Check for cart items (latest entry wins for corrections)
       let match;
       while ((match = cartItemPattern.exec(content)) !== null) {
         const name = match[1].trim();
+        const nameLower = name.toLowerCase();
         const price = parseFloat(match[2].replace(".", "").replace(",", "."));
         const qty = parseInt(match[3]) || 1;
-        const key = `${name}|${price}`;
-        if (!seen.has(key) && price > 0) {
-          seen.add(key);
-          cart.push({ name, price, qty });
+        if (price > 0 && !removedItems.has(nameLower)) {
+          cartMap.set(nameLower, { name, price, qty });
         }
       }
-      cartItemPattern.lastIndex = 0; // Reset regex for next iteration
+      cartItemPattern.lastIndex = 0;
     }
-
-    // Also check the older format: "🛒 Encontrei no catálogo: *PRODUCT*\n💰 Valor unitário: *R$ X,XX*"
-    // followed by quantity response — but these should now be handled by the new flow
   } catch (e) {
     console.error("[CART] Error recovering cart:", e);
   }
 
-  console.log(`[CART] Recovered ${cart.length} items from messages`);
+  const cart = Array.from(cartMap.values());
+  console.log(`[CART] Recovered ${cart.length} items from messages (${removedItems.size} removed)`);
   return cart;
 }
 
@@ -5027,6 +5038,156 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
   const qtyMatchLoose = msgTrimmed.match(/(\d{1,2})\s*(?:unidade|produto|peguei|são|sao)?/i);
   const potentialQty = qtyMatch || qtyMatchLoose;
   
+  // ── CART "VIEW/EDIT" HANDLER: Customer clicked "ver_carrinho" or typed "carrinho", "ver carrinho", "editar" ──
+  const isViewCart = /^(ver.?carrinho|carrinho|editar|ver_carrinho)/i.test(msgTrimmed) || msgTrimmed === "ver_carrinho";
+  if (isViewCart) {
+    const cart = await recoverCartFromMessages(supabase, ctx);
+    if (cart.length > 0) {
+      let grandTotal = 0;
+      let cartSummary = "🛒 *Seu carrinho atual:*\n\n";
+      for (let i = 0; i < cart.length; i++) {
+        const item = cart[i];
+        const itemTotal = item.price * item.qty;
+        grandTotal += itemTotal;
+        const unitStr = item.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        const totalStr = itemTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        cartSummary += `${i + 1}️⃣ *${item.name}* — ${unitStr} x ${item.qty} = *${totalStr}*\n`;
+      }
+      const grandTotalStr = grandTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+      cartSummary += `\n🧾 *Total: ${grandTotalStr}*\n\n✏️ Para *corrigir quantidade*, digite:\n_corrigir Nome do Produto para 3_\n\n🗑️ Para *remover item*, digite:\n_remover Nome do Produto_`;
+      
+      ctx.variables["_awaiting_more_products"] = "true";
+      const buttonsSent = await sendInteractiveButtons(
+        supabase, ctx, cartSummary,
+        [
+          { label: "✅ Sim, mais produto", id: "mais_produto" },
+          { label: "❌ Não, finalizar", id: "finalizar_compra" },
+        ],
+        "Nutricar Brasil - Mini Mercado 24h"
+      );
+      if (!buttonsSent) {
+        await sendWhatsAppMessage(supabase, ctx, cartSummary);
+      }
+      console.log(`[CART] Showing cart: ${cart.length} items, total=${grandTotalStr}`);
+      return true;
+    } else {
+      await sendWhatsAppMessage(supabase, ctx, "🛒 Seu carrinho está vazio! Envie uma 📸 *foto do código de barras* do produto para começar. 🔍\n\n_Nutricar Brasil - Mini Mercado 24h_ 💚");
+      return true;
+    }
+  }
+
+  // ── CART "REMOVE ITEM" HANDLER: Customer typed "remover X" or "tirar X" ──
+  const removeMatch = msgTrimmed.match(/^(?:remover|tirar|excluir|deletar|retirar)\s+(.+)/i);
+  if (removeMatch) {
+    const itemToRemove = removeMatch[1].trim().toLowerCase().replace(/^\*|\*$/g, "");
+    const cart = await recoverCartFromMessages(supabase, ctx);
+    const foundItem = cart.find(item => item.name.toLowerCase().includes(itemToRemove));
+    
+    if (foundItem) {
+      // We can't actually delete messages, so we'll send a "removal" marker message
+      // and update recoverCartFromMessages to exclude removed items
+      const removeMarker = `🗑️ Removido do carrinho: *${foundItem.name}*`;
+      await sendWhatsAppMessage(supabase, ctx, removeMarker);
+      
+      // Rebuild cart without the removed item
+      const updatedCart = cart.filter(item => item.name !== foundItem.name);
+      
+      if (updatedCart.length > 0) {
+        let grandTotal = 0;
+        let cartSummary = "🛒 *Carrinho atualizado:*\n\n";
+        for (const item of updatedCart) {
+          const itemTotal = item.price * item.qty;
+          grandTotal += itemTotal;
+          const unitStr = item.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+          const totalStr = itemTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+          cartSummary += `• *${item.name}* — ${unitStr} x ${item.qty} = *${totalStr}*\n`;
+        }
+        const grandTotalStr = grandTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        cartSummary += `\n🧾 *Total: ${grandTotalStr}*\n\n🛍️ *Pegou mais algum produto?*`;
+        
+        ctx.variables["_awaiting_more_products"] = "true";
+        const buttonsSent = await sendInteractiveButtons(
+          supabase, ctx, cartSummary,
+          [
+            { label: "✅ Sim, mais produto", id: "mais_produto" },
+            { label: "❌ Não, finalizar", id: "finalizar_compra" },
+            { label: "📋 Ver carrinho", id: "ver_carrinho" },
+          ],
+          "Nutricar Brasil - Mini Mercado 24h"
+        );
+        if (!buttonsSent) {
+          await sendWhatsAppMessage(supabase, ctx, cartSummary);
+        }
+      } else {
+        await sendWhatsAppMessage(supabase, ctx, "🛒 Seu carrinho ficou vazio! Envie uma 📸 *foto do código de barras* do produto para começar novamente. 🔍\n\n_Nutricar Brasil - Mini Mercado 24h_ 💚");
+        ctx.variables["_awaiting_more_products"] = "false";
+      }
+      console.log(`[CART] Removed item: ${foundItem.name}`);
+      return true;
+    } else {
+      await sendWhatsAppMessage(supabase, ctx, `❌ Não encontrei "*${removeMatch[1].trim()}*" no carrinho. Digite *carrinho* para ver seus itens.\n\n_Nutricar Brasil - Mini Mercado 24h_ 💚`);
+      return true;
+    }
+  }
+
+  // ── CART "CORRECT QUANTITY" HANDLER: Customer typed "corrigir X para Y" ──
+  const correctMatch = msgTrimmed.match(/^(?:corrigir|alterar|mudar|trocar)\s+(.+?)\s+(?:para|pra|p\/)\s*(\d{1,2})/i);
+  if (correctMatch) {
+    const itemToCorrect = correctMatch[1].trim().toLowerCase().replace(/^\*|\*$/g, "");
+    const newQty = Math.max(1, Math.min(50, parseInt(correctMatch[2]) || 1));
+    const cart = await recoverCartFromMessages(supabase, ctx);
+    const foundItem = cart.find(item => item.name.toLowerCase().includes(itemToCorrect));
+    
+    if (foundItem) {
+      const newTotal = foundItem.price * newQty;
+      const unitStr = foundItem.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+      const newTotalStr = newTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+      
+      // Send correction marker message (recoverCartFromMessages will pick up the latest qty)
+      const correctionMsg = `✏️ Quantidade corrigida!\n\n🛒 *${foundItem.name}*\n💰 Unitário: *${unitStr}*\n📦 Quantidade: *${newQty}*\n🧾 Subtotal: *${newTotalStr}*`;
+      
+      // Send as "✅ Adicionado!" format so recoverCartFromMessages picks it up and overwrites the old one
+      const correctionMarkerMsg = `✅ Adicionado!\n\n🛒 *${foundItem.name}*\n💰 Unitário: *${unitStr}*\n📦 Quantidade: *${newQty}*\n🧾 Subtotal: *${newTotalStr}*\n\n✏️ _Quantidade atualizada de ${foundItem.qty} → ${newQty}_`;
+      await sendWhatsAppMessage(supabase, ctx, correctionMarkerMsg);
+      
+      // Rebuild cart with updated quantity for this item
+      const updatedCart = cart.map(item => 
+        item.name === foundItem.name ? { ...item, qty: newQty } : item
+      );
+      
+      let grandTotal = 0;
+      let cartSummary = "🛒 *Carrinho atualizado:*\n\n";
+      for (const item of updatedCart) {
+        const itemTotal = item.price * item.qty;
+        grandTotal += itemTotal;
+        const uStr = item.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        const tStr = itemTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        cartSummary += `• *${item.name}* — ${uStr} x ${item.qty} = *${tStr}*\n`;
+      }
+      const grandTotalStr = grandTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+      cartSummary += `\n🧾 *Total: ${grandTotalStr}*\n\n🛍️ *Pegou mais algum produto?*`;
+      
+      ctx.variables["_awaiting_more_products"] = "true";
+      const buttonsSent = await sendInteractiveButtons(
+        supabase, ctx, cartSummary,
+        [
+          { label: "✅ Sim, mais produto", id: "mais_produto" },
+          { label: "❌ Não, finalizar", id: "finalizar_compra" },
+          { label: "📋 Ver carrinho", id: "ver_carrinho" },
+        ],
+        "Nutricar Brasil - Mini Mercado 24h"
+      );
+      if (!buttonsSent) {
+        await sendWhatsAppMessage(supabase, ctx, cartSummary);
+      }
+      console.log(`[CART] Corrected qty: ${foundItem.name} ${foundItem.qty} → ${newQty}`);
+      return true;
+    } else {
+      await sendWhatsAppMessage(supabase, ctx, `❌ Não encontrei "*${correctMatch[1].trim()}*" no carrinho. Digite *carrinho* para ver seus itens.\n\n_Nutricar Brasil - Mini Mercado 24h_ 💚`);
+      return true;
+    }
+  }
+
   // ── CART "MORE PRODUCTS?" HANDLER: Customer replied "sim" or clicked "mais_produto" ──
   const isMoreProducts = /^(sim|s|quero|tenho|peguei|tem mais|mais produto)/i.test(msgTrimmed);
   const isButtonMoreProducts = msgTrimmed === "mais_produto";
@@ -5191,6 +5352,7 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
           [
             { label: "✅ Sim, mais produto", id: "mais_produto" },
             { label: "❌ Não, finalizar", id: "finalizar_compra" },
+            { label: "📋 Ver carrinho", id: "ver_carrinho" },
           ],
           "Nutricar Brasil - Mini Mercado 24h"
         );
