@@ -4896,6 +4896,51 @@ function buildPixPaymentMessage(productName?: string, productPrice?: string | nu
   return PIX_KEY_MESSAGE;
 }
 
+// ── Helper: Recover shopping cart items from recent outbound messages ──
+async function recoverCartFromMessages(supabase: any, ctx: ExecutionContext): Promise<Array<{ name: string; price: number; qty: number }>> {
+  const cart: Array<{ name: string; price: number; qty: number }> = [];
+  const seen = new Set<string>();
+
+  try {
+    let cartQuery = supabase
+      .from("messages")
+      .select("content")
+      .eq("contact_id", ctx.contactId)
+      .eq("direction", "outbound")
+      .order("created_at", { ascending: false })
+      .limit(30);
+    if (ctx.sessionStartedAt) cartQuery = cartQuery.gte("created_at", ctx.sessionStartedAt);
+    const { data: msgs } = await cartQuery;
+
+    // Pattern matches: "✅ Adicionado!\n\n🛒 *PRODUCT*\n💰 Unitário: *R$ X,XX*\n📦 Quantidade: *N*"
+    const cartItemPattern = /🛒\s*\*([^*]+)\*\s*\n💰\s*Unitário:\s*\*R\$\s*([\d.,]+)\*\s*\n📦\s*Quantidade:\s*\*(\d+)\*/g;
+    
+    for (const m of (msgs || [])) {
+      const content = m.content || "";
+      let match;
+      while ((match = cartItemPattern.exec(content)) !== null) {
+        const name = match[1].trim();
+        const price = parseFloat(match[2].replace(".", "").replace(",", "."));
+        const qty = parseInt(match[3]) || 1;
+        const key = `${name}|${price}`;
+        if (!seen.has(key) && price > 0) {
+          seen.add(key);
+          cart.push({ name, price, qty });
+        }
+      }
+      cartItemPattern.lastIndex = 0; // Reset regex for next iteration
+    }
+
+    // Also check the older format: "🛒 Encontrei no catálogo: *PRODUCT*\n💰 Valor unitário: *R$ X,XX*"
+    // followed by quantity response — but these should now be handled by the new flow
+  } catch (e) {
+    console.error("[CART] Error recovering cart:", e);
+  }
+
+  console.log(`[CART] Recovered ${cart.length} items from messages`);
+  return cart;
+}
+
 // ── Helper: Send interactive buttons via WhatsApp (UazAPI /send/menu) ──
 async function sendInteractiveButtons(
   supabase: any,
@@ -4982,6 +5027,100 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
   const qtyMatchLoose = msgTrimmed.match(/(\d{1,2})\s*(?:unidade|produto|peguei|são|sao)?/i);
   const potentialQty = qtyMatch || qtyMatchLoose;
   
+  // ── CART "MORE PRODUCTS?" HANDLER: Customer replied "sim" or clicked "mais_produto" ──
+  const isMoreProducts = /^(sim|s|quero|tenho|peguei|tem mais|mais produto)/i.test(msgTrimmed);
+  const isButtonMoreProducts = msgTrimmed === "mais_produto";
+  const awaitingMoreProducts = ctx.variables["_awaiting_more_products"] === "true";
+  
+  // Check recent outbound for "mais algum produto" prompt
+  let recentlyAskedMoreProducts = awaitingMoreProducts;
+  if (!recentlyAskedMoreProducts && (isMoreProducts || isButtonMoreProducts)) {
+    try {
+      let moreCheckQuery = supabase
+        .from("messages")
+        .select("content, metadata")
+        .eq("contact_id", ctx.contactId)
+        .eq("direction", "outbound")
+        .order("created_at", { ascending: false })
+        .limit(5);
+      if (ctx.sessionStartedAt) moreCheckQuery = moreCheckQuery.gte("created_at", ctx.sessionStartedAt);
+      const { data: recentOut } = await moreCheckQuery;
+      recentlyAskedMoreProducts = (recentOut || []).some((m: any) => 
+        /mais algum produto|pegou mais/i.test(m.content || "") ||
+        (m.metadata?.buttons && JSON.stringify(m.metadata.buttons).includes("mais_produto"))
+      );
+    } catch {}
+  }
+
+  if ((isMoreProducts || isButtonMoreProducts) && recentlyAskedMoreProducts) {
+    ctx.variables["_awaiting_more_products"] = "false";
+    const nextProductMsg = `📸 Envie uma *foto do código de barras* do próximo produto para eu consultar o valor! 🔍\n\n_Nutricar Brasil - Mini Mercado 24h_ 💚`;
+    await sendWhatsAppMessage(supabase, ctx, nextProductMsg);
+    console.log(`[CART] Customer wants more products — asking for next barcode`);
+    return true;
+  }
+
+  // ── CART "FINALIZE" HANDLER: Customer replied "não" or clicked "finalizar_compra" ──
+  const isFinalize = /^(n[aã]o|nao|n|finalizar|só isso|so isso|é só|e so|pronto|acabou|terminei)/i.test(msgTrimmed);
+  const isButtonFinalize = msgTrimmed === "finalizar_compra";
+  
+  let recentlyAskedFinalizeCheck = awaitingMoreProducts;
+  if (!recentlyAskedFinalizeCheck && (isFinalize || isButtonFinalize)) {
+    try {
+      let finalCheckQuery = supabase
+        .from("messages")
+        .select("content, metadata")
+        .eq("contact_id", ctx.contactId)
+        .eq("direction", "outbound")
+        .order("created_at", { ascending: false })
+        .limit(5);
+      if (ctx.sessionStartedAt) finalCheckQuery = finalCheckQuery.gte("created_at", ctx.sessionStartedAt);
+      const { data: recentOut } = await finalCheckQuery;
+      recentlyAskedFinalizeCheck = (recentOut || []).some((m: any) => 
+        /mais algum produto|pegou mais/i.test(m.content || "") ||
+        (m.metadata?.buttons && JSON.stringify(m.metadata.buttons).includes("finalizar_compra"))
+      );
+    } catch {}
+  }
+
+  if ((isFinalize || isButtonFinalize) && recentlyAskedFinalizeCheck) {
+    ctx.variables["_awaiting_more_products"] = "false";
+    // Load cart from recent messages
+    const cart = await recoverCartFromMessages(supabase, ctx);
+    
+    if (cart.length > 0) {
+      let grandTotal = 0;
+      let cartSummary = "🛒 *Resumo da sua compra:*\n\n";
+      for (const item of cart) {
+        const itemTotal = item.price * item.qty;
+        grandTotal += itemTotal;
+        const unitStr = item.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        const totalStr = itemTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        cartSummary += `• *${item.name}* — ${unitStr} x ${item.qty} = *${totalStr}*\n`;
+      }
+      const grandTotalStr = grandTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+      cartSummary += `\n🧾 *Total geral: ${grandTotalStr}*`;
+      
+      ctx.variables["produto_total"] = String(grandTotal);
+      ctx.variables["_carrinho_itens"] = String(cart.length);
+      
+      const buttonsSent = await sendInteractiveButtons(
+        supabase, ctx, cartSummary,
+        [
+          { label: "✅ Enviar chave PIX", id: "pix_enviar" },
+          { label: "❌ Cancelar", id: "pix_cancelar" },
+        ],
+        "Nutricar Brasil - Mini Mercado 24h"
+      );
+      ctx.variables["_pix_buttons_sent"] = "true";
+      if (!buttonsSent) {
+        await sendWhatsAppMessage(supabase, ctx, `${cartSummary}\n\nDeseja receber a chave PIX para pagamento? 😊`);
+      }
+      console.log(`[CART] Finalized: ${cart.length} items, total=${grandTotalStr} — showing PIX buttons`);
+      return true;
+    }
+  }
+
   if (potentialQty) {
     // Check if we recently asked for quantity
     let recentlyAskedQty = ctx.variables["_awaiting_quantity"] === "true";
@@ -5035,31 +5174,30 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
 
       if (prodName && unitPrice > 0) {
         const quantity = Math.max(1, Math.min(50, parseInt(potentialQty[1]) || 1));
-        const totalPrice = unitPrice * quantity;
+        const itemTotal = unitPrice * quantity;
         const unitPriceStr = unitPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-        const totalPriceStr = totalPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        const itemTotalStr = itemTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
         ctx.variables["produto_quantidade"] = String(quantity);
-        ctx.variables["produto_total"] = String(totalPrice);
+        ctx.variables["produto_total"] = String(itemTotal);
         ctx.variables["_awaiting_quantity"] = "false";
+        ctx.variables["_awaiting_more_products"] = "true";
 
-        let confirmMsg = `🛒 *${prodName}*\n💰 Valor unitário: *${unitPriceStr}*\n📦 Quantidade: *${quantity} unidade(s)*\n🧾 *Total: ${totalPriceStr}*`;
+        // Show item confirmation + ask if there are more products
+        let confirmMsg = `✅ Adicionado!\n\n🛒 *${prodName}*\n💰 Unitário: *${unitPriceStr}*\n📦 Quantidade: *${quantity}*\n🧾 Subtotal: *${itemTotalStr}*\n\n🛍️ *Pegou mais algum produto?*`;
         
         const buttonsSent = await sendInteractiveButtons(
-          supabase,
-          ctx,
-          confirmMsg,
+          supabase, ctx, confirmMsg,
           [
-            { label: "✅ Enviar chave PIX", id: "pix_enviar" },
-            { label: "❌ Não quero", id: "pix_cancelar" },
+            { label: "✅ Sim, mais produto", id: "mais_produto" },
+            { label: "❌ Não, finalizar", id: "finalizar_compra" },
           ],
           "Nutricar Brasil - Mini Mercado 24h"
         );
-        ctx.variables["_pix_buttons_sent"] = "true";
         if (!buttonsSent) {
-          await sendWhatsAppMessage(supabase, ctx, `${confirmMsg}\n\nDeseja receber a chave PIX para pagamento? 😊`);
+          await sendWhatsAppMessage(supabase, ctx, `${confirmMsg}\n\nResponda *sim* para adicionar outro produto ou *não* para finalizar.`);
         }
-        console.log(`[PIX] Quantity confirmed: ${prodName} x${quantity} = ${totalPriceStr} — showing PIX buttons`);
+        console.log(`[CART] Item added: ${prodName} x${quantity} = ${itemTotalStr} — asking if more products`);
         return true;
       }
     }
