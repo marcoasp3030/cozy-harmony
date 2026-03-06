@@ -459,7 +459,10 @@ const ProductCatalog = () => {
                             <Badge variant="secondary" className="text-xs">{p.category}</Badge>
                           ) : "—"}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="flex gap-0.5">
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(p)}>
+                            <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
                           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(p.id)}>
                             <X className="h-3.5 w-3.5 text-muted-foreground" />
                           </Button>
