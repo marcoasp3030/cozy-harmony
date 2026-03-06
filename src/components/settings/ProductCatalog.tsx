@@ -52,8 +52,9 @@ const ProductCatalog = () => {
   const [importStats, setImportStats] = useState<{ total: number; success: number; errors: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Add product dialog
+  // Add/Edit product dialog
   const [addOpen, setAddOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [newProduct, setNewProduct] = useState({ name: "", barcode: "", price: "", category: "" });
   const [addingProduct, setAddingProduct] = useState(false);
 
