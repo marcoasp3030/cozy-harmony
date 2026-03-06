@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Play, Pause, BarChart3, Loader2, RotateCw, MoreVertical, Copy, Pencil, Trash2, Clock, Send, CheckCheck, Eye, AlertTriangle, CalendarDays } from "lucide-react";
+import { Play, Pause, BarChart3, Loader2, RotateCw, MoreVertical, Copy, Pencil, Trash2, Clock, Send, CheckCheck, Eye, AlertTriangle, CalendarDays, Smartphone } from "lucide-react";
+import { useWhatsAppInstances } from "@/hooks/useWhatsAppInstances";
 import CampaignReportDialog from "./CampaignReportDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
