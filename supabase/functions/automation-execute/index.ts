@@ -3755,18 +3755,24 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
           console.log("[POST-LLM] Triggered image product lookup after reply");
           try {
             // Quick AI call to extract barcode number AND/OR product name from the image
-            const extractPrompt = `Você é um LEITOR DE CÓDIGO DE BARRAS e CONTADOR DE PRODUTOS ultra-preciso para produtos de supermercado/mini mercado.
+            const extractPrompt = `Você é um LEITOR DE CÓDIGO DE BARRAS ultra-preciso para produtos de supermercado/mini mercado.
 
-TAREFA: Leia o código de barras na imagem E conte QUANTOS ITENS do mesmo produto aparecem.
+TAREFA PRINCIPAL: Ler TODOS OS DÍGITOS do código de barras na imagem com 100% de precisão.
 
-INSTRUÇÕES CRÍTICAS PARA LEITURA:
-1. Localize as BARRAS VERTICAIS e os NÚMEROS IMPRESSOS abaixo/ao lado delas
-2. Leia CADA DÍGITO individualmente, da ESQUERDA para a DIREITA
-3. EAN-13 = EXATAMENTE 13 dígitos (ex: 7891234567890) — é o mais comum no Brasil
-4. EAN-8 = EXATAMENTE 8 dígitos
-5. Códigos brasileiros geralmente começam com 789
-6. Se houver números impressos abaixo das barras, use-os como FONTE PRINCIPAL
-7. NUNCA invente dígitos — se não conseguir ler um número, coloque "?" no lugar
+MÉTODO DE LEITURA (siga rigorosamente):
+1. Procure os NÚMEROS IMPRESSOS abaixo ou ao lado das barras verticais — eles são a FONTE MAIS CONFIÁVEL
+2. Leia TODOS os dígitos, um por um, da ESQUERDA para a DIREITA, SEM PULAR NENHUM
+3. Conte os dígitos ao final — EAN-13 deve ter EXATAMENTE 13 dígitos, EAN-8 deve ter 8
+4. O PRIMEIRO GRUPO de dígitos geralmente fica separado à esquerda (ex: "7" em códigos brasileiros)
+5. O ÚLTIMO DÍGITO (à direita, separado) é o dígito verificador — NÃO o ignore
+6. Se os números estão divididos em grupos (ex: 7 891234 567890), JUNTE TODOS sem espaço
+7. Códigos brasileiros começam com 789 ou 790
+
+ERROS COMUNS QUE VOCÊ DEVE EVITAR:
+- NÃO omita o primeiro dígito (geralmente "7")
+- NÃO omita o último dígito (dígito verificador)
+- NÃO confunda 1 com 7, 6 com 8, 0 com 8
+- NÃO invente dígitos — se não conseguir ler, coloque "?"
 
 FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
 - Se encontrou código: CODIGO|NOME_PRODUTO (ex: 7891234567890|Coca-Cola 350ml)
