@@ -281,48 +281,50 @@ const ImportContactsDialog = ({
 
         {/* Step 1: Upload */}
         {step === "upload" && (
-          <div
-            className={cn(
-              "flex flex-col items-center justify-center rounded-2xl border-2 border-dashed p-12 transition-all duration-200 cursor-pointer",
-              dragActive
-                ? "border-primary bg-primary/5"
-                : "border-border hover:border-primary/50 hover:bg-accent"
-            )}
-            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-            onDragLeave={() => setDragActive(false)}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Upload className="mb-4 h-12 w-12 text-primary opacity-60" />
-            <p className="text-base font-medium">
-              Arraste seu arquivo ou clique para selecionar
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Suporta Excel (.xlsx, .xls) e CSV • Máx 10MB
-            </p>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) processFile(file);
-              }}
-            />
-          </div>
+          <>
+            <div
+              className={cn(
+                "flex flex-col items-center justify-center rounded-2xl border-2 border-dashed p-12 transition-all duration-200 cursor-pointer",
+                dragActive
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-primary/50 hover:bg-accent"
+              )}
+              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload className="mb-4 h-12 w-12 text-primary opacity-60" />
+              <p className="text-base font-medium">
+                Arraste seu arquivo ou clique para selecionar
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Suporta Excel (.xlsx, .xls) e CSV • Máx 10MB
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) processFile(file);
+                }}
+              />
+            </div>
 
-          <div className="flex items-center justify-center gap-3 mt-3">
-            <span className="text-xs text-muted-foreground">Baixar modelo:</span>
-            <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={downloadTemplateExcel}>
-              <Download className="h-3 w-3" />
-              Excel (.xlsx)
-            </Button>
-            <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={downloadTemplateCsv}>
-              <Download className="h-3 w-3" />
-              CSV
-            </Button>
-          </div>
+            <div className="flex items-center justify-center gap-3 mt-3">
+              <span className="text-xs text-muted-foreground">Baixar modelo:</span>
+              <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={downloadTemplateExcel}>
+                <Download className="h-3 w-3" />
+                Excel (.xlsx)
+              </Button>
+              <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={downloadTemplateCsv}>
+                <Download className="h-3 w-3" />
+                CSV
+              </Button>
+            </div>
+          </>
         )}
 
         {/* Step 2: Column Mapping */}
