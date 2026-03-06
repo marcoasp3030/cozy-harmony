@@ -83,6 +83,7 @@ serve(async (req) => {
   try {
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
+      console.error('campaign-execute: Missing or invalid Authorization header');
       return json({ error: 'Unauthorized' }, 401);
     }
 
@@ -92,13 +93,14 @@ serve(async (req) => {
       { global: { headers: { Authorization: authHeader } } }
     );
 
-    const jwtToken = authHeader.replace('Bearer ', '');
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(jwtToken);
-    if (claimsError || !claimsData?.claims) {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      console.error('campaign-execute: Auth error:', userError?.message || 'No user');
       return json({ error: 'Unauthorized' }, 401);
     }
 
-    const userId = claimsData.claims.sub as string;
+    const userId = user.id;
+    console.log(`campaign-execute: User ${userId} authenticated`);
     const body = await req.json();
     const { action, campaignId } = body;
 

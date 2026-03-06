@@ -88,7 +88,8 @@ const Campaigns = () => {
       }
       await loadCampaigns();
     } catch (err: any) {
-      toast.error("Erro: " + (err.message || "Tente novamente"));
+      console.error("campaign-execute error:", err);
+      toast.error("Erro ao executar campanha: " + (err.message || JSON.stringify(err) || "Tente novamente"), { duration: 10000 });
     } finally {
       setExecuting((prev) => ({ ...prev, [campaignId]: false }));
     }
