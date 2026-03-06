@@ -3757,32 +3757,45 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
             // Quick AI call to extract barcode number AND/OR product name from the image
             const extractPrompt = `Você é um LEITOR DE CÓDIGO DE BARRAS ultra-preciso para produtos de supermercado/mini mercado.
 
-TAREFA PRINCIPAL: Ler TODOS OS DÍGITOS do código de barras na imagem com 100% de precisão.
+TAREFA: Leia ABSOLUTAMENTE TODOS os dígitos numéricos impressos abaixo do código de barras.
 
-MÉTODO DE LEITURA (siga rigorosamente):
-1. Procure os NÚMEROS IMPRESSOS abaixo ou ao lado das barras verticais — eles são a FONTE MAIS CONFIÁVEL
-2. Leia TODOS os dígitos, um por um, da ESQUERDA para a DIREITA, SEM PULAR NENHUM
-3. Conte os dígitos ao final — EAN-13 deve ter EXATAMENTE 13 dígitos, EAN-8 deve ter 8
-4. O PRIMEIRO GRUPO de dígitos geralmente fica separado à esquerda (ex: "7" em códigos brasileiros)
-5. O ÚLTIMO DÍGITO (à direita, separado) é o dígito verificador — NÃO o ignore
-6. Se os números estão divididos em grupos (ex: 7 891234 567890), JUNTE TODOS sem espaço
-7. Códigos brasileiros começam com 789 ou 790
+PASSO A PASSO OBRIGATÓRIO:
+1. Localize os NÚMEROS IMPRESSOS abaixo das barras verticais
+2. Leia DÍGITO POR DÍGITO da esquerda para a direita
+3. O primeiro dígito geralmente fica SEPARADO à esquerda (ex: "7") — INCLUA ELE
+4. O último dígito fica SEPARADO à direita (verificador) — INCLUA ELE TAMBÉM
+5. JUNTE TUDO em uma sequência única SEM espaços
+6. CONTE os dígitos: EAN-13 = 13 dígitos, EAN-8 = 8 dígitos
+7. Se contou menos que 13, VOLTE e releia — você provavelmente pulou algum grupo
 
-ERROS COMUNS QUE VOCÊ DEVE EVITAR:
-- NÃO omita o primeiro dígito (geralmente "7")
-- NÃO omita o último dígito (dígito verificador)
-- NÃO confunda 1 com 7, 6 com 8, 0 com 8
-- NÃO invente dígitos — se não conseguir ler, coloque "?"
+EXEMPLO: Se abaixo das barras está impresso "7 891000 100103" → responda: 7891000100103|Nome do Produto
+Note que são 13 dígitos no total: 7-8-9-1-0-0-0-1-0-0-1-0-3
 
-FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
-- Se encontrou código: CODIGO|NOME_PRODUTO (ex: 7891234567890|Coca-Cola 350ml)
-- Se encontrou produto sem código: NOME_PRODUTO (ex: Coca-Cola 350ml)
-- Se não conseguiu identificar NADA: NENHUM
-- NÃO inclua quantidade — apenas identifique o produto`;
+FORMATO (sem explicações, sem espaços no código):
+CONTAGEM:CODIGO|NOME_PRODUTO
+Exemplo: 13:7891234567890|Coca-Cola 350ml
+Se não encontrou código: NOME_PRODUTO
+Se não identificou nada: NENHUM`;
+
+            const retryPrompt = `A leitura anterior do código de barras ficou INCOMPLETA. Releia com mais cuidado.
+
+ATENÇÃO MÁXIMA: Leia TODOS os números impressos abaixo das barras verticais na imagem.
+- O primeiro dígito (à esquerda, separado) geralmente é "7" para produtos brasileiros
+- O último dígito (à direita, separado) é o verificador
+- Deve haver EXATAMENTE 13 dígitos para EAN-13 ou 8 para EAN-8
+- NÃO retorne menos que 8 dígitos
+
+FORMATO: CONTAGEM:CODIGO|NOME_PRODUTO
+Exemplo: 13:7891234567890|Coca-Cola 350ml`;
             
             const { keys: barcodeKeys } = await getUserAIKeys(supabase, ctx.userId);
             if (barcodeKeys.openai || barcodeKeys.gemini) {
               // ── MULTI-IMAGE: process each image individually for barcode extraction ──
+              // Prefer OpenAI gpt-4o for barcode reading (more precise with digits)
+              const barcodeKeysOrdered: Record<string, string> = {};
+              if (barcodeKeys.openai) barcodeKeysOrdered.openai = barcodeKeys.openai;
+              if (barcodeKeys.gemini) barcodeKeysOrdered.gemini = barcodeKeys.gemini;
+
               const imagesToProcess = allImageBase64.length > 0 ? allImageBase64 : (imageBase64 ? [imageBase64] : []);
               const totalImages = imagesToProcess.length;
               let processedCount = 0;
@@ -3795,8 +3808,32 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
                 const currentImage = imagesToProcess[imgIdx];
                 const imgLabel = totalImages > 1 ? ` [img ${imgIdx + 1}/${totalImages}]` : "";
 
-                const extracted = (await callAIVisionWithUserKeys(barcodeKeys, extractPrompt, currentImage, { maxTokens: 200, temperature: 0.1 })).replace(/\s+/g, " ").trim();
+                let extracted = (await callAIVisionWithUserKeys(barcodeKeysOrdered, extractPrompt, currentImage, { maxTokens: 300, temperature: 0.1 })).replace(/\s+/g, " ").trim();
                 console.log(`[POST-LLM]${imgLabel} Barcode extraction result: "${extracted}"`);
+
+                // Parse count prefix and check if barcode is too short — retry if needed
+                const countMatch = extracted.match(/^(\d+):/);
+                if (countMatch) {
+                  extracted = extracted.replace(/^\d+:/, ""); // Remove count prefix
+                }
+                
+                const quickParts = extracted.split("|").map((p: string) => p.trim());
+                const quickBarcode = (quickParts[0] || "").replace(/[\s\-\.?]/g, "").replace(/\D/g, "");
+                
+                if (quickBarcode && quickBarcode.length >= 4 && quickBarcode.length < 8) {
+                  console.log(`[POST-LLM]${imgLabel} ⚠️ Barcode too short (${quickBarcode.length} digits: ${quickBarcode}) — retrying with emphasis`);
+                  const retryResult = (await callAIVisionWithUserKeys(barcodeKeysOrdered, retryPrompt, currentImage, { maxTokens: 300, temperature: 0.05 })).replace(/\s+/g, " ").trim();
+                  console.log(`[POST-LLM]${imgLabel} Retry result: "${retryResult}"`);
+                  
+                  const retryClean = retryResult.replace(/^\d+:/, "");
+                  const retryParts = retryClean.split("|").map((p: string) => p.trim());
+                  const retryBarcode = (retryParts[0] || "").replace(/[\s\-\.?]/g, "").replace(/\D/g, "");
+                  
+                  if (retryBarcode.length > quickBarcode.length) {
+                    extracted = retryClean;
+                    console.log(`[POST-LLM]${imgLabel} ✅ Retry improved: ${quickBarcode.length} → ${retryBarcode.length} digits`);
+                  }
+                }
 
                 if (!extracted || extracted === "NENHUM" || extracted.length <= 3) {
                   if (totalImages === 1) {
