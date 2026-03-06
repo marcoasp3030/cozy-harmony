@@ -24,6 +24,8 @@ interface SyncMeta {
 const VmPaySettings = () => {
   const { user } = useAuth();
   const [token, setToken] = useState("");
+  const [machineId, setMachineId] = useState("");
+  const [installationId, setInstallationId] = useState("");
   const [showToken, setShowToken] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
