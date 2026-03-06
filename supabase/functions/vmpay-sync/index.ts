@@ -45,6 +45,54 @@ async function vmpayGetSafe(path: string, token: string): Promise<any[]> {
   }
 }
 
+function toNumber(value: any): number {
+  if (value === null || value === undefined || value === "") return 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+
+  const str = String(value).trim();
+  if (!str) return 0;
+
+  let normalized = str;
+  if (normalized.includes(",") && normalized.includes(".")) {
+    normalized = normalized.replace(/\./g, "").replace(",", ".");
+  } else {
+    normalized = normalized.replace(",", ".");
+  }
+
+  const num = Number(normalized);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function normalizePrice(raw: any): number {
+  const n = toNumber(raw);
+  if (!n || n <= 0) return 0;
+  if (Number.isInteger(n) && n >= 100) return n / 100;
+  return n;
+}
+
+function extractPrice(...candidates: any[]): number {
+  for (const candidate of candidates) {
+    const price = normalizePrice(candidate);
+    if (price > 0) return price;
+  }
+  return 0;
+}
+
+function isPlaceholderName(name: string | null | undefined, id: string): boolean {
+  if (!name) return true;
+  const clean = name.trim();
+  return clean === "" || clean === `Produto ${id}` || /^\d+$/.test(clean);
+}
+
+function firstNonEmpty(...values: any[]): string | null {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
