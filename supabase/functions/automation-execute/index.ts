@@ -1537,6 +1537,7 @@ Responda APENAS com o texto da mensagem.`;
       // mode === "none" → don't assign, leave in general queue
 
       // 3. Update conversation: assign, set priority, change status
+      // IMPORTANT: Preserve pending_occurrence flag in notes if it exists
       const convUpdate: Record<string, any> = {
         status: "waiting",
       };
@@ -1767,20 +1768,18 @@ Responda APENAS com o texto da mensagem.`;
     }
 
     if (type === "action_register_occurrence") {
-      // ── Instead of registering immediately, FLAG the conversation for deferred registration ──
-      // The actual occurrence will be registered when the conversation is auto-closed,
-      // so the AI has the FULL conversation context (client may report multiple issues).
+      // ── HYBRID: Flag for deferred AND try immediate registration if conversation has enough context ──
       try {
         const defaultType = d.occurrence_type || "reclamacao";
         const priority = d.priority || "normal";
 
         if (!ctx.conversationId) {
-          console.warn("[OCCURRENCE] No conversationId available, cannot flag for deferred registration");
+          console.warn("[OCCURRENCE] No conversationId available, cannot register");
           return { flagged: false, reason: "no_conversation" };
         }
 
-        // Save pending occurrence flag on the conversation
-        const { error: flagErr } = await supabase
+        // Always save the pending_occurrence flag (backup for auto-close)
+        await supabase
           .from("conversations")
           .update({
             notes: JSON.stringify({
@@ -1792,15 +1791,177 @@ Responda APENAS com o texto da mensagem.`;
           })
           .eq("id", ctx.conversationId);
 
-        if (flagErr) {
-          console.error("[OCCURRENCE] Failed to flag conversation:", flagErr.message);
-          return { flagged: false, reason: "db_error" };
+        // ── Try IMMEDIATE registration using AI analysis of conversation so far ──
+        const { keys: occKeys } = await getUserAIKeys(supabase, ctx.userId);
+        if (!occKeys.openai && !occKeys.gemini) {
+          console.log(`[OCCURRENCE] No AI keys — deferred only`);
+          return { flagged: true, deferred: true };
         }
 
-        console.log(`[OCCURRENCE] Conversation ${ctx.conversationId} flagged for deferred occurrence registration (will register on auto-close)`);
-        return { flagged: true, deferred: true, message: "Occurrence will be registered when conversation closes" };
+        // Load conversation messages
+        let msgQuery = supabase
+          .from("messages")
+          .select("direction, content, type, created_at")
+          .eq("contact_id", ctx.contactId)
+          .order("created_at", { ascending: false })
+          .limit(40);
+        if (ctx.sessionStartedAt) msgQuery = msgQuery.gte("created_at", ctx.sessionStartedAt);
+        const { data: convMessages } = await msgQuery;
+
+        if (!convMessages || convMessages.length < 2) {
+          console.log(`[OCCURRENCE] Not enough messages yet — deferred only`);
+          return { flagged: true, deferred: true };
+        }
+
+        const conversationContext = (convMessages || [])
+          .reverse()
+          .filter((m: any) => m.content?.trim())
+          .map((m: any) => `[${m.direction === "inbound" ? "Cliente" : "Atendente"}]: ${m.content}`)
+          .join("\n");
+
+        // Also include transcription and grouped messages
+        const extraContext = [
+          ctx.variables["transcricao"] ? `[Transcrição de áudio]: ${ctx.variables["transcricao"]}` : "",
+          ctx.variables["mensagens_agrupadas"] ? `[Mensagens agrupadas]: ${ctx.variables["mensagens_agrupadas"]}` : "",
+          ctx.variables["descricao_imagem"] ? `[Descrição de imagem]: ${ctx.variables["descricao_imagem"]}` : "",
+        ].filter(Boolean).join("\n");
+
+        const { data: contactData } = await supabase
+          .from("contacts")
+          .select("phone, name, custom_fields")
+          .eq("id", ctx.contactId)
+          .single();
+
+        const contactName = contactData?.name || ctx.contactName || "Não informado";
+        const contactPhone = contactData?.phone || ctx.contactPhone;
+        const savedStore = (contactData?.custom_fields as any)?.condominio || "";
+        const confirmedStore = ctx.variables["loja"] || savedStore || "";
+
+        const extractPrompt = `Você é um analisador de conversas de atendimento da Nutricar Brasil (rede de mini mercados autônomos 24h).
+
+Analise a conversa abaixo e determine se há informações SUFICIENTES para registrar uma ocorrência.
+
+CRITÉRIOS PARA "ready: true" — TODOS devem ser atendidos:
+1. O cliente descreveu CLARAMENTE qual é o problema (não basta dizer "tenho um problema")
+2. A IA já fez as perguntas de qualificação necessárias (qual produto, o que aconteceu, etc.)
+3. O cliente respondeu com detalhes suficientes
+
+CRITÉRIOS PARA "ready: false":
+- Cliente só mencionou o problema de forma vaga sem detalhes
+- A IA ainda está coletando informações
+- Faltam dados essenciais (ex: cliente disse "produto com problema" mas não disse QUAL produto nem O QUE aconteceu)
+- Conversa é apenas cumprimento/saudação
+
+TIPOS DE OCORRÊNCIA: elogio, reclamacao, furto, falta_produto, produto_vencido, loja_suja, problema_pagamento, loja_sem_energia, acesso_bloqueado, sugestao, duvida, outro
+
+PRIORIDADE:
+- alta (furto, produto vencido, loja sem energia, cobrança indevida, acesso bloqueado)
+- normal (reclamações gerais, problemas de pagamento, falta de produto, dúvidas)
+- baixa (elogios, sugestões, feedback positivo)
+
+DADOS DO CONTATO:
+- Nome: "${contactName}"
+- Telefone: ${contactPhone}
+- Loja confirmada: ${confirmedStore || "Não confirmada"}
+
+CONVERSA:
+${conversationContext.slice(0, 4000)}
+${extraContext ? "\n" + extraContext.slice(0, 1000) : ""}
+
+Responda APENAS com JSON válido:
+{
+  "ready": true/false,
+  "reason": "motivo se não está pronto (ex: 'cliente não informou qual produto')",
+  "store_name": "nome da loja ou Não informada",
+  "contact_name": "nome do cliente",
+  "type": "tipo da ocorrência",
+  "priority": "alta/normal/baixa",
+  "summary": "Resumo COMPLETO com todos os detalhes coletados. Max 5 frases."
+}`;
+
+        const aiReply = await callAIWithUserKeys(occKeys, extractPrompt, { maxTokens: 500, temperature: 0.1, timeoutMs: 15000 });
+
+        if (aiReply) {
+          const jsonMatch = aiReply.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            try {
+              const parsed = JSON.parse(jsonMatch[0]);
+              
+              if (!parsed.ready) {
+                console.log(`[OCCURRENCE] AI says not ready: ${parsed.reason || "insufficient info"} — keeping deferred flag`);
+                return { flagged: true, deferred: true, reason: parsed.reason };
+              }
+
+              // Dedup check
+              const dedupCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+              const { data: recentOcc } = await supabase
+                .from("occurrences")
+                .select("id")
+                .eq("contact_phone", contactPhone)
+                .gte("created_at", dedupCutoff)
+                .limit(1);
+
+              if (recentOcc?.length) {
+                console.log(`[OCCURRENCE] Dedup: skipping, recent occurrence exists`);
+                return { flagged: true, deferred: false, deduplicated: true };
+              }
+
+              const storeName = parsed.store_name || confirmedStore || "Não informada";
+              const occContactName = parsed.contact_name || contactName;
+              const validTypes = ["elogio", "reclamacao", "furto", "falta_produto", "produto_vencido", "loja_suja", "problema_pagamento", "loja_sem_energia", "acesso_bloqueado", "sugestao", "duvida", "outro"];
+              const occType = validTypes.includes(parsed.type) ? parsed.type : defaultType;
+              const occPriority = ["alta", "normal", "baixa"].includes(parsed.priority) ? parsed.priority : priority;
+              const description = parsed.summary || conversationContext.slice(0, 500);
+
+              const { error: occErr } = await supabase.from("occurrences").insert({
+                store_name: storeName,
+                type: occType,
+                description,
+                contact_phone: contactPhone || null,
+                contact_name: occContactName || null,
+                priority: occPriority,
+                status: "aberto",
+                created_by: ctx.userId || null,
+              });
+
+              if (occErr) {
+                console.error(`[OCCURRENCE] Insert error:`, occErr.message);
+                return { flagged: true, deferred: true, insertError: occErr.message };
+              }
+
+              console.log(`[OCCURRENCE] ✅ Registered immediately: store="${storeName}", type="${occType}", priority="${occPriority}"`);
+
+              // Save store on contact profile
+              if (storeName && storeName !== "Não informada") {
+                try {
+                  const cf = (contactData?.custom_fields as Record<string, any>) || {};
+                  if (cf.condominio !== storeName) {
+                    await supabase.from("contacts").update({ custom_fields: { ...cf, condominio: storeName } }).eq("id", ctx.contactId);
+                  }
+                } catch {}
+              }
+
+              // Save contact name
+              if (occContactName && occContactName !== "Não informado" && occContactName !== contactPhone) {
+                try {
+                  await supabase.from("contacts").update({ name: occContactName }).eq("id", ctx.contactId);
+                } catch {}
+              }
+
+              // Clear the pending flag since we registered immediately
+              await supabase.from("conversations").update({ notes: null }).eq("id", ctx.conversationId);
+
+              return { flagged: false, registered: true, storeName, type: occType, priority: occPriority };
+            } catch (parseErr) {
+              console.error(`[OCCURRENCE] JSON parse error:`, parseErr);
+            }
+          }
+        }
+
+        console.log(`[OCCURRENCE] AI analysis inconclusive — keeping deferred flag`);
+        return { flagged: true, deferred: true };
       } catch (e) {
-        console.error("[OCCURRENCE] Error flagging:", e);
+        console.error("[OCCURRENCE] Error:", e);
         return { flagged: false, reason: "error", error: e instanceof Error ? e.message : "unknown" };
       }
     }
@@ -5242,7 +5403,7 @@ async function autoEscalateToHuman(supabase: any, ctx: ExecutionContext): Promis
     }
   }
 
-  // 3. Update conversation
+  // 3. Update conversation (preserve pending_occurrence flag in notes)
   const convUpdate: Record<string, any> = { status: "waiting", priority: "high" };
   if (assignedToId) convUpdate.assigned_to = assignedToId;
   await supabase.from("conversations").update(convUpdate).eq("id", ctx.conversationId);
