@@ -774,6 +774,28 @@ const UserManagement = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Delete user confirmation */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir usuário</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir permanentemente <strong>{deleteTarget?.name}</strong> ({deleteTarget?.email})?
+              Esta ação não pode ser desfeita. O usuário perderá todo o acesso ao sistema.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteTarget && deleteUserMutation.mutate(deleteTarget.user_id)}
+            >
+              Excluir Permanentemente
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Manage instances dialog */}
       <Dialog open={!!instancesDialogTarget} onOpenChange={(open) => !open && setInstancesDialogTarget(null)}>
         <DialogContent className="sm:max-w-md">
