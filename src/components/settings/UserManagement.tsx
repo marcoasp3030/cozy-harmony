@@ -103,6 +103,7 @@ const UserManagement = () => {
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [instancesDialogTarget, setInstancesDialogTarget] = useState<UserData | null>(null);
   const [editInstances, setEditInstances] = useState<string[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<UserData | null>(null);
 
   // Load supervisor's instances for assignment
   const { data: myInstances = [] } = useQuery({
