@@ -3521,17 +3521,19 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
           console.log("[POST-LLM] Triggered image product lookup after reply");
           try {
             // Quick AI call to extract barcode number AND/OR product name from the image
-            const extractPrompt = `Você é um especialista em leitura de códigos de barras de produtos de supermercado/mini mercado.
+            const extractPrompt = `Você é um LEITOR DE CÓDIGO DE BARRAS ultra-preciso para produtos de supermercado/mini mercado.
 
-Analise esta imagem com MÁXIMA ATENÇÃO e tente identificar:
-1. CÓDIGO DE BARRAS (EAN-13, EAN-8, UPC-A, Code128) — os números impressos ABAIXO ou AO LADO das barras verticais
-2. Se não houver código de barras, tente ler o NOME DO PRODUTO visível no rótulo/embalagem
+TAREFA: Leia o código de barras na imagem com MÁXIMA PRECISÃO.
 
-DICAS PARA LEITURA:
-- O código EAN-13 tem EXATAMENTE 13 dígitos (ex: 7891234567890)
-- Pode estar na parte inferior da embalagem, no verso, ou em etiqueta colada
-- Mesmo que a imagem não esteja perfeita, tente ler os números parcialmente visíveis
-- Se a imagem mostra um RÓTULO ou EMBALAGEM, extraia o nome do produto da marca/logo
+INSTRUÇÕES CRÍTICAS PARA LEITURA:
+1. Localize as BARRAS VERTICAIS e os NÚMEROS IMPRESSOS abaixo/ao lado delas
+2. Leia CADA DÍGITO individualmente, da ESQUERDA para a DIREITA
+3. EAN-13 = EXATAMENTE 13 dígitos (ex: 7891234567890) — é o mais comum no Brasil
+4. EAN-8 = EXATAMENTE 8 dígitos
+5. Códigos brasileiros geralmente começam com 789
+6. Se houver números impressos abaixo das barras, use-os como FONTE PRINCIPAL (são mais legíveis que as barras)
+7. NUNCA invente dígitos — se não conseguir ler um número, coloque "?" no lugar
+8. Se não houver código de barras, leia o NOME DO PRODUTO no rótulo/embalagem
 
 FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
 - Se encontrou código de barras: APENAS os dígitos (ex: 7891234567890)
@@ -3547,18 +3549,62 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
                 if (extracted && extracted !== "NENHUM" && extracted.length > 3) {
                   // Parse barcode and optional product name
                   const parts = extracted.split("|").map((p: string) => p.trim());
-                  const barcodeNum = parts[0].replace(/\D/g, "");
+                  const rawBarcode = parts[0].replace(/[\s\-\.?]/g, "");
+                  const barcodeNum = /^\d{6,13}$/.test(rawBarcode) ? rawBarcode : rawBarcode.replace(/\D/g, "");
                   const productHint = parts[1] || "";
-                  const searchQuery = barcodeNum || productHint;
 
-                  if (searchQuery.length > 2) {
-                    const { data: products } = await supabase.rpc("search_products", {
+                  let products: any[] | null = null;
+
+                  // Strategy 1: Exact barcode via RPC
+                  if (barcodeNum && barcodeNum.length >= 6) {
+                    const { data: rpcResults } = await supabase.rpc("search_products", {
                       _user_id: ctx.userId,
-                      _query: searchQuery,
+                      _query: barcodeNum,
                       _limit: 3,
                     });
+                    if (rpcResults?.length > 0) {
+                      products = rpcResults;
+                      console.log(`[POST-LLM] ✅ Barcode RPC match: ${rpcResults[0].name}`);
+                    }
+                  }
 
-                    if (products && products.length > 0) {
+                  // Strategy 2: Partial barcode via LIKE (AI often misses last digits)
+                  if (!products?.length && barcodeNum && barcodeNum.length >= 6) {
+                    // Try progressively shorter prefixes
+                    for (const prefixLen of [barcodeNum.length, barcodeNum.length - 1, barcodeNum.length - 2]) {
+                      if (prefixLen < 6) break;
+                      const prefix = barcodeNum.slice(0, prefixLen);
+                      const { data: likeResults } = await supabase
+                        .from("products")
+                        .select("id, name, barcode, price, category")
+                        .eq("user_id", ctx.userId)
+                        .eq("is_active", true)
+                        .like("barcode", `${prefix}%`)
+                        .limit(3);
+                      if (likeResults?.length > 0) {
+                        products = likeResults;
+                        console.log(`[POST-LLM] ✅ Barcode LIKE match (${prefix}%): ${likeResults[0].name}`);
+                        break;
+                      }
+                    }
+                  }
+
+                  // Strategy 3: Product name search
+                  if (!products?.length && productHint && productHint.length > 2) {
+                    const { data: nameResults } = await supabase.rpc("search_products", {
+                      _user_id: ctx.userId,
+                      _query: productHint,
+                      _limit: 3,
+                    });
+                    if (nameResults?.length > 0) {
+                      products = nameResults;
+                      console.log(`[POST-LLM] ✅ Name match: ${nameResults[0].name}`);
+                    }
+                  }
+
+                  const searchQuery = barcodeNum || productHint;
+
+                  if (products && products.length > 0) {
                       const first = products[0];
                       ctx.variables["produto_encontrado"] = "true";
                       ctx.variables["produto_nome"] = first.name || "";
@@ -3600,15 +3646,10 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
                       }
                     } else {
                       // Product not in catalog
-                      const notFound = `❌ Não encontrei esse produto no nosso catálogo${barcodeNum ? ` (código: ${barcodeNum})` : ""}. Poderia enviar outra foto mais nítida do código de barras ou me dizer o nome do produto?`;
+                      const notFound = `❌ Não encontrei esse produto no nosso catálogo${barcodeNum ? ` (código lido: ${barcodeNum})` : ""}. Poderia enviar outra foto mais nítida do código de barras ou me dizer o nome do produto?`;
                       await sendWhatsAppMessage(supabase, ctx, notFound);
-                      console.log(`[POST-LLM] Product not found for: "${searchQuery}"`);
+                      console.log(`[POST-LLM] Product not found for barcode="${barcodeNum}" name="${productHint}"`);
                     }
-                  } else {
-                    const notReadable = "⚠️ Não consegui ler o código de barras completo da foto. Pode enviar uma foto mais nítida, focando no código?";
-                    await sendWhatsAppMessage(supabase, ctx, notReadable);
-                    console.log(`[POST-LLM] Extracted content not usable for search: "${extracted}"`);
-                  }
                 } else {
                   // No barcode detected — send the original LLM reply instead of generic error
                   if (shouldHoldPrimaryReply && reply) {
