@@ -33,6 +33,7 @@ import {
   AlertTriangle,
   Loader2,
   X,
+  Download,
 } from "lucide-react";
 import { validatePhone } from "@/lib/validators";
 import { supabase } from "@/integrations/supabase/client";
@@ -71,6 +72,32 @@ const ACCEPTED_TYPES = [
   "application/vnd.ms-excel",
   "text/csv",
 ];
+
+const TEMPLATE_DATA = [
+  { nome: "João Silva", telefone: "5511999998888", email: "joao@email.com" },
+  { nome: "Maria Santos", telefone: "5521988887777", email: "maria@email.com" },
+  { nome: "Pedro Oliveira", telefone: "5531977776666", email: "" },
+];
+
+const downloadTemplateExcel = () => {
+  const ws = XLSX.utils.json_to_sheet(TEMPLATE_DATA);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Contatos");
+  XLSX.writeFile(wb, "modelo_contatos.xlsx");
+};
+
+const downloadTemplateCsv = () => {
+  const header = "nome,telefone,email";
+  const rows = TEMPLATE_DATA.map((r) => `${r.nome},${r.telefone},${r.email}`);
+  const csv = [header, ...rows].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "modelo_contatos.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+};
 
 const guessColumn = (headers: string[], keywords: string[]): string => {
   const lower = headers.map((h) => h.toLowerCase().trim());
@@ -254,36 +281,50 @@ const ImportContactsDialog = ({
 
         {/* Step 1: Upload */}
         {step === "upload" && (
-          <div
-            className={cn(
-              "flex flex-col items-center justify-center rounded-2xl border-2 border-dashed p-12 transition-all duration-200 cursor-pointer",
-              dragActive
-                ? "border-primary bg-primary/5"
-                : "border-border hover:border-primary/50 hover:bg-accent"
-            )}
-            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-            onDragLeave={() => setDragActive(false)}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Upload className="mb-4 h-12 w-12 text-primary opacity-60" />
-            <p className="text-base font-medium">
-              Arraste seu arquivo ou clique para selecionar
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Suporta Excel (.xlsx, .xls) e CSV • Máx 10MB
-            </p>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) processFile(file);
-              }}
-            />
-          </div>
+          <>
+            <div
+              className={cn(
+                "flex flex-col items-center justify-center rounded-2xl border-2 border-dashed p-12 transition-all duration-200 cursor-pointer",
+                dragActive
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-primary/50 hover:bg-accent"
+              )}
+              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload className="mb-4 h-12 w-12 text-primary opacity-60" />
+              <p className="text-base font-medium">
+                Arraste seu arquivo ou clique para selecionar
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Suporta Excel (.xlsx, .xls) e CSV • Máx 10MB
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) processFile(file);
+                }}
+              />
+            </div>
+
+            <div className="flex items-center justify-center gap-3 mt-3">
+              <span className="text-xs text-muted-foreground">Baixar modelo:</span>
+              <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={downloadTemplateExcel}>
+                <Download className="h-3 w-3" />
+                Excel (.xlsx)
+              </Button>
+              <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={downloadTemplateCsv}>
+                <Download className="h-3 w-3" />
+                CSV
+              </Button>
+            </div>
+          </>
         )}
 
         {/* Step 2: Column Mapping */}
