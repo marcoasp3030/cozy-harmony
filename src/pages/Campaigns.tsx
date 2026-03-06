@@ -135,8 +135,19 @@ const Campaigns = () => {
           .eq("id", data!.id);
       }
 
-      toast.success("Campanha duplicada!");
+      toast.success("Campanha duplicada! Abrindo para edição...");
       await loadCampaigns();
+      // Open the duplicated campaign for editing so user can change instance etc.
+      const duplicatedId = data!.id;
+      const duplicated = {
+        ...campaign,
+        id: duplicatedId,
+        name: `${campaign.name} (cópia)`,
+        status: "draft",
+        stats: { total: contacts?.length || 0, sent: 0, delivered: 0, read: 0, failed: 0 },
+      };
+      setEditingCampaign(duplicated as Campaign);
+      setDialogOpen(true);
     } catch (err: any) {
       toast.error("Erro ao duplicar: " + (err.message || "Tente novamente"));
     }
