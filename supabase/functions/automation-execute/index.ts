@@ -4457,21 +4457,22 @@ Responda APENAS com JSON válido:
   "description": "descrição breve do que foi visto na imagem",
   "suggestion": "sugestão para melhorar a foto se quality != boa, ou null"
 }`,
-        barcode_read: `Você é um LEITOR DE CÓDIGO DE BARRAS ultra-preciso. Sua ÚNICA tarefa é ler os DÍGITOS NUMÉRICOS do código de barras na imagem.
+        barcode_read: `Você é um LEITOR DE CÓDIGO DE BARRAS ultra-preciso. Sua ÚNICA tarefa é ler TODOS os DÍGITOS NUMÉRICOS do código de barras na imagem.
 
-INSTRUÇÕES CRÍTICAS:
-1. Localize o código de barras na imagem (pode ser EAN-13, EAN-8, UPC-A, Code128, QR Code)
-2. Leia CADA DÍGITO individualmente, da ESQUERDA para a DIREITA
-3. Códigos EAN-13 têm EXATAMENTE 13 dígitos (ex: 7891234567890)
-4. Códigos EAN-8 têm EXATAMENTE 8 dígitos
-5. Se não conseguir ler com 100% de certeza algum dígito, coloque "?" no lugar
-6. NUNCA invente números — é melhor retornar "?" do que chutar
-7. Se houver números impressos ABAIXO das barras, use-os como referência principal
-8. Verifique se o primeiro dígito é 7 (Brasil) — códigos brasileiros geralmente começam com 789
+MÉTODO DE LEITURA (siga rigorosamente):
+1. Procure os NÚMEROS IMPRESSOS abaixo ou ao lado das barras verticais — são a FONTE MAIS CONFIÁVEL
+2. Leia TODOS os dígitos, um por um, da ESQUERDA para a DIREITA, SEM PULAR NENHUM
+3. O PRIMEIRO DÍGITO geralmente fica separado à esquerda (ex: "7" em códigos brasileiros) — NÃO o omita
+4. O ÚLTIMO DÍGITO (à direita, separado) é o dígito verificador — NÃO o omita
+5. Se os números estão em grupos (ex: 7 891234 567890), JUNTE TODOS sem espaço
+6. Conte os dígitos: EAN-13 = EXATAMENTE 13, EAN-8 = EXATAMENTE 8
+7. Códigos brasileiros começam com 789 ou 790
+8. NUNCA invente dígitos — se não ler com certeza, coloque "?" no lugar
+9. NÃO confunda 1↔7, 6↔8, 0↔8
 ${customPrompt ? `INSTRUÇÃO ADICIONAL: ${customPrompt}` : ""}
 
 Responda APENAS com JSON válido:
-{"quality": "boa"|"ruim"|"parcial", "quality_issue": "descrição se != boa ou null", "barcode": "APENAS os dígitos numéricos sem espaços ou null", "barcode_type": "EAN-13|EAN-8|UPC|QR|outro", "confidence": 0-100, "identified": true/false, "product_name": null, "brand": null, "category": null, "description": "o que você vê na imagem", "suggestion": "dica para melhorar a foto se necessário ou null"}`,
+{"quality": "boa"|"ruim"|"parcial", "quality_issue": "descrição se != boa ou null", "barcode": "TODOS os dígitos numéricos sem espaços ou null", "barcode_type": "EAN-13|EAN-8|UPC|QR|outro", "confidence": 0-100, "identified": true/false, "product_name": null, "brand": null, "category": null, "description": "o que você vê na imagem", "suggestion": "dica para melhorar a foto se necessário ou null"}`,
         label_read: `Analise esta imagem e leia todas as informações do rótulo/etiqueta do produto (nome, ingredientes, validade, peso, preço, etc.).
 ${customPrompt ? `INSTRUÇÃO: ${customPrompt}` : ""}
 Responda com JSON: {"quality": "boa"|"ruim"|"parcial", "quality_issue": "...", "identified": true/false, "product_name": "...", "brand": "...", "barcode": "...", "weight_volume": "...", "category": "...", "expiry_date": "...", "price_on_label": "...", "ingredients": "...", "confidence": 0-100, "description": "...", "suggestion": "..."}`,
