@@ -1218,8 +1218,9 @@ FORMATAÇÃO (WhatsApp — OBRIGATÓRIO):
 
 INSTRUÇÃO PRINCIPAL:
 - SEMPRE peça ao cliente para enviar uma 📸 *foto do código de barras* do produto
+- Informe que ele pode enviar *várias fotos* de uma vez se tiver mais de um produto: "Pode enviar todas as fotos dos códigos de barras, uma de cada produto, que verifico todos de uma vez! 📸📸📸"
 - Destaque *código de barras* em negrito SEMPRE
-- Explique de forma amigável que com o código de barras conseguimos buscar o preço certinho 🔍 e enviar a *chave PIX* 💰
+- Explique de forma amigável que com o código de barras conseguimos buscar o preço certinho 🔍 e que depois vamos perguntar a quantidade de cada item
 - Máximo 4-5 frases curtas e bem espaçadas
 - Termine com: _Nutricar Brasil - Mini Mercado 24h_ 💚
 
@@ -1232,9 +1233,9 @@ Responda APENAS com o texto da mensagem.`;
         if (!qualificationMsg) {
           const knownStore = qualConversation.match(/(?:unidade|loja)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)*)/i)?.[1] || "";
           if (knownStore) {
-            qualificationMsg = `😔 _Poxa, que chato isso na unidade ${knownStore}!_\n\nFica tranquilo(a) que vou te ajudar! ✨\n\nEnvie uma 📸 *foto do código de barras* do produto pra eu buscar o preço certinho no sistema 🔍\n\nAssim já te passo a *chave PIX* pra pagamento! 💰\n\n_Nutricar Brasil - Mini Mercado 24h_ 💚`;
+            qualificationMsg = `😔 _Poxa, que chato isso na unidade ${knownStore}!_\n\nFica tranquilo(a) que vou te ajudar! ✨\n\nEnvie uma 📸 *foto do código de barras* de cada produto pra eu buscar o preço certinho no sistema 🔍\n\nSe tiver mais de um, pode enviar *todas as fotos* de uma vez! 📸📸📸\n\nDepois eu pergunto a *quantidade* de cada um, tranquilo? 😊\n\n_Nutricar Brasil - Mini Mercado 24h_ 💚`;
           } else {
-            qualificationMsg = `😔 _Poxa, sinto muito pelo transtorno!_\n\nVou te ajudar a resolver isso rapidinho! ✨\n\nPreciso só de duas coisinhas:\n\n1️⃣ Em qual *unidade* aconteceu?\n2️⃣ Uma 📸 *foto do código de barras* do produto\n\nCom isso consigo buscar o preço 🔍 e te enviar a *chave PIX*! 💰\n\n_Nutricar Brasil - Mini Mercado 24h_ 💚`;
+            qualificationMsg = `😔 _Poxa, sinto muito pelo transtorno!_\n\nVou te ajudar a resolver isso rapidinho! ✨\n\nPreciso só de algumas coisinhas:\n\n1️⃣ Em qual *unidade* aconteceu?\n2️⃣ Uma 📸 *foto do código de barras* de cada produto\n\nSe tiver mais de um produto, pode enviar *todas as fotos* de uma vez! 📸📸📸\n\nCom isso consigo buscar os preços 🔍 e depois pergunto a *quantidade* de cada! 😊\n\n_Nutricar Brasil - Mini Mercado 24h_ 💚`;
           }
         }
         
@@ -2540,7 +2541,7 @@ Responda APENAS com JSON válido:
       
       // Always add anti-hallucination instruction for prices
       if (!productContext) {
-        productContext = "\n\n🚫 PREÇOS: Você NÃO tem acesso ao catálogo de produtos neste momento. Se o cliente perguntar sobre preço ou valor de qualquer produto, NUNCA invente um valor. Peça para enviar uma 📸 *foto do código de barras* do produto para que o sistema possa consultar o valor no catálogo. JAMAIS diga 'vou verificar' ou 'vou consultar' — isso cria expectativa de resposta que não virá. Sempre PEÇA a foto do código de barras diretamente.";
+        productContext = "\n\n🚫 PREÇOS: Você NÃO tem acesso ao catálogo de produtos neste momento. Se o cliente perguntar sobre preço ou valor de qualquer produto, NUNCA invente um valor. Peça para enviar uma 📸 *foto do código de barras* do produto para que o sistema possa consultar o valor no catálogo. Se o cliente tiver VÁRIOS produtos, diga que pode enviar todas as fotos de uma vez. Depois de identificar os produtos, o sistema perguntará a QUANTIDADE de cada um automaticamente. JAMAIS diga 'vou verificar' ou 'vou consultar' — isso cria expectativa de resposta que não virá. Sempre PEÇA a foto do código de barras diretamente.";
       }
 
       // ── 4. SENTIMENT ANALYSIS + TONE ADAPTATION: detect emotional tone and communication style ──
@@ -2737,10 +2738,10 @@ Entendi, lá no Alphavita 👍
 ---
 Qual produto que você notou que está em falta? Se puder mandar uma foto da prateleira ajuda a gente localizar mais rápido 📸
 
-Exemplo BOM (cliente perguntou preço):
+Exemplo BOM (cliente perguntou preço ou relatou problema de compra):
 Deixa eu ver aqui para você
 ---
-Manda uma foto do código de barras que eu consulto rapidinho 📸
+Manda uma foto do código de barras que eu consulto rapidinho 📸 Se tiver mais de um produto, pode enviar todas as fotos de uma vez!
 
 Exemplo BOM (problema de acesso/reconhecimento facial):
 Poxa, que chato 😕 Você já tem cadastro com reconhecimento facial na loja?
@@ -2757,8 +2758,9 @@ Exemplo RUIM (textão único):
 🚫 PROMESSAS VAZIAS — REGRA CRÍTICA:
 - NUNCA diga "vou verificar", "vou consultar", "vou checar", "vou enviar a chave PIX" ou qualquer variação que crie expectativa de resposta futura.
 - Você NÃO pode fazer ações sozinha. O sistema executa ações automaticamente APÓS sua resposta.
-- Em vez de prometer: PEÇA o que precisa diretamente (ex: "Me envia uma foto do código de barras para eu consultar o valor 📸").
+- Em vez de prometer: PEÇA o que precisa diretamente (ex: "Me envia uma foto do código de barras para eu consultar o valor 📸"). Se o cliente pode ter VÁRIOS produtos, diga que pode enviar todas as fotos de uma vez.
 - Em vez de "vou enviar a chave PIX": apenas confirme o produto/valor — o sistema enviará a chave automaticamente via botões.
+- Quando pedir código de barras, SEMPRE mencione que o sistema vai perguntar a quantidade de cada produto depois.
 - Se NÃO tem informação suficiente: PEÇA ao cliente (código de barras, unidade, detalhes) em vez de prometer que vai buscar.`;
 
       // ── 8. PIX QUALIFICATION + AUTONOMOUS STORE SUPPORT INSTRUCTIONS ──
@@ -3788,9 +3790,23 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
                 const firstPriceStr = firstProd.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
                 
                 // Store remaining products in queue (skip first, it's being asked now)
+                // PERSIST in conversation notes so it survives across webhook executions
                 if (pendingQtyProducts.length > 1) {
-                  ctx.variables["_pending_qty_queue"] = JSON.stringify(pendingQtyProducts.slice(1));
-                  console.log(`[POST-LLM] ${pendingQtyProducts.length} products found — asking qty for first, ${pendingQtyProducts.length - 1} queued`);
+                  const queueData = pendingQtyProducts.slice(1);
+                  ctx.variables["_pending_qty_queue"] = JSON.stringify(queueData);
+                  console.log(`[POST-LLM] ${pendingQtyProducts.length} products found — asking qty for first, ${queueData.length} queued`);
+                  try {
+                    await supabase.from("conversations").update({
+                      notes: JSON.stringify({
+                        ...((() => { try { return JSON.parse(ctx.variables["_conv_notes_raw"] || "{}"); } catch { return {}; } })()),
+                        pending_qty_queue: queueData,
+                        pending_qty_updated: new Date().toISOString(),
+                      }),
+                    }).eq("id", ctx.conversationId);
+                    console.log(`[POST-LLM] Queue persisted to conversation notes (${queueData.length} items)`);
+                  } catch (e) {
+                    console.error("[POST-LLM] Failed to persist queue:", e);
+                  }
                 }
                 
                 // Store current product being asked
@@ -5257,7 +5273,26 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
 
   // ── INTERACTIVE QUANTITY BUTTON HANDLER: Customer clicked qty_1, qty_6, qty_12, qty_outro or typed a number ──
   const isQtyButton = /^qty_(\d+|outro)$/i.test(msgTrimmed);
-  const isAwaitingQtyInteractive = ctx.variables["_awaiting_qty_interactive"] === "true" || ctx.variables["_awaiting_quantity"] === "true";
+  // Detect awaiting state from recent outbound messages (since ctx.variables don't persist)
+  let isAwaitingQtyInteractive = ctx.variables["_awaiting_qty_interactive"] === "true" || ctx.variables["_awaiting_quantity"] === "true";
+  if (!isAwaitingQtyInteractive && (isQtyButton || potentialQty)) {
+    try {
+      let awaitCheckQuery = supabase
+        .from("messages")
+        .select("content, metadata")
+        .eq("contact_id", ctx.contactId)
+        .eq("direction", "outbound")
+        .order("created_at", { ascending: false })
+        .limit(3);
+      if (ctx.sessionStartedAt) awaitCheckQuery = awaitCheckQuery.gte("created_at", ctx.sessionStartedAt);
+      const { data: recentOut } = await awaitCheckQuery;
+      isAwaitingQtyInteractive = (recentOut || []).some((m: any) =>
+        /quantas\s*unidades/i.test(m.content || "") ||
+        /digite\s*a\s*quantidade/i.test(m.content || "") ||
+        (m.metadata?.buttons && JSON.stringify(m.metadata.buttons).includes("qty_"))
+      );
+    } catch {}
+  }
   
   if (isQtyButton || (isAwaitingQtyInteractive && potentialQty)) {
     // Determine quantity from button or typed number
@@ -5326,11 +5361,33 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
         await sendWhatsAppMessage(supabase, ctx, confirmMsg);
         console.log(`[QTY] Added ${prodName} x${quantity} = ${itemTotalStr}`);
         
-        // Check if there are more products in the queue
+        // Check if there are more products in the queue (recover from conversation notes if not in ctx)
         let pendingQueue: Array<{ name: string; price: number; barcode: string }> = [];
         try {
           pendingQueue = JSON.parse(ctx.variables["_pending_qty_queue"] || "[]");
         } catch {}
+        
+        // If queue is empty in ctx.variables, try recovering from conversation notes (persisted across executions)
+        if (pendingQueue.length === 0 && ctx.conversationId) {
+          try {
+            const { data: convNotes } = await supabase
+              .from("conversations")
+              .select("notes")
+              .eq("id", ctx.conversationId)
+              .maybeSingle();
+            if (convNotes?.notes) {
+              const parsed = JSON.parse(convNotes.notes);
+              if (parsed?.pending_qty_queue?.length > 0) {
+                // Only use if updated recently (within 30 min)
+                const updatedAt = parsed.pending_qty_updated ? new Date(parsed.pending_qty_updated).getTime() : 0;
+                if (Date.now() - updatedAt < 30 * 60 * 1000) {
+                  pendingQueue = parsed.pending_qty_queue;
+                  console.log(`[QTY] Recovered ${pendingQueue.length} products from conversation notes`);
+                }
+              }
+            }
+          } catch {}
+        }
         
         if (pendingQueue.length > 0) {
           // Pop next product and ask quantity
@@ -5341,8 +5398,19 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
           ctx.variables["_awaiting_qty_interactive"] = "true";
           ctx.variables["_awaiting_quantity"] = "true";
           
+          // Persist updated queue to conversation notes
+          try {
+            await supabase.from("conversations").update({
+              notes: JSON.stringify({
+                pending_qty_queue: pendingQueue,
+                pending_qty_updated: new Date().toISOString(),
+              }),
+            }).eq("id", ctx.conversationId);
+          } catch {}
+          
           const nextPriceStr = nextProd.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-          const qtyMsg = `🛒 *${nextProd.name}*\n💰 Valor unitário: *${nextPriceStr}*${pendingQueue.length > 0 ? `\n\n📦 Ainda ${pendingQueue.length + 1} produto(s) restante(s)` : ""}\n\n📦 *Quantas unidades você pegou?*`;
+          const remainingText = pendingQueue.length > 0 ? `\n\n📦 Ainda ${pendingQueue.length} produto(s) na fila` : "";
+          const qtyMsg = `🛒 *Próximo produto:*\n\n*${nextProd.name}*\n💰 Valor unitário: *${nextPriceStr}*${remainingText}\n\n📦 *Quantas unidades você pegou?*`;
           
           await sendInteractiveButtons(
             supabase, ctx, qtyMsg,
@@ -5355,7 +5423,14 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
           );
           console.log(`[QTY] Next product in queue: ${nextProd.name} — ${pendingQueue.length} remaining`);
         } else {
-          // No more in queue — show cart summary
+          // No more in queue — clear conversation notes and show cart summary
+          try {
+            await supabase.from("conversations").update({
+              notes: JSON.stringify({ pending_qty_queue: [] }),
+            }).eq("id", ctx.conversationId);
+          } catch {}
+          
+          // Show cart summary
           const cart = await recoverCartFromMessages(supabase, ctx);
           let grandTotal = 0;
           let cartSummary = "🛒 *Carrinho atual:*\n\n";
