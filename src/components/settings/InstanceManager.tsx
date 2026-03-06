@@ -57,6 +57,7 @@ const InstanceCard = ({ instance, automations, onUpdate, onSetDefault, onDelete,
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [showGroups, setShowGroups] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const mountCheckedRef = useRef(false);
 
   // Poll status every 5s while QR is visible
   useEffect(() => {
