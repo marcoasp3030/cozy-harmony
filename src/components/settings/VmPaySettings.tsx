@@ -197,7 +197,7 @@ const VmPaySettings = () => {
           </div>
 
           {loaded && token && (
-            <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400">
+            <div className="flex items-center gap-2 text-xs text-primary">
               <CheckCircle2 className="h-3.5 w-3.5" />
               Configurado — Token: {maskKey(token)}
             </div>
