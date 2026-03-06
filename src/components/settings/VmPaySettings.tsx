@@ -41,7 +41,10 @@ const VmPaySettings = () => {
       supabase.from("settings").select("value").eq("user_id", user.id).eq("key", "vmpay_sync").maybeSingle(),
     ]).then(([tokenRes, syncRes]) => {
       if (tokenRes.data?.value) {
-        setToken((tokenRes.data.value as any).token || "");
+        const val = tokenRes.data.value as any;
+        setToken(val.token || "");
+        setMachineId(val.machine_id || "");
+        setInstallationId(val.installation_id || "");
         setLoaded(true);
       }
       if (syncRes.data?.value) setSyncMeta(syncRes.data.value as any);
