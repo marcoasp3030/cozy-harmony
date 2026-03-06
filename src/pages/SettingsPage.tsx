@@ -6,6 +6,7 @@ import BusinessHoursSettings from "@/components/settings/BusinessHoursSettings";
 import InactivitySettings from "@/components/settings/InactivitySettings";
 import ElevenLabsSettings from "@/components/settings/ElevenLabsSettings";
 import ProductCatalog from "@/components/settings/ProductCatalog";
+import VmPaySettings from "@/components/settings/VmPaySettings";
 import KnowledgeBase from "@/components/settings/KnowledgeBase";
 import LlmUsageDashboard from "@/components/settings/LlmUsageDashboard";
 import { Button } from "@/components/ui/button";
