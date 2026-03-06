@@ -278,23 +278,48 @@ const ProductCatalog = () => {
     }
   };
 
-  const handleAddProduct = async () => {
+  const openEdit = (p: Product) => {
+    setEditingProduct(p);
+    setNewProduct({
+      name: p.name,
+      barcode: p.barcode || "",
+      price: p.price.toString().replace(".", ","),
+      category: p.category || "",
+    });
+    setAddOpen(true);
+  };
+
+  const openAdd = () => {
+    setEditingProduct(null);
+    setNewProduct({ name: "", barcode: "", price: "", category: "" });
+    setAddOpen(true);
+  };
+
+  const handleSaveProduct = async () => {
     if (!user || !newProduct.name.trim()) {
       toast.error("Nome do produto é obrigatório");
       return;
     }
     setAddingProduct(true);
     try {
-      const { error } = await supabase.from("products" as any).insert({
-        user_id: user.id,
+      const record = {
         name: newProduct.name.trim(),
         barcode: newProduct.barcode.trim() || null,
         price: parseFloat(newProduct.price.replace(",", ".")) || 0,
         category: newProduct.category.trim() || null,
-      } as any);
-      if (error) throw error;
-      toast.success("Produto adicionado!");
+      };
+
+      if (editingProduct) {
+        const { error } = await supabase.from("products" as any).update(record as any).eq("id", editingProduct.id);
+        if (error) throw error;
+        toast.success("Produto atualizado!");
+      } else {
+        const { error } = await supabase.from("products" as any).insert({ ...record, user_id: user.id } as any);
+        if (error) throw error;
+        toast.success("Produto adicionado!");
+      }
       setNewProduct({ name: "", barcode: "", price: "", category: "" });
+      setEditingProduct(null);
       setAddOpen(false);
       loadProducts();
     } catch (err: any) {
