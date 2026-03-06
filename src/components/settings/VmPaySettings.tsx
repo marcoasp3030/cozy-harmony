@@ -58,7 +58,7 @@ const VmPaySettings = () => {
     try {
       const { error } = await supabase
         .from("settings")
-        .upsert({ user_id: user.id, key: "vmpay", value: { token: token.trim() } as any }, { onConflict: "user_id,key" });
+        .upsert({ user_id: user.id, key: "vmpay", value: { token: token.trim(), machine_id: machineId.trim(), installation_id: installationId.trim() } as any }, { onConflict: "user_id,key" });
       if (error) throw error;
       setLoaded(true);
       toast.success("Configuração da VMPay salva com sucesso!");
