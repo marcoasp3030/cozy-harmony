@@ -1737,26 +1737,48 @@ Responda APENAS com o texto da mensagem.`;
           if (loja) console.log(`[NOTIFY_GROUP] Loja from profile fallback: "${loja}"`);
         }
 
-        // Priority 3: AI-powered fuzzy matching against VMPay store list
-        // Handles abbreviations like "t5" → "Tamboré 5", "alpha 5" → "Alphaville 5"
+        // Priority 2.5: Manual alias-based matching (fallback before AI)
         if (ctx.userId) {
           try {
-            const { data: storesSetting } = await supabase
-              .from("settings")
-              .select("value")
-              .eq("user_id", ctx.userId)
-              .eq("key", "vmpay_stores")
-              .maybeSingle();
+            const [storesRes, aliasRes] = await Promise.all([
+              supabase.from("settings").select("value").eq("user_id", ctx.userId).eq("key", "vmpay_stores").maybeSingle(),
+              supabase.from("settings").select("value").eq("user_id", ctx.userId).eq("key", "vmpay_store_aliases").maybeSingle(),
+            ]);
 
-            const vmpayStores = (storesSetting?.value as any)?.stores || [];
-            
+            const vmpayStores = (storesRes.data?.value as any)?.stores || [];
+            const storeAliases: Record<string, string[]> = (aliasRes.data?.value as any) || {};
+
             if (vmpayStores.length > 0) {
               const storeNames = vmpayStores.map((s: any) => s.name).filter(Boolean);
               const storeList = storeNames.join(", ");
-              
+
+              // Try alias matching first (deterministic, no AI needed)
+              if (!loja || !storeNames.some((s: string) => s.toLowerCase() === loja.toLowerCase())) {
+                const textLower = textPool.toLowerCase();
+                let aliasMatch = "";
+                for (const [storeName, aliasList] of Object.entries(storeAliases)) {
+                  for (const alias of aliasList) {
+                    if (textLower.includes(alias.toLowerCase())) {
+                      // Verify the store name is in the actual store list
+                      const verified = storeNames.find((s: string) => s.toLowerCase() === storeName.toLowerCase());
+                      if (verified) {
+                        aliasMatch = verified;
+                        console.log(`[STORE-ALIAS] Matched alias "${alias}" → "${verified}"`);
+                        break;
+                      }
+                    }
+                  }
+                  if (aliasMatch) break;
+                }
+                if (aliasMatch) {
+                  loja = aliasMatch;
+                }
+              }
+
+              // Priority 3: AI-powered fuzzy matching against VMPay store list (only if alias didn't match)
               // Only use AI matching when there's a regex candidate OR the text explicitly mentions a store/location keyword
               const storeKeywords = /\b(loja|unidade|condom[ií]nio|aqui\s+n[oa]|moro\s+n[oa]|t\d|alpha|cp\b|park|ville|tamb|resident)/i;
-              const needsAiMatch = loja || storeKeywords.test(textPool);
+              const needsAiMatch = !loja && (storeKeywords.test(textPool));
               
               if (needsAiMatch) {
                 const { keys: storeKeys } = await getUserAIKeys(supabase, ctx.userId);
