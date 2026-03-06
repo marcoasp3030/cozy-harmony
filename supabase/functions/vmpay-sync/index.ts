@@ -71,6 +71,8 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     const vmpayToken = (setting?.value as any)?.token;
+    const configMachineId = (setting?.value as any)?.machine_id;
+    const configInstallationId = (setting?.value as any)?.installation_id;
     if (!vmpayToken) throw new Error("Token VMPay não configurado");
 
     const body = await req.json().catch(() => ({}));
@@ -134,33 +136,36 @@ Deno.serve(async (req) => {
     }
 
     // 3. Collect products from planograms
-    // Strategy: iterate all installations × machines, try planogram endpoint for each pair
     const allProducts: Map<string, any> = new Map();
-
-    // First try: extract installation_id from machine object (various possible fields)
     const machineInstallationPairs: Array<{machineId: number, installationId: number}> = [];
 
-    for (const machine of machines) {
-      const instId = machine.installation_id
-        || machine.installation?.id
-        || machine.current_installation_id
-        || machine.current_installation?.id;
-      if (instId) {
-        machineInstallationPairs.push({ machineId: machine.id, installationId: instId });
-      }
-    }
-
-    console.log(`Found ${machineInstallationPairs.length} machine-installation pairs from machine data`);
-
-    // Fallback: if no pairs found from machine data, iterate all installations × machines
-    if (machineInstallationPairs.length === 0 && installations.length > 0 && machines.length > 0) {
-      console.log("No installation_id in machines. Trying all installation × machine combinations...");
-      for (const inst of installations) {
-        for (const machine of machines) {
-          machineInstallationPairs.push({ machineId: machine.id, installationId: inst.id });
+    // Priority 1: Use user-configured machine_id and installation_id
+    if (configMachineId && configInstallationId) {
+      console.log(`Using configured machine_id=${configMachineId}, installation_id=${configInstallationId}`);
+      machineInstallationPairs.push({ machineId: Number(configMachineId), installationId: Number(configInstallationId) });
+    } else {
+      // Fallback: try to extract from machine objects
+      for (const machine of machines) {
+        const instId = machine.installation_id
+          || machine.installation?.id
+          || machine.current_installation_id
+          || machine.current_installation?.id;
+        if (instId) {
+          machineInstallationPairs.push({ machineId: machine.id, installationId: instId });
         }
       }
-      console.log(`Generated ${machineInstallationPairs.length} combinations to try`);
+      console.log(`Found ${machineInstallationPairs.length} machine-installation pairs from machine data`);
+
+      // Last resort: iterate all installations × machines
+      if (machineInstallationPairs.length === 0 && installations.length > 0 && machines.length > 0) {
+        console.log("No installation_id in machines. Trying all installation × machine combinations...");
+        for (const inst of installations) {
+          for (const machine of machines) {
+            machineInstallationPairs.push({ machineId: machine.id, installationId: inst.id });
+          }
+        }
+        console.log(`Generated ${machineInstallationPairs.length} combinations to try`);
+      }
     }
 
     let planogramsFetched = 0;

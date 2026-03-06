@@ -24,6 +24,8 @@ interface SyncMeta {
 const VmPaySettings = () => {
   const { user } = useAuth();
   const [token, setToken] = useState("");
+  const [machineId, setMachineId] = useState("");
+  const [installationId, setInstallationId] = useState("");
   const [showToken, setShowToken] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -39,7 +41,10 @@ const VmPaySettings = () => {
       supabase.from("settings").select("value").eq("user_id", user.id).eq("key", "vmpay_sync").maybeSingle(),
     ]).then(([tokenRes, syncRes]) => {
       if (tokenRes.data?.value) {
-        setToken((tokenRes.data.value as any).token || "");
+        const val = tokenRes.data.value as any;
+        setToken(val.token || "");
+        setMachineId(val.machine_id || "");
+        setInstallationId(val.installation_id || "");
         setLoaded(true);
       }
       if (syncRes.data?.value) setSyncMeta(syncRes.data.value as any);
@@ -53,7 +58,7 @@ const VmPaySettings = () => {
     try {
       const { error } = await supabase
         .from("settings")
-        .upsert({ user_id: user.id, key: "vmpay", value: { token: token.trim() } as any }, { onConflict: "user_id,key" });
+        .upsert({ user_id: user.id, key: "vmpay", value: { token: token.trim(), machine_id: machineId.trim(), installation_id: installationId.trim() } as any }, { onConflict: "user_id,key" });
       if (error) throw error;
       setLoaded(true);
       toast.success("Configuração da VMPay salva com sucesso!");
@@ -140,6 +145,19 @@ const VmPaySettings = () => {
                 </button>
               </div>
               <p className="text-xs text-muted-foreground">O token pode ser obtido no painel administrativo da VMPay</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Machine ID *</Label>
+                <Input type="text" placeholder="Ex: 12345" value={machineId} onChange={(e) => setMachineId(e.target.value)} />
+                <p className="text-xs text-muted-foreground">ID da máquina na VMPay</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Installation ID *</Label>
+                <Input type="text" placeholder="Ex: 67890" value={installationId} onChange={(e) => setInstallationId(e.target.value)} />
+                <p className="text-xs text-muted-foreground">ID da instalação na VMPay</p>
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-2">
