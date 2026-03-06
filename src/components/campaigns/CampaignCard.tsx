@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Play, Pause, BarChart3, Loader2, RotateCw, MoreVertical, Copy, Pencil, Trash2, Clock, Send, CheckCheck, Eye, AlertTriangle, CalendarDays } from "lucide-react";
+import { Play, Pause, BarChart3, Loader2, RotateCw, MoreVertical, Copy, Pencil, Trash2, Clock, Send, CheckCheck, Eye, AlertTriangle, CalendarDays, Smartphone } from "lucide-react";
+import { useWhatsAppInstances } from "@/hooks/useWhatsAppInstances";
 import CampaignReportDialog from "./CampaignReportDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -61,6 +62,10 @@ export default function CampaignCard({ campaign, executing, onExecute, onEdit, o
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const { instances } = useWhatsAppInstances();
+  const instanceName = campaign.instance_id
+    ? instances.find((i) => i.id === campaign.instance_id)?.name
+    : null;
 
   const s = (campaign.stats as CampaignStats) || { total: 0, sent: 0, delivered: 0, read: 0, failed: 0 };
   const progress = s.total > 0 ? ((s.sent + s.failed) / s.total) * 100 : 0;
@@ -123,6 +128,12 @@ export default function CampaignCard({ campaign, executing, onExecute, onEdit, o
                 )}
                 {s.total > 0 && (
                   <span className="font-medium">{s.total.toLocaleString()} contatos</span>
+                )}
+                {instanceName && (
+                  <span className="flex items-center gap-1">
+                    <Smartphone className="h-3 w-3" />
+                    {instanceName}
+                  </span>
                 )}
               </div>
             </div>
