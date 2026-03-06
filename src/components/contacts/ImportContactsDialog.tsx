@@ -73,6 +73,32 @@ const ACCEPTED_TYPES = [
   "text/csv",
 ];
 
+const TEMPLATE_DATA = [
+  { nome: "João Silva", telefone: "5511999998888", email: "joao@email.com" },
+  { nome: "Maria Santos", telefone: "5521988887777", email: "maria@email.com" },
+  { nome: "Pedro Oliveira", telefone: "5531977776666", email: "" },
+];
+
+const downloadTemplateExcel = () => {
+  const ws = XLSX.utils.json_to_sheet(TEMPLATE_DATA);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Contatos");
+  XLSX.writeFile(wb, "modelo_contatos.xlsx");
+};
+
+const downloadTemplateCsv = () => {
+  const header = "nome,telefone,email";
+  const rows = TEMPLATE_DATA.map((r) => `${r.nome},${r.telefone},${r.email}`);
+  const csv = [header, ...rows].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "modelo_contatos.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
 const guessColumn = (headers: string[], keywords: string[]): string => {
   const lower = headers.map((h) => h.toLowerCase().trim());
   for (const kw of keywords) {
