@@ -2004,6 +2004,23 @@ Responda APENAS com o nome exato da loja da lista OU "NONE". Nada mais.`;
         const savedStore = (contactData?.custom_fields as any)?.condominio || "";
         const confirmedStore = ctx.variables["loja"] || savedStore || "";
 
+        // Load VMPay stores for AI context
+        let vmpayStoreList = "";
+        if (ctx.userId) {
+          try {
+            const { data: storesSetting } = await supabase
+              .from("settings")
+              .select("value")
+              .eq("user_id", ctx.userId)
+              .eq("key", "vmpay_stores")
+              .maybeSingle();
+            const stores = (storesSetting?.value as any)?.stores || [];
+            if (stores.length > 0) {
+              vmpayStoreList = stores.map((s: any) => s.name).filter(Boolean).join(", ");
+            }
+          } catch {}
+        }
+
         const extractPrompt = `Você é um analisador de conversas de atendimento da Nutricar Brasil (rede de mini mercados autônomos 24h).
 
 Analise a conversa abaixo e determine se há informações SUFICIENTES para registrar uma ocorrência.
