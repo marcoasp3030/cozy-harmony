@@ -3821,17 +3821,22 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
                 let productHint = "";
 
                 if (parts.length >= 2) {
-                  const rawBarcode = parts[0].replace(/[\s\-\.?]/g, "");
-                  if (/^\d{6,13}$/.test(rawBarcode)) {
-                    barcodeNum = rawBarcode;
+                  const rawBarcode = parts[0].replace(/[\s\-\.]/g, "");
+                  // Remove "?" but log it — indicates uncertain digits
+                  const hasUncertain = rawBarcode.includes("?");
+                  const cleanRaw = rawBarcode.replace(/\?/g, "");
+                  if (/^\d{6,14}$/.test(cleanRaw)) {
+                    barcodeNum = cleanRaw;
                     productHint = parts[1];
+                    if (hasUncertain) console.log(`[POST-LLM]${imgLabel} ⚠️ Barcode had uncertain digits, cleaned: ${barcodeNum}`);
                   } else {
-                    barcodeNum = rawBarcode.replace(/\D/g, "");
+                    barcodeNum = cleanRaw.replace(/\D/g, "");
                     productHint = parts[1] || parts[0];
                   }
                 } else {
-                  const rawBarcode = parts[0].replace(/[\s\-\.?]/g, "");
-                  barcodeNum = /^\d{6,13}$/.test(rawBarcode) ? rawBarcode : rawBarcode.replace(/\D/g, "");
+                  const rawBarcode = parts[0].replace(/[\s\-\.]/g, "");
+                  const cleanRaw = rawBarcode.replace(/\?/g, "");
+                  barcodeNum = /^\d{6,14}$/.test(cleanRaw) ? cleanRaw : cleanRaw.replace(/\D/g, "");
                   if (!barcodeNum) productHint = parts[0];
                 }
 
