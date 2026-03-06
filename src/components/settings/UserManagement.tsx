@@ -323,6 +323,22 @@ const UserManagement = () => {
     onError: (err: any) => toast.error(err.message),
   });
 
+  const deleteUserMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const { data, error } = await supabase.functions.invoke("delete-user", {
+        body: { user_id: userId },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["all-users"] });
+      toast.success("Usuário excluído com sucesso!");
+      setDeleteTarget(null);
+    },
+    onError: (err: any) => toast.error(err.message || "Erro ao excluir usuário"),
+  });
+
   const updateInstancesMutation = useMutation({
     mutationFn: async ({ userId, instanceIds }: { userId: string; instanceIds: string[] }) => {
       // Delete existing
