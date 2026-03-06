@@ -230,39 +230,30 @@ Deno.serve(async (req) => {
         for (const plan of planograms) {
           const items = plan.items || plan.planogram_items || [];
           for (const item of items) {
-            const product = item.product || {};
-            const productId = product.id || item.product_id || item.id;
+            const good = item.good || item.product || {};
+            const productId = good.id || item.good_id || item.product_id || item.id;
             if (!productId) continue;
 
             const id = String(productId);
-            const name = firstNonEmpty(product.name, product.title, item.name, item.label, `Produto ${id}`) || `Produto ${id}`;
+            const name = firstNonEmpty(good.name, good.title, good.description, item.name, item.label, `Produto ${id}`) || `Produto ${id}`;
             const price = extractPrice(
+              item.desired_price,
+              item.typed_desired_price,
+              item.typed_promotional_price,
+              item.typed_benefits_club_price,
+              item.default_desired_price,
               item.current_price,
-              item.current_price_cents,
-              item.current_price_in_cents,
-              item.sale_price,
-              item.selling_price,
               item.price,
-              item.price_cents,
-              item.price_in_cents,
-              item.value,
-              item.amount,
-              product.current_price,
-              product.sale_price,
-              product.selling_price,
-              product.price,
-              product.price_cents,
-              product.price_in_cents,
-              product.value,
-              product.amount,
+              good.desired_price,
+              good.price,
+              good.current_price,
             );
-            const barcode = firstNonEmpty(product.barcode, product.ean, product.gtin, product.ean13, item.barcode, item.ean, item.gtin, item.ean13);
+            const barcode = firstNonEmpty(good.barcode, good.ean, good.gtin, good.ean13, item.barcode, item.ean);
             const storeName = installationMap.get(pair.installationId) || null;
-            const category = firstNonEmpty(product.category?.name, product.category, item.category?.name, item.category, storeName);
+            const category = firstNonEmpty(good.category?.name, good.category, item.category?.name, item.category, storeName);
 
             if (!sampleLogged) {
-              console.log("Sample planogram item keys:", JSON.stringify(Object.keys(item)).substring(0, 500));
-              console.log("Sample extracted price:", JSON.stringify({ id, name, price, raw: { item_price: item.price, item_current_price: item.current_price, item_value: item.value, product_price: product.price } }));
+              console.log("Sample item:", JSON.stringify({ id, name, price, desired_price: item.desired_price, typed_desired_price: item.typed_desired_price, good_name: good?.name, good_barcode: good?.barcode }));
               sampleLogged = true;
             }
 
