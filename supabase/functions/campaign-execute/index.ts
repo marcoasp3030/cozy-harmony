@@ -209,8 +209,10 @@ serve(async (req) => {
       }
 
       if (!config) {
-        return json({ error: 'UazAPI não configurada.' });
+        console.error('campaign-execute: No UazAPI config found for user', userId);
+        return json({ error: 'UazAPI não configurada. Verifique se há uma instância WhatsApp conectada.' });
       }
+      console.log(`campaign-execute: Using baseUrl=${config.baseUrl}`);
       const baseUrl = config.baseUrl.replace(/\/+$/, '');
 
       // Mark campaign as running
