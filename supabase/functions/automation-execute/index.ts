@@ -5271,7 +5271,26 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
 
   // ── INTERACTIVE QUANTITY BUTTON HANDLER: Customer clicked qty_1, qty_6, qty_12, qty_outro or typed a number ──
   const isQtyButton = /^qty_(\d+|outro)$/i.test(msgTrimmed);
-  const isAwaitingQtyInteractive = ctx.variables["_awaiting_qty_interactive"] === "true" || ctx.variables["_awaiting_quantity"] === "true";
+  // Detect awaiting state from recent outbound messages (since ctx.variables don't persist)
+  let isAwaitingQtyInteractive = ctx.variables["_awaiting_qty_interactive"] === "true" || ctx.variables["_awaiting_quantity"] === "true";
+  if (!isAwaitingQtyInteractive && (isQtyButton || potentialQty)) {
+    try {
+      let awaitCheckQuery = supabase
+        .from("messages")
+        .select("content, metadata")
+        .eq("contact_id", ctx.contactId)
+        .eq("direction", "outbound")
+        .order("created_at", { ascending: false })
+        .limit(3);
+      if (ctx.sessionStartedAt) awaitCheckQuery = awaitCheckQuery.gte("created_at", ctx.sessionStartedAt);
+      const { data: recentOut } = await awaitCheckQuery;
+      isAwaitingQtyInteractive = (recentOut || []).some((m: any) =>
+        /quantas\s*unidades/i.test(m.content || "") ||
+        /digite\s*a\s*quantidade/i.test(m.content || "") ||
+        (m.metadata?.buttons && JSON.stringify(m.metadata.buttons).includes("qty_"))
+      );
+    } catch {}
+  }
   
   if (isQtyButton || (isAwaitingQtyInteractive && potentialQty)) {
     // Determine quantity from button or typed number
