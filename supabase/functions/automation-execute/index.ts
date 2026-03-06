@@ -3729,10 +3729,10 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
                   }
                 }
 
-                // Strategy 2: Partial barcode via LIKE (AI often misses last digits)
-                if (!products?.length && barcodeNum && barcodeNum.length >= 6) {
+                // Strategy 2: Partial barcode via LIKE prefix (AI often misses last digits)
+                if (!products?.length && barcodeNum && barcodeNum.length >= 5) {
                   for (const prefixLen of [barcodeNum.length, barcodeNum.length - 1, barcodeNum.length - 2]) {
-                    if (prefixLen < 6) break;
+                    if (prefixLen < 5) break;
                     const prefix = barcodeNum.slice(0, prefixLen);
                     const { data: likeResults } = await supabase
                       .from("products")
@@ -3746,6 +3746,21 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
                       console.log(`[POST-LLM]${imgLabel} ✅ Barcode LIKE match (${prefix}%): ${likeResults[0].name}`);
                       break;
                     }
+                  }
+                }
+
+                // Strategy 2b: Reverse containment — check if any stored barcode contains the partial reading
+                if (!products?.length && barcodeNum && barcodeNum.length >= 5) {
+                  const { data: containResults } = await supabase
+                    .from("products")
+                    .select("id, name, barcode, price, category")
+                    .eq("user_id", ctx.userId)
+                    .eq("is_active", true)
+                    .like("barcode", `%${barcodeNum}%`)
+                    .limit(3);
+                  if (containResults?.length > 0) {
+                    products = containResults;
+                    console.log(`[POST-LLM]${imgLabel} ✅ Barcode CONTAINS match (%${barcodeNum}%): ${containResults[0].name}`);
                   }
                 }
 
