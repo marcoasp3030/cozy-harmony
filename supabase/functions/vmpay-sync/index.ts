@@ -338,7 +338,11 @@ Deno.serve(async (req) => {
       existingByName.set(String(row.name).trim().toLowerCase(), { id: row.id, price: rowPrice });
     }
 
-    const payload = productsArray.map((prod) => {
+    // Split into updates (existing) and inserts (new)
+    const updates: any[] = [];
+    const inserts: any[] = [];
+
+    for (const prod of productsArray) {
       const id = String(prod.vmpay_id);
       const barcode = firstNonEmpty(prod.barcode) || null;
       const name = firstNonEmpty(prod.name, `Produto ${id}`) || `Produto ${id}`;
@@ -350,27 +354,31 @@ Deno.serve(async (req) => {
       const existing = byBarcode || byName;
       const finalPrice = incomingPrice > 0 ? incomingPrice : (existing?.price || 0);
 
-      return {
-        id: existing?.id,
-        user_id: user.id,
-        name,
-        price: finalPrice,
-        barcode,
-        category,
-        is_active: true,
-      };
-    });
+      const record = { user_id: user.id, name, price: finalPrice, barcode, category, is_active: true };
+
+      if (existing?.id) {
+        updates.push({ ...record, id: existing.id });
+      } else {
+        inserts.push(record);
+      }
+    }
+
+    console.log(`Updates: ${updates.length}, Inserts: ${inserts.length}`);
 
     const chunkSize = 500;
-    for (let i = 0; i < payload.length; i += chunkSize) {
-      const chunk = payload.slice(i, i + chunkSize);
+    // Updates via upsert (have valid IDs)
+    for (let i = 0; i < updates.length; i += chunkSize) {
+      const chunk = updates.slice(i, i + chunkSize);
       const { error } = await supabase.from("products").upsert(chunk, { onConflict: "id" });
-      if (error) {
-        console.error("Batch upsert error:", error);
-        errors += chunk.length;
-      } else {
-        upserted += chunk.length;
-      }
+      if (error) { console.error("Batch update error:", error); errors += chunk.length; }
+      else upserted += chunk.length;
+    }
+    // Inserts (no ID, let DB generate)
+    for (let i = 0; i < inserts.length; i += chunkSize) {
+      const chunk = inserts.slice(i, i + chunkSize);
+      const { error } = await supabase.from("products").insert(chunk);
+      if (error) { console.error("Batch insert error:", error); errors += chunk.length; }
+      else upserted += chunk.length;
     }
 
     // 5. Save sync metadata
