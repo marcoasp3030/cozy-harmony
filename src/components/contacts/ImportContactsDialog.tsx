@@ -214,7 +214,7 @@ const ImportContactsDialog = ({
 
       const { error, data } = await supabase
         .from("contacts")
-        .upsert(contacts, { onConflict: "phone", ignoreDuplicates: false })
+        .upsert(contacts, { onConflict: "user_id,phone", ignoreDuplicates: true })
         .select();
 
       if (error) {
