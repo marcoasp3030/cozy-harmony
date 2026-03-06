@@ -580,10 +580,71 @@ serve(async (req) => {
           }).eq("id", recentRuns[0].id);
           console.log(`Auto-fixed stale running log ${recentRuns[0].id}, proceeding with new execution`);
         } else {
-          // Delete our duplicate log entry
-          await supabase.from("automation_logs").delete().eq("id", logEntry.id);
-          console.log(`Debounce: skipping automation "${automation.name}" for ${contactPhone} (older run ${recentRuns[0].id})`);
-          continue;
+          // ── BATCH CART BYPASS: allow new images through when cart is active ──
+          const isImageMessage = messageType === "image";
+          const previousRunCompleted = recentRuns[0].status === "completed";
+          const previousRunRunning = recentRuns[0].status === "running";
+
+          let allowBatchBypass = false;
+
+          if (isImageMessage) {
+            // Check if there's an active cart session by looking for recent "✅ Adicionado!" markers
+            if (contactId) {
+              const { data: cartMarkers } = await supabase
+                .from("messages")
+                .select("id")
+                .eq("contact_id", contactId)
+                .eq("direction", "outbound")
+                .ilike("content", "%✅ Adicionado!%")
+                .gte("created_at", new Date(Date.now() - 30 * 60 * 1000).toISOString())
+                .limit(1);
+
+              if (cartMarkers && cartMarkers.length > 0) {
+                allowBatchBypass = true;
+                console.log(`[BATCH] Cart session active for ${contactPhone}, allowing image through debounce`);
+              }
+            }
+
+            // Even without cart markers, if previous run completed, allow new images
+            // (first image completed → second image should go through to auto-add)
+            if (previousRunCompleted) {
+              allowBatchBypass = true;
+              console.log(`[BATCH] Previous run completed, allowing new image for ${contactPhone}`);
+            }
+
+            // If previous run is still running, wait briefly for it to finish
+            if (previousRunRunning && !allowBatchBypass) {
+              console.log(`[BATCH] Previous run still running for ${contactPhone}, waiting...`);
+              let waited = 0;
+              const maxWaitMs = 20000; // wait up to 20s
+              const pollMs = 2000;
+              while (waited < maxWaitMs) {
+                await new Promise(r => setTimeout(r, pollMs));
+                waited += pollMs;
+                const { data: checkRun } = await supabase
+                  .from("automation_logs")
+                  .select("status")
+                  .eq("id", recentRuns[0].id)
+                  .maybeSingle();
+                if (!checkRun || checkRun.status !== "running") {
+                  allowBatchBypass = true;
+                  console.log(`[BATCH] Previous run finished after ${waited}ms, proceeding`);
+                  break;
+                }
+              }
+              if (!allowBatchBypass) {
+                console.log(`[BATCH] Timeout waiting for previous run, proceeding anyway`);
+                allowBatchBypass = true;
+              }
+            }
+          }
+
+          if (!allowBatchBypass) {
+            // Delete our duplicate log entry
+            await supabase.from("automation_logs").delete().eq("id", logEntry.id);
+            console.log(`Debounce: skipping automation "${automation.name}" for ${contactPhone} (older run ${recentRuns[0].id})`);
+            continue;
+          }
         }
       }
 
