@@ -1233,9 +1233,9 @@ Responda APENAS com o texto da mensagem.`;
         if (!qualificationMsg) {
           const knownStore = qualConversation.match(/(?:unidade|loja)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)*)/i)?.[1] || "";
           if (knownStore) {
-            qualificationMsg = `😔 _Poxa, que chato isso na unidade ${knownStore}!_\n\nFica tranquilo(a) que vou te ajudar! ✨\n\nEnvie uma 📸 *foto do código de barras* do produto pra eu buscar o preço certinho no sistema 🔍\n\nAssim já te passo a *chave PIX* pra pagamento! 💰\n\n_Nutricar Brasil - Mini Mercado 24h_ 💚`;
+            qualificationMsg = `😔 _Poxa, que chato isso na unidade ${knownStore}!_\n\nFica tranquilo(a) que vou te ajudar! ✨\n\nEnvie uma 📸 *foto do código de barras* de cada produto pra eu buscar o preço certinho no sistema 🔍\n\nSe tiver mais de um, pode enviar *todas as fotos* de uma vez! 📸📸📸\n\nDepois eu pergunto a *quantidade* de cada um, tranquilo? 😊\n\n_Nutricar Brasil - Mini Mercado 24h_ 💚`;
           } else {
-            qualificationMsg = `😔 _Poxa, sinto muito pelo transtorno!_\n\nVou te ajudar a resolver isso rapidinho! ✨\n\nPreciso só de duas coisinhas:\n\n1️⃣ Em qual *unidade* aconteceu?\n2️⃣ Uma 📸 *foto do código de barras* do produto\n\nCom isso consigo buscar o preço 🔍 e te enviar a *chave PIX*! 💰\n\n_Nutricar Brasil - Mini Mercado 24h_ 💚`;
+            qualificationMsg = `😔 _Poxa, sinto muito pelo transtorno!_\n\nVou te ajudar a resolver isso rapidinho! ✨\n\nPreciso só de algumas coisinhas:\n\n1️⃣ Em qual *unidade* aconteceu?\n2️⃣ Uma 📸 *foto do código de barras* de cada produto\n\nSe tiver mais de um produto, pode enviar *todas as fotos* de uma vez! 📸📸📸\n\nCom isso consigo buscar os preços 🔍 e depois pergunto a *quantidade* de cada! 😊\n\n_Nutricar Brasil - Mini Mercado 24h_ 💚`;
           }
         }
         
