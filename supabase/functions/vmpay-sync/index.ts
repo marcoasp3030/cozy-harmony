@@ -14,7 +14,6 @@ async function vmpayGet(path: string, token: string, page = 1, perPage = 1000) {
   const res = await fetch(url);
   if (!res.ok) {
     const text = await res.text();
-    // If it's HTML (404 page), give a cleaner error
     if (text.includes("<!DOCTYPE") || text.includes("<html")) {
       throw new Error(`VMPay ${path} returned ${res.status}: Not Found`);
     }
@@ -86,10 +85,8 @@ Deno.serve(async (req) => {
     }
 
     if (action === "sync_clients") {
-      // Fetch clients (stores) and save them
       const clients = await vmpayGetAll("/clients", vmpayToken);
       console.log(`Fetched ${clients.length} clients (stores)`);
-
       const stores = clients.map((c: any) => ({
         id: c.id,
         name: c.name || `Cliente ${c.id}`,
@@ -99,18 +96,12 @@ Deno.serve(async (req) => {
         contact_phone: c.contact_phone || null,
         contact_email: c.contact_email || null,
       }));
-
       await supabase
         .from("settings")
         .upsert(
-          {
-            user_id: user.id,
-            key: "vmpay_stores",
-            value: { stores, synced_at: new Date().toISOString() },
-          },
+          { user_id: user.id, key: "vmpay_stores", value: { stores, synced_at: new Date().toISOString() } },
           { onConflict: "user_id,key" }
         );
-
       return new Response(
         JSON.stringify({ success: true, stores }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -120,7 +111,7 @@ Deno.serve(async (req) => {
     // Full sync
     console.log("Starting VMPay sync for user", user.id);
 
-    // 1. Fetch installations (stores) - flat endpoint
+    // 1. Fetch installations
     const installations = await vmpayGetSafe("/installations", vmpayToken);
     console.log(`Fetched ${installations.length} installations`);
 
@@ -132,20 +123,26 @@ Deno.serve(async (req) => {
       installationMap.set(inst.id, name);
     }
 
-    // 2. Fetch machines - flat endpoint (not nested under installations)
+    // 2. Fetch machines
     const machines = await vmpayGetSafe("/machines", vmpayToken);
     console.log(`Fetched ${machines.length} machines`);
 
-    // 3. Collect products from multiple sources
+    // 3. Collect products from planograms using correct endpoint:
+    // GET /machines/{machine_id}/installations/{installation_id}/planograms
     const allProducts: Map<string, any> = new Map();
 
-    // 3a. Try fetching planograms for each machine
     for (const machine of machines) {
+      const installationId = machine.installation_id;
+      if (!installationId) {
+        console.warn(`Machine ${machine.id} has no installation_id, skipping planograms`);
+        continue;
+      }
+
+      const planogramPath = `/machines/${machine.id}/installations/${installationId}/planograms`;
       try {
-        const planograms = await vmpayGetAll(
-          `/machines/${machine.id}/planograms`,
-          vmpayToken
-        );
+        const planograms = await vmpayGetAll(planogramPath, vmpayToken);
+        console.log(`Machine ${machine.id}/Installation ${installationId}: ${planograms.length} planograms`);
+
         for (const plan of planograms) {
           const items = plan.items || plan.planogram_items || [];
           for (const item of items) {
@@ -156,9 +153,7 @@ Deno.serve(async (req) => {
             const name = product.name || item.name || `Produto ${productId}`;
             const price = item.current_price ?? item.price ?? product.price ?? 0;
             const barcode = product.barcode || product.ean || item.barcode || null;
-            const storeName = machine.installation_id
-              ? installationMap.get(machine.installation_id) || null
-              : null;
+            const storeName = installationMap.get(installationId) || null;
             const category = product.category?.name || product.category || storeName;
 
             allProducts.set(String(productId), {
@@ -171,11 +166,11 @@ Deno.serve(async (req) => {
           }
         }
       } catch (e) {
-        console.warn(`Error fetching planograms for machine ${machine.id}:`, e.message);
+        console.warn(`Error fetching planograms ${planogramPath}:`, e.message);
       }
     }
 
-    // 3b. Try fetching products directly
+    // 3b. Try fetching products directly as fallback
     const directProducts = await vmpayGetSafe("/products", vmpayToken);
     console.log(`Fetched ${directProducts.length} direct products`);
     for (const p of directProducts) {
@@ -191,14 +186,12 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 3c. Try fetching categories for reference
-    const categories = await vmpayGetSafe("/categories", vmpayToken);
-    console.log(`Fetched ${categories.length} categories`);
-
     // 4. Upsert products into the products table
     const productsArray = Array.from(allProducts.values());
     let upserted = 0;
     let errors = 0;
+
+    console.log(`Total products to upsert: ${productsArray.length}`);
 
     for (const prod of productsArray) {
       let existingId: string | null = null;
