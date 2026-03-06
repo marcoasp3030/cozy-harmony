@@ -4070,7 +4070,7 @@ PROCESSO DE ANÁLISE:
 
 2. Se a imagem for ADEQUADA:
    - Identifique o nome do produto (marca, tipo, variante)
-   - Leia o código de barras se visível (números)
+   - PRIORIDADE MÁXIMA: Leia o código de barras se visível — leia CADA DÍGITO individualmente da esquerda para direita (EAN-13 = 13 dígitos, geralmente começa com 789 no Brasil). Se houver números impressos ABAIXO das barras, use-os.
    - Identifique o peso/volume se visível
    - Identifique a marca/fabricante
    - Estime a categoria (bebidas, laticínios, snacks, higiene, limpeza, etc.)
@@ -4088,16 +4088,28 @@ Responda APENAS com JSON válido:
   "identified": true/false,
   "product_name": "nome completo do produto ou null",
   "brand": "marca ou null",
-  "barcode": "código de barras se visível ou null",
+  "barcode": "APENAS dígitos numéricos sem espaços (ex: 7891234567890) ou null",
   "weight_volume": "peso ou volume se visível ou null",
   "category": "categoria estimada ou null",
   "confidence": 0-100,
   "description": "descrição breve do que foi visto na imagem",
   "suggestion": "sugestão para melhorar a foto se quality != boa, ou null"
 }`,
-        barcode_read: `Analise esta imagem e tente ler o código de barras (EAN-13, UPC, Code128, QR Code, etc.).
-${customPrompt ? `INSTRUÇÃO: ${customPrompt}` : ""}
-Responda com JSON: {"quality": "boa"|"ruim"|"parcial", "quality_issue": "...", "barcode": "números ou null", "barcode_type": "EAN-13|UPC|QR|outro", "confidence": 0-100, "identified": true/false, "product_name": null, "brand": null, "category": null, "description": "...", "suggestion": "..."}`,
+        barcode_read: `Você é um LEITOR DE CÓDIGO DE BARRAS ultra-preciso. Sua ÚNICA tarefa é ler os DÍGITOS NUMÉRICOS do código de barras na imagem.
+
+INSTRUÇÕES CRÍTICAS:
+1. Localize o código de barras na imagem (pode ser EAN-13, EAN-8, UPC-A, Code128, QR Code)
+2. Leia CADA DÍGITO individualmente, da ESQUERDA para a DIREITA
+3. Códigos EAN-13 têm EXATAMENTE 13 dígitos (ex: 7891234567890)
+4. Códigos EAN-8 têm EXATAMENTE 8 dígitos
+5. Se não conseguir ler com 100% de certeza algum dígito, coloque "?" no lugar
+6. NUNCA invente números — é melhor retornar "?" do que chutar
+7. Se houver números impressos ABAIXO das barras, use-os como referência principal
+8. Verifique se o primeiro dígito é 7 (Brasil) — códigos brasileiros geralmente começam com 789
+${customPrompt ? `INSTRUÇÃO ADICIONAL: ${customPrompt}` : ""}
+
+Responda APENAS com JSON válido:
+{"quality": "boa"|"ruim"|"parcial", "quality_issue": "descrição se != boa ou null", "barcode": "APENAS os dígitos numéricos sem espaços ou null", "barcode_type": "EAN-13|EAN-8|UPC|QR|outro", "confidence": 0-100, "identified": true/false, "product_name": null, "brand": null, "category": null, "description": "o que você vê na imagem", "suggestion": "dica para melhorar a foto se necessário ou null"}`,
         label_read: `Analise esta imagem e leia todas as informações do rótulo/etiqueta do produto (nome, ingredientes, validade, peso, preço, etc.).
 ${customPrompt ? `INSTRUÇÃO: ${customPrompt}` : ""}
 Responda com JSON: {"quality": "boa"|"ruim"|"parcial", "quality_issue": "...", "identified": true/false, "product_name": "...", "brand": "...", "barcode": "...", "weight_volume": "...", "category": "...", "expiry_date": "...", "price_on_label": "...", "ingredients": "...", "confidence": 0-100, "description": "...", "suggestion": "..."}`,
@@ -4156,39 +4168,84 @@ Responda com JSON: {"quality": "boa"|"ruim"|"parcial", "quality_issue": "...", "
 
       // ── Product identified — search catalog if enabled ──
       let catalogMatch = "";
-      if (searchCatalog && analysisResult.identified && ctx.userId) {
+      if (searchCatalog && ctx.userId) {
+        // Clean barcode: remove spaces, dashes, question marks, non-digits
+        const rawBarcode = (analysisResult.barcode || "").replace(/[\s\-\.?]/g, "");
+        const cleanBarcode = /^\d{8,13}$/.test(rawBarcode) ? rawBarcode : "";
+        
+        if (cleanBarcode) {
+          console.log(`[IMAGE ANALYSIS] Clean barcode: "${cleanBarcode}" (raw: "${analysisResult.barcode}")`);
+        }
+
         try {
-          const searchQuery = analysisResult.product_name || analysisResult.barcode || "";
-          if (searchQuery.length > 2) {
-            // Try barcode first if available
-            if (analysisResult.barcode) {
-              const { data: barcodeProducts } = await supabase.rpc("search_products", {
-                _user_id: ctx.userId,
-                _query: analysisResult.barcode,
-                _limit: 3,
-              });
-              if (barcodeProducts?.length > 0) {
-                catalogMatch = barcodeProducts.map((p: any) =>
-                  `• ${p.name}${p.barcode ? ` (cód: ${p.barcode})` : ""}: *R$ ${Number(p.price).toFixed(2)}*${p.category ? ` [${p.category}]` : ""}`
-                ).join("\n");
-                ctx.variables["produto_preco"] = String(barcodeProducts[0].price);
-                ctx.variables["produto_nome_catalogo"] = barcodeProducts[0].name;
-              }
+          // Strategy 1: Exact barcode search
+          if (cleanBarcode) {
+            const { data: barcodeProducts } = await supabase.rpc("search_products", {
+              _user_id: ctx.userId,
+              _query: cleanBarcode,
+              _limit: 3,
+            });
+            if (barcodeProducts?.length > 0) {
+              catalogMatch = barcodeProducts.map((p: any) =>
+                `• ${p.name}${p.barcode ? ` (cód: ${p.barcode})` : ""}: *R$ ${Number(p.price).toFixed(2)}*${p.category ? ` [${p.category}]` : ""}`
+              ).join("\n");
+              ctx.variables["produto_preco"] = String(barcodeProducts[0].price);
+              ctx.variables["produto_nome_catalogo"] = barcodeProducts[0].name;
+              console.log(`[IMAGE ANALYSIS] ✅ Barcode exact match: ${barcodeProducts[0].name}`);
             }
-            // Fallback to name search
-            if (!catalogMatch && analysisResult.product_name) {
-              const { data: nameProducts } = await supabase.rpc("search_products", {
-                _user_id: ctx.userId,
-                _query: analysisResult.product_name,
-                _limit: 3,
-              });
-              if (nameProducts?.length > 0) {
-                catalogMatch = nameProducts.map((p: any) =>
-                  `• ${p.name}${p.barcode ? ` (cód: ${p.barcode})` : ""}: *R$ ${Number(p.price).toFixed(2)}*${p.category ? ` [${p.category}]` : ""}`
-                ).join("\n");
-                ctx.variables["produto_preco"] = String(nameProducts[0].price);
-                ctx.variables["produto_nome_catalogo"] = nameProducts[0].name;
-              }
+          }
+
+          // Strategy 2: Partial barcode (without last digit — check digit often misread)
+          if (!catalogMatch && cleanBarcode && cleanBarcode.length >= 8) {
+            const partialBarcode = cleanBarcode.slice(0, -1);
+            const { data: partialProducts } = await supabase
+              .from("products")
+              .select("id, name, barcode, price, category")
+              .eq("user_id", ctx.userId)
+              .eq("is_active", true)
+              .like("barcode", `${partialBarcode}%`)
+              .limit(3);
+            if (partialProducts?.length > 0) {
+              catalogMatch = partialProducts.map((p: any) =>
+                `• ${p.name}${p.barcode ? ` (cód: ${p.barcode})` : ""}: *R$ ${Number(p.price).toFixed(2)}*${p.category ? ` [${p.category}]` : ""}`
+              ).join("\n");
+              ctx.variables["produto_preco"] = String(partialProducts[0].price);
+              ctx.variables["produto_nome_catalogo"] = partialProducts[0].name;
+              console.log(`[IMAGE ANALYSIS] ✅ Barcode partial match (${partialBarcode}%): ${partialProducts[0].name}`);
+            }
+          }
+
+          // Strategy 3: Fallback to product name search
+          if (!catalogMatch && analysisResult.identified && analysisResult.product_name) {
+            const { data: nameProducts } = await supabase.rpc("search_products", {
+              _user_id: ctx.userId,
+              _query: analysisResult.product_name,
+              _limit: 3,
+            });
+            if (nameProducts?.length > 0) {
+              catalogMatch = nameProducts.map((p: any) =>
+                `• ${p.name}${p.barcode ? ` (cód: ${p.barcode})` : ""}: *R$ ${Number(p.price).toFixed(2)}*${p.category ? ` [${p.category}]` : ""}`
+              ).join("\n");
+              ctx.variables["produto_preco"] = String(nameProducts[0].price);
+              ctx.variables["produto_nome_catalogo"] = nameProducts[0].name;
+              console.log(`[IMAGE ANALYSIS] ✅ Name match: ${nameProducts[0].name}`);
+            }
+          }
+
+          // Strategy 4: Brand search as last resort
+          if (!catalogMatch && analysisResult.brand) {
+            const { data: brandProducts } = await supabase.rpc("search_products", {
+              _user_id: ctx.userId,
+              _query: analysisResult.brand,
+              _limit: 3,
+            });
+            if (brandProducts?.length > 0) {
+              catalogMatch = brandProducts.map((p: any) =>
+                `• ${p.name}${p.barcode ? ` (cód: ${p.barcode})` : ""}: *R$ ${Number(p.price).toFixed(2)}*${p.category ? ` [${p.category}]` : ""}`
+              ).join("\n");
+              ctx.variables["produto_preco"] = String(brandProducts[0].price);
+              ctx.variables["produto_nome_catalogo"] = brandProducts[0].name;
+              console.log(`[IMAGE ANALYSIS] ✅ Brand match: ${brandProducts[0].name}`);
             }
           }
         } catch (e) {
