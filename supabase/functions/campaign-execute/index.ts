@@ -83,6 +83,7 @@ serve(async (req) => {
   try {
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
+      console.error('campaign-execute: Missing or invalid Authorization header');
       return json({ error: 'Unauthorized' }, 401);
     }
 
@@ -92,13 +93,14 @@ serve(async (req) => {
       { global: { headers: { Authorization: authHeader } } }
     );
 
-    const jwtToken = authHeader.replace('Bearer ', '');
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(jwtToken);
-    if (claimsError || !claimsData?.claims) {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      console.error('campaign-execute: Auth error:', userError?.message || 'No user');
       return json({ error: 'Unauthorized' }, 401);
     }
 
-    const userId = claimsData.claims.sub as string;
+    const userId = user.id;
+    console.log(`campaign-execute: User ${userId} authenticated`);
     const body = await req.json();
     const { action, campaignId } = body;
 
@@ -207,8 +209,10 @@ serve(async (req) => {
       }
 
       if (!config) {
-        return json({ error: 'UazAPI não configurada.' });
+        console.error('campaign-execute: No UazAPI config found for user', userId);
+        return json({ error: 'UazAPI não configurada. Verifique se há uma instância WhatsApp conectada.' });
       }
+      console.log(`campaign-execute: Using baseUrl=${config.baseUrl}`);
       const baseUrl = config.baseUrl.replace(/\/+$/, '');
 
       // Mark campaign as running
@@ -425,7 +429,7 @@ serve(async (req) => {
 
           const messageId = normalizeMsgId(extractMsgId(resData));
 
-          if (res.ok && resData.error === undefined) {
+          if (res.ok && !resData.error) {
             sent++;
             consecutiveFailures = 0;
             await supabase.from('campaign_contacts').update({
@@ -437,9 +441,11 @@ serve(async (req) => {
           } else {
             failed++;
             consecutiveFailures++;
+            const errMsg = resData.message || resData.error || `HTTP ${res.status}`;
+            console.error(`Failed to send to ${cleanNumber}: ${errMsg}`);
             await supabase.from('campaign_contacts').update({
               status: 'failed',
-              error: resData.error || `HTTP ${res.status}`,
+              error: typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg),
             }).eq('id', contact.id);
           }
         } catch (err) {
