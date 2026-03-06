@@ -4533,8 +4533,8 @@ Responda com JSON: {"quality": "boa"|"ruim"|"parcial", "quality_issue": "...", "
       let catalogMatch = "";
       if (searchCatalog && ctx.userId) {
         // Clean barcode: remove spaces, dashes, question marks, non-digits
-        const rawBarcode = (analysisResult.barcode || "").replace(/[\s\-\.?]/g, "");
-        const cleanBarcode = /^\d{8,13}$/.test(rawBarcode) ? rawBarcode : "";
+        const rawBarcode = (analysisResult.barcode || "").replace(/[\s\-\.]/g, "").replace(/\?/g, "");
+        const cleanBarcode = /^\d{6,14}$/.test(rawBarcode) ? rawBarcode : "";
         
         if (cleanBarcode) {
           console.log(`[IMAGE ANALYSIS] Clean barcode: "${cleanBarcode}" (raw: "${analysisResult.barcode}")`);
