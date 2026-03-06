@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Upload, Loader2, Trash2, Search, Package, FileSpreadsheet, CheckCircle2, AlertCircle, X, Download, Plus } from "lucide-react";
+import { Upload, Loader2, Trash2, Search, Package, FileSpreadsheet, CheckCircle2, AlertCircle, X, Download, Plus, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -52,8 +52,9 @@ const ProductCatalog = () => {
   const [importStats, setImportStats] = useState<{ total: number; success: number; errors: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Add product dialog
+  // Add/Edit product dialog
   const [addOpen, setAddOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [newProduct, setNewProduct] = useState({ name: "", barcode: "", price: "", category: "" });
   const [addingProduct, setAddingProduct] = useState(false);
 
@@ -277,23 +278,48 @@ const ProductCatalog = () => {
     }
   };
 
-  const handleAddProduct = async () => {
+  const openEdit = (p: Product) => {
+    setEditingProduct(p);
+    setNewProduct({
+      name: p.name,
+      barcode: p.barcode || "",
+      price: p.price.toString().replace(".", ","),
+      category: p.category || "",
+    });
+    setAddOpen(true);
+  };
+
+  const openAdd = () => {
+    setEditingProduct(null);
+    setNewProduct({ name: "", barcode: "", price: "", category: "" });
+    setAddOpen(true);
+  };
+
+  const handleSaveProduct = async () => {
     if (!user || !newProduct.name.trim()) {
       toast.error("Nome do produto é obrigatório");
       return;
     }
     setAddingProduct(true);
     try {
-      const { error } = await supabase.from("products" as any).insert({
-        user_id: user.id,
+      const record = {
         name: newProduct.name.trim(),
         barcode: newProduct.barcode.trim() || null,
         price: parseFloat(newProduct.price.replace(",", ".")) || 0,
         category: newProduct.category.trim() || null,
-      } as any);
-      if (error) throw error;
-      toast.success("Produto adicionado!");
+      };
+
+      if (editingProduct) {
+        const { error } = await supabase.from("products" as any).update(record as any).eq("id", editingProduct.id);
+        if (error) throw error;
+        toast.success("Produto atualizado!");
+      } else {
+        const { error } = await supabase.from("products" as any).insert({ ...record, user_id: user.id } as any);
+        if (error) throw error;
+        toast.success("Produto adicionado!");
+      }
       setNewProduct({ name: "", barcode: "", price: "", category: "" });
+      setEditingProduct(null);
       setAddOpen(false);
       loadProducts();
     } catch (err: any) {
@@ -336,7 +362,7 @@ const ProductCatalog = () => {
               <Button variant="outline" size="sm" onClick={downloadTemplate}>
                 <Download className="mr-1.5 h-3.5 w-3.5" /> Modelo
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
+              <Button variant="outline" size="sm" onClick={openAdd}>
                 <Plus className="mr-1.5 h-3.5 w-3.5" /> Adicionar
               </Button>
               <Button size="sm" onClick={() => fileRef.current?.click()}>
@@ -433,7 +459,10 @@ const ProductCatalog = () => {
                             <Badge variant="secondary" className="text-xs">{p.category}</Badge>
                           ) : "—"}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="flex gap-0.5">
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(p)}>
+                            <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
                           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(p.id)}>
                             <X className="h-3.5 w-3.5 text-muted-foreground" />
                           </Button>
@@ -583,7 +612,7 @@ const ProductCatalog = () => {
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Adicionar Produto</DialogTitle>
+            <DialogTitle>{editingProduct ? "Editar Produto" : "Adicionar Produto"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
@@ -596,7 +625,7 @@ const ProductCatalog = () => {
             </div>
             <div className="space-y-1">
               <Label>Preço</Label>
-              <Input placeholder="Ex: 8.99" value={newProduct.price} onChange={e => setNewProduct(p => ({ ...p, price: e.target.value }))} />
+              <Input placeholder="Ex: 8,99" value={newProduct.price} onChange={e => setNewProduct(p => ({ ...p, price: e.target.value }))} />
             </div>
             <div className="space-y-1">
               <Label>Categoria</Label>
@@ -605,9 +634,9 @@ const ProductCatalog = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancelar</Button>
-            <Button onClick={handleAddProduct} disabled={addingProduct || !newProduct.name.trim()}>
-              {addingProduct ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-              Adicionar
+            <Button onClick={handleSaveProduct} disabled={addingProduct || !newProduct.name.trim()}>
+              {addingProduct ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : editingProduct ? <Pencil className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
+              {editingProduct ? "Salvar" : "Adicionar"}
             </Button>
           </DialogFooter>
         </DialogContent>
