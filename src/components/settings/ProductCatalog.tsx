@@ -612,7 +612,7 @@ const ProductCatalog = () => {
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Adicionar Produto</DialogTitle>
+            <DialogTitle>{editingProduct ? "Editar Produto" : "Adicionar Produto"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
@@ -625,7 +625,7 @@ const ProductCatalog = () => {
             </div>
             <div className="space-y-1">
               <Label>Preço</Label>
-              <Input placeholder="Ex: 8.99" value={newProduct.price} onChange={e => setNewProduct(p => ({ ...p, price: e.target.value }))} />
+              <Input placeholder="Ex: 8,99" value={newProduct.price} onChange={e => setNewProduct(p => ({ ...p, price: e.target.value }))} />
             </div>
             <div className="space-y-1">
               <Label>Categoria</Label>
@@ -634,9 +634,9 @@ const ProductCatalog = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancelar</Button>
-            <Button onClick={handleAddProduct} disabled={addingProduct || !newProduct.name.trim()}>
-              {addingProduct ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-              Adicionar
+            <Button onClick={handleSaveProduct} disabled={addingProduct || !newProduct.name.trim()}>
+              {addingProduct ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : editingProduct ? <Pencil className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
+              {editingProduct ? "Salvar" : "Adicionar"}
             </Button>
           </DialogFooter>
         </DialogContent>
