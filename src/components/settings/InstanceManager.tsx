@@ -94,6 +94,14 @@ const InstanceCard = ({ instance, automations, onUpdate, onSetDefault, onDelete,
     };
   }, [qrCode, instance.id, onUpdate]);
 
+  // Auto-check real status on mount
+  useEffect(() => {
+    if (mountCheckedRef.current) return;
+    if (!instance.instance_token) return;
+    mountCheckedRef.current = true;
+    checkStatus();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const checkStatus = async () => {
     setChecking(true);
     setConnectionStatus("checking");
