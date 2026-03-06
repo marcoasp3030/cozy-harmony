@@ -12,7 +12,7 @@ interface InstanceSelectorProps {
 export default function InstanceSelector({ value, onChange, label, className }: InstanceSelectorProps) {
   const { instances, loading } = useWhatsAppInstances();
 
-  if (loading || instances.length <= 1) return null;
+  if (loading || instances.length === 0) return null;
 
   return (
     <div className={className}>
