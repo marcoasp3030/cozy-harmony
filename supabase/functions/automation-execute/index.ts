@@ -5359,11 +5359,33 @@ async function sendPixKeyIfPaymentRelated(supabase: any, ctx: ExecutionContext):
         await sendWhatsAppMessage(supabase, ctx, confirmMsg);
         console.log(`[QTY] Added ${prodName} x${quantity} = ${itemTotalStr}`);
         
-        // Check if there are more products in the queue
+        // Check if there are more products in the queue (recover from conversation notes if not in ctx)
         let pendingQueue: Array<{ name: string; price: number; barcode: string }> = [];
         try {
           pendingQueue = JSON.parse(ctx.variables["_pending_qty_queue"] || "[]");
         } catch {}
+        
+        // If queue is empty in ctx.variables, try recovering from conversation notes (persisted across executions)
+        if (pendingQueue.length === 0 && ctx.conversationId) {
+          try {
+            const { data: convNotes } = await supabase
+              .from("conversations")
+              .select("notes")
+              .eq("id", ctx.conversationId)
+              .maybeSingle();
+            if (convNotes?.notes) {
+              const parsed = JSON.parse(convNotes.notes);
+              if (parsed?.pending_qty_queue?.length > 0) {
+                // Only use if updated recently (within 30 min)
+                const updatedAt = parsed.pending_qty_updated ? new Date(parsed.pending_qty_updated).getTime() : 0;
+                if (Date.now() - updatedAt < 30 * 60 * 1000) {
+                  pendingQueue = parsed.pending_qty_queue;
+                  console.log(`[QTY] Recovered ${pendingQueue.length} products from conversation notes`);
+                }
+              }
+            }
+          } catch {}
+        }
         
         if (pendingQueue.length > 0) {
           // Pop next product and ask quantity
