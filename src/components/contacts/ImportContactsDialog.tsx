@@ -33,6 +33,7 @@ import {
   AlertTriangle,
   Loader2,
   X,
+  Download,
 } from "lucide-react";
 import { validatePhone } from "@/lib/validators";
 import { supabase } from "@/integrations/supabase/client";
