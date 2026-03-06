@@ -362,7 +362,7 @@ const ProductCatalog = () => {
               <Button variant="outline" size="sm" onClick={downloadTemplate}>
                 <Download className="mr-1.5 h-3.5 w-3.5" /> Modelo
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
+              <Button variant="outline" size="sm" onClick={openAdd}>
                 <Plus className="mr-1.5 h-3.5 w-3.5" /> Adicionar
               </Button>
               <Button size="sm" onClick={() => fileRef.current?.click()}>
