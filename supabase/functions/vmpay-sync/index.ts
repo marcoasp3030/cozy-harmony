@@ -322,53 +322,63 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 4. Upsert products into the products table
-    const productsArray = Array.from(allProducts.values());
+    // 4. Upsert products into the products table (batch, fast)
+    const productsArray = Array.from(allProducts.values()).filter((p) => !!p?.vmpay_id);
     let upserted = 0;
     let errors = 0;
 
     console.log(`Total products to upsert: ${productsArray.length}`);
 
-    for (const prod of productsArray) {
-      let existingId: string | null = null;
+    const { data: existingProducts, error: existingError } = await supabase
+      .from("products")
+      .select("id,name,barcode,price")
+      .eq("user_id", user.id);
 
-      if (prod.barcode) {
-        const { data: existing } = await supabase
-          .from("products")
-          .select("id")
-          .eq("user_id", user.id)
-          .eq("barcode", prod.barcode)
-          .maybeSingle();
-        existingId = existing?.id || null;
+    if (existingError) throw existingError;
+
+    const existingByBarcode = new Map<string, { id: string; price: number }>();
+    const existingByName = new Map<string, { id: string; price: number }>();
+
+    for (const row of existingProducts || []) {
+      const rowPrice = Number(row.price || 0);
+      if (row.barcode) {
+        existingByBarcode.set(String(row.barcode).trim(), { id: row.id, price: rowPrice });
       }
+      existingByName.set(String(row.name).trim().toLowerCase(), { id: row.id, price: rowPrice });
+    }
 
-      if (!existingId) {
-        const { data: existing } = await supabase
-          .from("products")
-          .select("id")
-          .eq("user_id", user.id)
-          .ilike("name", prod.name)
-          .maybeSingle();
-        existingId = existing?.id || null;
-      }
+    const payload = productsArray.map((prod) => {
+      const id = String(prod.vmpay_id);
+      const barcode = firstNonEmpty(prod.barcode) || null;
+      const name = firstNonEmpty(prod.name, `Produto ${id}`) || `Produto ${id}`;
+      const category = firstNonEmpty(prod.category) || null;
+      const incomingPrice = toNumber(prod.price);
 
-      const record = {
+      const byBarcode = barcode ? existingByBarcode.get(barcode) : null;
+      const byName = existingByName.get(name.trim().toLowerCase()) || null;
+      const existing = byBarcode || byName;
+      const finalPrice = incomingPrice > 0 ? incomingPrice : (existing?.price || 0);
+
+      return {
+        id: existing?.id,
         user_id: user.id,
-        name: prod.name,
-        price: prod.price,
-        barcode: prod.barcode,
-        category: prod.category,
+        name,
+        price: finalPrice,
+        barcode,
+        category,
         is_active: true,
       };
+    });
 
-      if (existingId) {
-        const { error } = await supabase.from("products").update(record).eq("id", existingId);
-        if (error) { errors++; console.error("Update error:", error); }
-        else upserted++;
+    const chunkSize = 500;
+    for (let i = 0; i < payload.length; i += chunkSize) {
+      const chunk = payload.slice(i, i + chunkSize);
+      const { error } = await supabase.from("products").upsert(chunk, { onConflict: "id" });
+      if (error) {
+        console.error("Batch upsert error:", error);
+        errors += chunk.length;
       } else {
-        const { error } = await supabase.from("products").insert(record);
-        if (error) { errors++; console.error("Insert error:", error); }
-        else upserted++;
+        upserted += chunk.length;
       }
     }
 
