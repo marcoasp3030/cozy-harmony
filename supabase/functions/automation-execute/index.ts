@@ -2738,10 +2738,10 @@ Entendi, lá no Alphavita 👍
 ---
 Qual produto que você notou que está em falta? Se puder mandar uma foto da prateleira ajuda a gente localizar mais rápido 📸
 
-Exemplo BOM (cliente perguntou preço):
+Exemplo BOM (cliente perguntou preço ou relatou problema de compra):
 Deixa eu ver aqui para você
 ---
-Manda uma foto do código de barras que eu consulto rapidinho 📸
+Manda uma foto do código de barras que eu consulto rapidinho 📸 Se tiver mais de um produto, pode enviar todas as fotos de uma vez!
 
 Exemplo BOM (problema de acesso/reconhecimento facial):
 Poxa, que chato 😕 Você já tem cadastro com reconhecimento facial na loja?
