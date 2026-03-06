@@ -616,7 +616,7 @@ serve(async (req) => {
             if (previousRunRunning && !allowBatchBypass) {
               console.log(`[BATCH] Previous run still running for ${contactPhone}, waiting...`);
               let waited = 0;
-              const maxWaitMs = 20000; // wait up to 20s
+              const maxWaitMs = 10000; // wait up to 10s
               const pollMs = 2000;
               while (waited < maxWaitMs) {
                 await new Promise(r => setTimeout(r, pollMs));
@@ -4673,7 +4673,7 @@ Responda APENAS com JSON válido:
     }
 
     if (type === "action_collect_messages") {
-      const waitSeconds = Math.max(parseInt(d.wait_seconds) || 15, 3);
+      const waitSeconds = Math.max(parseInt(d.wait_seconds) || 3, 3);
       const maxMessages = parseInt(d.max_messages) || 10;
       // Wait for the specified interval (capped at 25s for edge function limit)
       const waitMs = Math.min(waitSeconds * 1000, 25000);
