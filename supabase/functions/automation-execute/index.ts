@@ -3755,18 +3755,24 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
           console.log("[POST-LLM] Triggered image product lookup after reply");
           try {
             // Quick AI call to extract barcode number AND/OR product name from the image
-            const extractPrompt = `Você é um LEITOR DE CÓDIGO DE BARRAS e CONTADOR DE PRODUTOS ultra-preciso para produtos de supermercado/mini mercado.
+            const extractPrompt = `Você é um LEITOR DE CÓDIGO DE BARRAS ultra-preciso para produtos de supermercado/mini mercado.
 
-TAREFA: Leia o código de barras na imagem E conte QUANTOS ITENS do mesmo produto aparecem.
+TAREFA PRINCIPAL: Ler TODOS OS DÍGITOS do código de barras na imagem com 100% de precisão.
 
-INSTRUÇÕES CRÍTICAS PARA LEITURA:
-1. Localize as BARRAS VERTICAIS e os NÚMEROS IMPRESSOS abaixo/ao lado delas
-2. Leia CADA DÍGITO individualmente, da ESQUERDA para a DIREITA
-3. EAN-13 = EXATAMENTE 13 dígitos (ex: 7891234567890) — é o mais comum no Brasil
-4. EAN-8 = EXATAMENTE 8 dígitos
-5. Códigos brasileiros geralmente começam com 789
-6. Se houver números impressos abaixo das barras, use-os como FONTE PRINCIPAL
-7. NUNCA invente dígitos — se não conseguir ler um número, coloque "?" no lugar
+MÉTODO DE LEITURA (siga rigorosamente):
+1. Procure os NÚMEROS IMPRESSOS abaixo ou ao lado das barras verticais — eles são a FONTE MAIS CONFIÁVEL
+2. Leia TODOS os dígitos, um por um, da ESQUERDA para a DIREITA, SEM PULAR NENHUM
+3. Conte os dígitos ao final — EAN-13 deve ter EXATAMENTE 13 dígitos, EAN-8 deve ter 8
+4. O PRIMEIRO GRUPO de dígitos geralmente fica separado à esquerda (ex: "7" em códigos brasileiros)
+5. O ÚLTIMO DÍGITO (à direita, separado) é o dígito verificador — NÃO o ignore
+6. Se os números estão divididos em grupos (ex: 7 891234 567890), JUNTE TODOS sem espaço
+7. Códigos brasileiros começam com 789 ou 790
+
+ERROS COMUNS QUE VOCÊ DEVE EVITAR:
+- NÃO omita o primeiro dígito (geralmente "7")
+- NÃO omita o último dígito (dígito verificador)
+- NÃO confunda 1 com 7, 6 com 8, 0 com 8
+- NÃO invente dígitos — se não conseguir ler, coloque "?"
 
 FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
 - Se encontrou código: CODIGO|NOME_PRODUTO (ex: 7891234567890|Coca-Cola 350ml)
@@ -3815,17 +3821,22 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
                 let productHint = "";
 
                 if (parts.length >= 2) {
-                  const rawBarcode = parts[0].replace(/[\s\-\.?]/g, "");
-                  if (/^\d{6,13}$/.test(rawBarcode)) {
-                    barcodeNum = rawBarcode;
+                  const rawBarcode = parts[0].replace(/[\s\-\.]/g, "");
+                  // Remove "?" but log it — indicates uncertain digits
+                  const hasUncertain = rawBarcode.includes("?");
+                  const cleanRaw = rawBarcode.replace(/\?/g, "");
+                  if (/^\d{6,14}$/.test(cleanRaw)) {
+                    barcodeNum = cleanRaw;
                     productHint = parts[1];
+                    if (hasUncertain) console.log(`[POST-LLM]${imgLabel} ⚠️ Barcode had uncertain digits, cleaned: ${barcodeNum}`);
                   } else {
-                    barcodeNum = rawBarcode.replace(/\D/g, "");
+                    barcodeNum = cleanRaw.replace(/\D/g, "");
                     productHint = parts[1] || parts[0];
                   }
                 } else {
-                  const rawBarcode = parts[0].replace(/[\s\-\.?]/g, "");
-                  barcodeNum = /^\d{6,13}$/.test(rawBarcode) ? rawBarcode : rawBarcode.replace(/\D/g, "");
+                  const rawBarcode = parts[0].replace(/[\s\-\.]/g, "");
+                  const cleanRaw = rawBarcode.replace(/\?/g, "");
+                  barcodeNum = /^\d{6,14}$/.test(cleanRaw) ? cleanRaw : cleanRaw.replace(/\D/g, "");
                   if (!barcodeNum) productHint = parts[0];
                 }
 
@@ -4446,21 +4457,22 @@ Responda APENAS com JSON válido:
   "description": "descrição breve do que foi visto na imagem",
   "suggestion": "sugestão para melhorar a foto se quality != boa, ou null"
 }`,
-        barcode_read: `Você é um LEITOR DE CÓDIGO DE BARRAS ultra-preciso. Sua ÚNICA tarefa é ler os DÍGITOS NUMÉRICOS do código de barras na imagem.
+        barcode_read: `Você é um LEITOR DE CÓDIGO DE BARRAS ultra-preciso. Sua ÚNICA tarefa é ler TODOS os DÍGITOS NUMÉRICOS do código de barras na imagem.
 
-INSTRUÇÕES CRÍTICAS:
-1. Localize o código de barras na imagem (pode ser EAN-13, EAN-8, UPC-A, Code128, QR Code)
-2. Leia CADA DÍGITO individualmente, da ESQUERDA para a DIREITA
-3. Códigos EAN-13 têm EXATAMENTE 13 dígitos (ex: 7891234567890)
-4. Códigos EAN-8 têm EXATAMENTE 8 dígitos
-5. Se não conseguir ler com 100% de certeza algum dígito, coloque "?" no lugar
-6. NUNCA invente números — é melhor retornar "?" do que chutar
-7. Se houver números impressos ABAIXO das barras, use-os como referência principal
-8. Verifique se o primeiro dígito é 7 (Brasil) — códigos brasileiros geralmente começam com 789
+MÉTODO DE LEITURA (siga rigorosamente):
+1. Procure os NÚMEROS IMPRESSOS abaixo ou ao lado das barras verticais — são a FONTE MAIS CONFIÁVEL
+2. Leia TODOS os dígitos, um por um, da ESQUERDA para a DIREITA, SEM PULAR NENHUM
+3. O PRIMEIRO DÍGITO geralmente fica separado à esquerda (ex: "7" em códigos brasileiros) — NÃO o omita
+4. O ÚLTIMO DÍGITO (à direita, separado) é o dígito verificador — NÃO o omita
+5. Se os números estão em grupos (ex: 7 891234 567890), JUNTE TODOS sem espaço
+6. Conte os dígitos: EAN-13 = EXATAMENTE 13, EAN-8 = EXATAMENTE 8
+7. Códigos brasileiros começam com 789 ou 790
+8. NUNCA invente dígitos — se não ler com certeza, coloque "?" no lugar
+9. NÃO confunda 1↔7, 6↔8, 0↔8
 ${customPrompt ? `INSTRUÇÃO ADICIONAL: ${customPrompt}` : ""}
 
 Responda APENAS com JSON válido:
-{"quality": "boa"|"ruim"|"parcial", "quality_issue": "descrição se != boa ou null", "barcode": "APENAS os dígitos numéricos sem espaços ou null", "barcode_type": "EAN-13|EAN-8|UPC|QR|outro", "confidence": 0-100, "identified": true/false, "product_name": null, "brand": null, "category": null, "description": "o que você vê na imagem", "suggestion": "dica para melhorar a foto se necessário ou null"}`,
+{"quality": "boa"|"ruim"|"parcial", "quality_issue": "descrição se != boa ou null", "barcode": "TODOS os dígitos numéricos sem espaços ou null", "barcode_type": "EAN-13|EAN-8|UPC|QR|outro", "confidence": 0-100, "identified": true/false, "product_name": null, "brand": null, "category": null, "description": "o que você vê na imagem", "suggestion": "dica para melhorar a foto se necessário ou null"}`,
         label_read: `Analise esta imagem e leia todas as informações do rótulo/etiqueta do produto (nome, ingredientes, validade, peso, preço, etc.).
 ${customPrompt ? `INSTRUÇÃO: ${customPrompt}` : ""}
 Responda com JSON: {"quality": "boa"|"ruim"|"parcial", "quality_issue": "...", "identified": true/false, "product_name": "...", "brand": "...", "barcode": "...", "weight_volume": "...", "category": "...", "expiry_date": "...", "price_on_label": "...", "ingredients": "...", "confidence": 0-100, "description": "...", "suggestion": "..."}`,
@@ -4521,8 +4533,8 @@ Responda com JSON: {"quality": "boa"|"ruim"|"parcial", "quality_issue": "...", "
       let catalogMatch = "";
       if (searchCatalog && ctx.userId) {
         // Clean barcode: remove spaces, dashes, question marks, non-digits
-        const rawBarcode = (analysisResult.barcode || "").replace(/[\s\-\.?]/g, "");
-        const cleanBarcode = /^\d{8,13}$/.test(rawBarcode) ? rawBarcode : "";
+        const rawBarcode = (analysisResult.barcode || "").replace(/[\s\-\.]/g, "").replace(/\?/g, "");
+        const cleanBarcode = /^\d{6,14}$/.test(rawBarcode) ? rawBarcode : "";
         
         if (cleanBarcode) {
           console.log(`[IMAGE ANALYSIS] Clean barcode: "${cleanBarcode}" (raw: "${analysisResult.barcode}")`);
