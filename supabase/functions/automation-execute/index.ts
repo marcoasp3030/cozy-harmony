@@ -3657,124 +3657,151 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
             
             const { keys: barcodeKeys } = await getUserAIKeys(supabase, ctx.userId);
             if (barcodeKeys.openai || barcodeKeys.gemini) {
-              const extracted = (await callAIVisionWithUserKeys(barcodeKeys, extractPrompt, imageBase64, { maxTokens: 200, temperature: 0.1 })).replace(/\s+/g, " ").trim();
-                console.log(`[POST-LLM] Barcode extraction result: "${extracted}"`);
+              // ── MULTI-IMAGE: process each image individually for barcode extraction ──
+              const imagesToProcess = allImageBase64.length > 0 ? allImageBase64 : (imageBase64 ? [imageBase64] : []);
+              const totalImages = imagesToProcess.length;
+              let processedCount = 0;
+              let anyProductFound = false;
 
-                if (extracted && extracted !== "NENHUM" && extracted.length > 3) {
-                  // Parse: BARCODE|NAME or NAME or BARCODE
-                  const parts = extracted.split("|").map((p: string) => p.trim());
-                  let barcodeNum = "";
-                  let productHint = "";
+              console.log(`[POST-LLM] Processing ${totalImages} image(s) individually for barcode extraction`);
 
-                  if (parts.length >= 2) {
-                    const rawBarcode = parts[0].replace(/[\s\-\.?]/g, "");
-                    if (/^\d{6,13}$/.test(rawBarcode)) {
-                      barcodeNum = rawBarcode;
-                      productHint = parts[1];
+              for (let imgIdx = 0; imgIdx < imagesToProcess.length; imgIdx++) {
+                const currentImage = imagesToProcess[imgIdx];
+                const imgLabel = totalImages > 1 ? ` [img ${imgIdx + 1}/${totalImages}]` : "";
+
+                const extracted = (await callAIVisionWithUserKeys(barcodeKeys, extractPrompt, currentImage, { maxTokens: 200, temperature: 0.1 })).replace(/\s+/g, " ").trim();
+                console.log(`[POST-LLM]${imgLabel} Barcode extraction result: "${extracted}"`);
+
+                if (!extracted || extracted === "NENHUM" || extracted.length <= 3) {
+                  if (totalImages === 1) {
+                    // Single image, no barcode — send original reply or generic error
+                    if (shouldHoldPrimaryReply && reply) {
+                      console.log("[POST-LLM] No barcode found — sending original LLM reply as fallback");
+                      await sendWhatsAppMessage(supabase, ctx, reply);
                     } else {
-                      barcodeNum = rawBarcode.replace(/\D/g, "");
-                      productHint = parts[1] || parts[0];
+                      const noBarcode = "⚠️ Não consegui identificar o código de barras nesta imagem. Pode reenviar com mais foco e iluminação?";
+                      await sendWhatsAppMessage(supabase, ctx, noBarcode);
                     }
+                    console.log("[POST-LLM] No readable barcode detected in image");
                   } else {
-                    const rawBarcode = parts[0].replace(/[\s\-\.?]/g, "");
-                    barcodeNum = /^\d{6,13}$/.test(rawBarcode) ? rawBarcode : rawBarcode.replace(/\D/g, "");
-                    if (!barcodeNum) productHint = parts[0];
+                    console.log(`[POST-LLM]${imgLabel} No barcode detected, skipping`);
                   }
+                  continue;
+                }
 
-                  console.log(`[POST-LLM] Parsed: barcode="${barcodeNum}", name="${productHint}"`);
+                // Parse: BARCODE|NAME or NAME or BARCODE
+                const parts = extracted.split("|").map((p: string) => p.trim());
+                let barcodeNum = "";
+                let productHint = "";
 
-                  let products: any[] | null = null;
+                if (parts.length >= 2) {
+                  const rawBarcode = parts[0].replace(/[\s\-\.?]/g, "");
+                  if (/^\d{6,13}$/.test(rawBarcode)) {
+                    barcodeNum = rawBarcode;
+                    productHint = parts[1];
+                  } else {
+                    barcodeNum = rawBarcode.replace(/\D/g, "");
+                    productHint = parts[1] || parts[0];
+                  }
+                } else {
+                  const rawBarcode = parts[0].replace(/[\s\-\.?]/g, "");
+                  barcodeNum = /^\d{6,13}$/.test(rawBarcode) ? rawBarcode : rawBarcode.replace(/\D/g, "");
+                  if (!barcodeNum) productHint = parts[0];
+                }
 
-                  // Strategy 1: Exact barcode via RPC
-                  if (barcodeNum && barcodeNum.length >= 6) {
-                    const { data: rpcResults } = await supabase.rpc("search_products", {
-                      _user_id: ctx.userId,
-                      _query: barcodeNum,
-                      _limit: 3,
-                    });
-                    if (rpcResults?.length > 0) {
-                      products = rpcResults;
-                      console.log(`[POST-LLM] ✅ Barcode RPC match: ${rpcResults[0].name}`);
+                console.log(`[POST-LLM]${imgLabel} Parsed: barcode="${barcodeNum}", name="${productHint}"`);
+
+                let products: any[] | null = null;
+
+                // Strategy 1: Exact barcode via RPC
+                if (barcodeNum && barcodeNum.length >= 6) {
+                  const { data: rpcResults } = await supabase.rpc("search_products", {
+                    _user_id: ctx.userId,
+                    _query: barcodeNum,
+                    _limit: 3,
+                  });
+                  if (rpcResults?.length > 0) {
+                    products = rpcResults;
+                    console.log(`[POST-LLM]${imgLabel} ✅ Barcode RPC match: ${rpcResults[0].name}`);
+                  }
+                }
+
+                // Strategy 2: Partial barcode via LIKE (AI often misses last digits)
+                if (!products?.length && barcodeNum && barcodeNum.length >= 6) {
+                  for (const prefixLen of [barcodeNum.length, barcodeNum.length - 1, barcodeNum.length - 2]) {
+                    if (prefixLen < 6) break;
+                    const prefix = barcodeNum.slice(0, prefixLen);
+                    const { data: likeResults } = await supabase
+                      .from("products")
+                      .select("id, name, barcode, price, category")
+                      .eq("user_id", ctx.userId)
+                      .eq("is_active", true)
+                      .like("barcode", `${prefix}%`)
+                      .limit(3);
+                    if (likeResults?.length > 0) {
+                      products = likeResults;
+                      console.log(`[POST-LLM]${imgLabel} ✅ Barcode LIKE match (${prefix}%): ${likeResults[0].name}`);
+                      break;
                     }
                   }
+                }
 
-                  // Strategy 2: Partial barcode via LIKE (AI often misses last digits)
-                  if (!products?.length && barcodeNum && barcodeNum.length >= 6) {
-                    // Try progressively shorter prefixes
-                    for (const prefixLen of [barcodeNum.length, barcodeNum.length - 1, barcodeNum.length - 2]) {
-                      if (prefixLen < 6) break;
-                      const prefix = barcodeNum.slice(0, prefixLen);
-                      const { data: likeResults } = await supabase
-                        .from("products")
-                        .select("id, name, barcode, price, category")
-                        .eq("user_id", ctx.userId)
-                        .eq("is_active", true)
-                        .like("barcode", `${prefix}%`)
-                        .limit(3);
-                      if (likeResults?.length > 0) {
-                        products = likeResults;
-                        console.log(`[POST-LLM] ✅ Barcode LIKE match (${prefix}%): ${likeResults[0].name}`);
-                        break;
-                      }
-                    }
+                // Strategy 3: Product name search
+                if (!products?.length && productHint && productHint.length > 2) {
+                  const { data: nameResults } = await supabase.rpc("search_products", {
+                    _user_id: ctx.userId,
+                    _query: productHint,
+                    _limit: 3,
+                  });
+                  if (nameResults?.length > 0) {
+                    products = nameResults;
+                    console.log(`[POST-LLM]${imgLabel} ✅ Name match: ${nameResults[0].name}`);
                   }
+                }
 
-                  // Strategy 3: Product name search
-                  if (!products?.length && productHint && productHint.length > 2) {
-                    const { data: nameResults } = await supabase.rpc("search_products", {
-                      _user_id: ctx.userId,
-                      _query: productHint,
-                      _limit: 3,
-                    });
-                    if (nameResults?.length > 0) {
-                      products = nameResults;
-                      console.log(`[POST-LLM] ✅ Name match: ${nameResults[0].name}`);
+                if (products && products.length > 0) {
+                    const first = products[0];
+                    const unitPrice = Number(first.price || 0);
+                    const unitPriceStr = unitPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+                    ctx.variables["produto_encontrado"] = "true";
+                    ctx.variables["produto_nome"] = first.name || "";
+                    ctx.variables["produto_preco"] = String(unitPrice);
+                    anyProductFound = true;
+
+                    // ── BATCH MODE: If already in cart session OR processing multiple images, auto-add ──
+                    let inCartSession = ctx.variables["_awaiting_more_products"] === "true" || (totalImages > 1 && processedCount > 0);
+                    if (!inCartSession) {
+                      // Check if there are recent cart items (✅ Adicionado!) — means active cart
+                      try {
+                        let cartCheckQ = supabase
+                          .from("messages")
+                          .select("content")
+                          .eq("contact_id", ctx.contactId)
+                          .eq("direction", "outbound")
+                          .order("created_at", { ascending: false })
+                          .limit(10);
+                        if (ctx.sessionStartedAt) cartCheckQ = cartCheckQ.gte("created_at", ctx.sessionStartedAt);
+                        const { data: cartCheckMsgs } = await cartCheckQ;
+                        inCartSession = (cartCheckMsgs || []).some((m: any) =>
+                          /✅ Adicionado!/.test(m.content || "") || /pegou mais algum produto/i.test(m.content || "")
+                        );
+                      } catch {}
                     }
-                  }
 
-                  const searchQuery = barcodeNum || productHint;
+                    if (inCartSession || (totalImages > 1)) {
+                      // Auto-add with qty=1, show updated cart
+                      const confirmMsg = `✅ Adicionado!\n\n🛒 *${first.name}*\n💰 Unitário: *${unitPriceStr}*\n📦 Quantidade: *1*\n🧾 Subtotal: *${unitPriceStr}*${totalImages > 1 && imgIdx < totalImages - 1 ? "\n\n⏳ Verificando próxima imagem..." : "\n\n📸 Envie mais fotos ou finalize!"}`;
+                      await sendWhatsAppMessage(supabase, ctx, confirmMsg);
 
-                  if (products && products.length > 0) {
-                      const first = products[0];
-                      const unitPrice = Number(first.price || 0);
-                      const unitPriceStr = unitPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                      ctx.variables["produto_quantidade"] = "1";
+                      ctx.variables["produto_total"] = String(unitPrice);
+                      ctx.variables["_awaiting_quantity"] = "false";
+                      ctx.variables["_awaiting_more_products"] = "true";
+                      processedCount++;
 
-                      ctx.variables["produto_encontrado"] = "true";
-                      ctx.variables["produto_nome"] = first.name || "";
-                      ctx.variables["produto_preco"] = String(unitPrice);
-
-                      // ── BATCH MODE: If already in cart session, auto-add with qty=1 ──
-                      let inCartSession = ctx.variables["_awaiting_more_products"] === "true";
-                      if (!inCartSession) {
-                        // Check if there are recent cart items (✅ Adicionado!) — means active cart
-                        try {
-                          let cartCheckQ = supabase
-                            .from("messages")
-                            .select("content")
-                            .eq("contact_id", ctx.contactId)
-                            .eq("direction", "outbound")
-                            .order("created_at", { ascending: false })
-                            .limit(10);
-                          if (ctx.sessionStartedAt) cartCheckQ = cartCheckQ.gte("created_at", ctx.sessionStartedAt);
-                          const { data: cartCheckMsgs } = await cartCheckQ;
-                          inCartSession = (cartCheckMsgs || []).some((m: any) =>
-                            /✅ Adicionado!/.test(m.content || "") || /pegou mais algum produto/i.test(m.content || "")
-                          );
-                        } catch {}
-                      }
-
-                      if (inCartSession) {
-                        // Auto-add with qty=1, show updated cart
-                        const itemTotalStr = unitPriceStr;
-                        const confirmMsg = `✅ Adicionado!\n\n🛒 *${first.name}*\n💰 Unitário: *${unitPriceStr}*\n📦 Quantidade: *1*\n🧾 Subtotal: *${unitPriceStr}*\n\n📸 Envie mais fotos ou finalize!`;
-                        await sendWhatsAppMessage(supabase, ctx, confirmMsg);
-
-                        ctx.variables["produto_quantidade"] = "1";
-                        ctx.variables["produto_total"] = String(unitPrice);
-                        ctx.variables["_awaiting_quantity"] = "false";
-                        ctx.variables["_awaiting_more_products"] = "true";
-
-                        // Show cart summary with buttons
+                      // Only show cart summary + buttons on the LAST image
+                      if (imgIdx === totalImages - 1 || totalImages === 1) {
                         const cart = await recoverCartFromMessages(supabase, ctx);
                         let grandTotal = 0;
                         let cartSummary = "🛒 *Carrinho atual:*\n\n";
@@ -3799,29 +3826,34 @@ FORMATO DE RESPOSTA (OBRIGATÓRIO — sem explicações):
                         );
                         console.log(`[POST-LLM] BATCH: Auto-added ${first.name} (${unitPriceStr}) qty=1 — cart has ${cart.length} items, total=${grandTotalStr}`);
                       } else {
-                        // First product — ask quantity as before
-                        ctx.variables["_awaiting_quantity"] = "true";
-                        const askQtyMsg = `🛒 Encontrei no catálogo: *${first.name}*\n💰 Valor unitário: *${unitPriceStr}*\n\n📦 *Quantas unidades você pegou?*\n\n_Responda com o número (ex: 1, 2, 3...)_`;
-                        await sendWhatsAppMessage(supabase, ctx, askQtyMsg);
-                        console.log(`[POST-LLM] Product found: ${first.name} (${unitPriceStr}) — asking quantity`);
+                        console.log(`[POST-LLM]${imgLabel} Added ${first.name} (${unitPriceStr}) qty=1 — processing next image...`);
                       }
                     } else {
-                      // Product not in catalog
-                      const notFound = `❌ Não encontrei esse produto no nosso catálogo${barcodeNum ? ` (código lido: ${barcodeNum})` : ""}. Poderia enviar outra foto mais nítida do código de barras ou me dizer o nome do produto?`;
-                      await sendWhatsAppMessage(supabase, ctx, notFound);
-                      console.log(`[POST-LLM] Product not found for barcode="${barcodeNum}" name="${productHint}"`);
+                      // First product — ask quantity as before
+                      ctx.variables["_awaiting_quantity"] = "true";
+                      const askQtyMsg = `🛒 Encontrei no catálogo: *${first.name}*\n💰 Valor unitário: *${unitPriceStr}*\n\n📦 *Quantas unidades você pegou?*\n\n_Responda com o número (ex: 1, 2, 3...)_`;
+                      await sendWhatsAppMessage(supabase, ctx, askQtyMsg);
+                      console.log(`[POST-LLM]${imgLabel} Product found: ${first.name} (${unitPriceStr}) — asking quantity`);
+                      processedCount++;
                     }
-                } else {
-                  // No barcode detected — send the original LLM reply instead of generic error
-                  if (shouldHoldPrimaryReply && reply) {
-                    console.log("[POST-LLM] No barcode found — sending original LLM reply as fallback");
-                    await sendWhatsAppMessage(supabase, ctx, reply);
                   } else {
-                    const noBarcode = "⚠️ Não consegui identificar o código de barras nesta imagem. Pode reenviar com mais foco e iluminação?";
-                    await sendWhatsAppMessage(supabase, ctx, noBarcode);
+                    // Product not in catalog
+                    const notFound = `❌ Não encontrei esse produto no nosso catálogo${barcodeNum ? ` (código lido: ${barcodeNum})` : ""}${totalImages > 1 ? ` [foto ${imgIdx + 1}/${totalImages}]` : ""}. Poderia enviar outra foto mais nítida do código de barras ou me dizer o nome do produto?`;
+                    await sendWhatsAppMessage(supabase, ctx, notFound);
+                    console.log(`[POST-LLM]${imgLabel} Product not found for barcode="${barcodeNum}" name="${productHint}"`);
                   }
-                  console.log("[POST-LLM] No readable barcode detected in image");
+              }
+
+              // If multiple images were sent but NONE had a barcode, send fallback
+              if (totalImages > 1 && !anyProductFound) {
+                if (shouldHoldPrimaryReply && reply) {
+                  console.log("[POST-LLM] No barcodes found in any image — sending original LLM reply as fallback");
+                  await sendWhatsAppMessage(supabase, ctx, reply);
+                } else {
+                  const noBarcode = "⚠️ Não consegui identificar códigos de barras nas imagens enviadas. Pode reenviar com mais foco e iluminação? 📸";
+                  await sendWhatsAppMessage(supabase, ctx, noBarcode);
                 }
+              }
             }
           } catch (e) {
             console.error("[POST-LLM] Barcode extraction error:", e);
