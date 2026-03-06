@@ -71,8 +71,9 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     const vmpayToken = (setting?.value as any)?.token;
-    const configMachineId = (setting?.value as any)?.machine_id;
-    const configInstallationId = (setting?.value as any)?.installation_id;
+    const configMachineId = (setting?.value as any)?.machine_id?.toString().trim();
+    const configInstallationId = (setting?.value as any)?.installation_id?.toString().trim();
+    console.log(`Config: token=${!!vmpayToken}, machine_id="${configMachineId}", installation_id="${configInstallationId}"`);
     if (!vmpayToken) throw new Error("Token VMPay não configurado");
 
     const body = await req.json().catch(() => ({}));
