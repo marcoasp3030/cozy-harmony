@@ -218,6 +218,7 @@ Deno.serve(async (req) => {
     }
 
     let planogramsFetched = 0;
+    let sampleLogged = false;
     for (const pair of machineInstallationPairs) {
       const planogramPath = `/machines/${pair.machineId}/installations/${pair.installationId}/planograms`;
       try {
@@ -229,45 +230,96 @@ Deno.serve(async (req) => {
         for (const plan of planograms) {
           const items = plan.items || plan.planogram_items || [];
           for (const item of items) {
-            const product = item.product || item;
-            const productId = product.id || item.product_id;
+            const product = item.product || {};
+            const productId = product.id || item.product_id || item.id;
             if (!productId) continue;
 
-            const name = product.name || item.name || `Produto ${productId}`;
-            const price = item.current_price ?? item.price ?? product.price ?? 0;
-            const barcode = product.barcode || product.ean || item.barcode || null;
+            const id = String(productId);
+            const name = firstNonEmpty(product.name, product.title, item.name, item.label, `Produto ${id}`) || `Produto ${id}`;
+            const price = extractPrice(
+              item.current_price,
+              item.current_price_cents,
+              item.current_price_in_cents,
+              item.sale_price,
+              item.selling_price,
+              item.price,
+              item.price_cents,
+              item.price_in_cents,
+              item.value,
+              item.amount,
+              product.current_price,
+              product.sale_price,
+              product.selling_price,
+              product.price,
+              product.price_cents,
+              product.price_in_cents,
+              product.value,
+              product.amount,
+            );
+            const barcode = firstNonEmpty(product.barcode, product.ean, product.gtin, product.ean13, item.barcode, item.ean, item.gtin, item.ean13);
             const storeName = installationMap.get(pair.installationId) || null;
-            const category = product.category?.name || product.category || storeName;
+            const category = firstNonEmpty(product.category?.name, product.category, item.category?.name, item.category, storeName);
 
-            allProducts.set(String(productId), {
+            if (!sampleLogged) {
+              console.log("Sample planogram item keys:", JSON.stringify(Object.keys(item)).substring(0, 500));
+              console.log("Sample extracted price:", JSON.stringify({ id, name, price, raw: { item_price: item.price, item_current_price: item.current_price, item_value: item.value, product_price: product.price } }));
+              sampleLogged = true;
+            }
+
+            allProducts.set(id, {
               name,
-              price: Number(price) / 100,
+              price,
               barcode,
               category,
-              vmpay_id: String(productId),
+              vmpay_id: id,
             });
           }
         }
-      } catch (e) {
-        // Silently skip 404s/errors for invalid combinations
+      } catch (_e) {
+        // Silently skip invalid combinations
       }
     }
     console.log(`Planograms fetched successfully from ${planogramsFetched} pairs, ${allProducts.size} unique products`);
 
-    // 3b. Try fetching products directly as fallback
+    // 3b. Fetch products and merge details (name/barcode/price/category)
     const directProducts = await vmpayGetSafe("/products", vmpayToken);
     console.log(`Fetched ${directProducts.length} direct products`);
     for (const p of directProducts) {
       const id = String(p.id);
-      if (!allProducts.has(id)) {
+      const existing = allProducts.get(id);
+
+      const directName = firstNonEmpty(p.name, p.title, p.description, p.label, `Produto ${id}`) || `Produto ${id}`;
+      const directPrice = extractPrice(
+        p.current_price,
+        p.sale_price,
+        p.selling_price,
+        p.price,
+        p.price_cents,
+        p.price_in_cents,
+        p.value,
+        p.amount,
+      );
+      const directBarcode = firstNonEmpty(p.barcode, p.ean, p.gtin, p.ean13);
+      const directCategory = firstNonEmpty(p.category?.name, p.category);
+
+      if (!existing) {
         allProducts.set(id, {
-          name: p.name || `Produto ${id}`,
-          price: Number(p.price || 0) / 100,
-          barcode: p.barcode || p.ean || null,
-          category: p.category?.name || p.category || null,
+          name: directName,
+          price: directPrice,
+          barcode: directBarcode,
+          category: directCategory,
           vmpay_id: id,
         });
+        continue;
       }
+
+      allProducts.set(id, {
+        ...existing,
+        name: isPlaceholderName(existing.name, id) ? directName : existing.name,
+        price: existing.price > 0 ? existing.price : directPrice,
+        barcode: existing.barcode || directBarcode,
+        category: existing.category || directCategory,
+      });
     }
 
     // 4. Upsert products into the products table
