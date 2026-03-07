@@ -1063,6 +1063,15 @@ export default function CreateCampaignDialog({
                     <Switch checked={form.warmUpEnabled} onCheckedChange={(v) => update("warmUpEnabled", v)} />
                   </div>
 
+                  {/* Verify Numbers */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Verificar números no WhatsApp</p>
+                      <p className="text-xs text-muted-foreground">Checa se o número existe antes de enviar, reduzindo risco de bloqueio</p>
+                    </div>
+                    <Switch checked={form.verifyNumbers} onCheckedChange={(v) => update("verifyNumbers", v)} />
+                  </div>
+
                   <Separator />
 
                   {/* Content Variation */}
