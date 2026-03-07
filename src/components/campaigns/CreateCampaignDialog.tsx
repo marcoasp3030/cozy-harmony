@@ -100,6 +100,8 @@ const initialForm: CampaignForm = {
   description: "",
   selectedContactIds: [],
   selectedTagIds: [],
+  selectedFunnelStageIds: [],
+  minScore: 0,
   messageType: "text",
   messageContent: "",
   mediaUrl: "",
