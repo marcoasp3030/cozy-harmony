@@ -75,12 +75,17 @@ const AppSidebar = () => {
   const location = useLocation();
   const badges = useSidebarBadges();
   const { isAdmin, isAdminOrSupervisor } = useUserRole();
+  const { canAccessPage } = useUserPermissions();
 
-  const hasAccess = (requiredRole?: RequiredRole) => {
-    if (!requiredRole) return true;
-    if (requiredRole === "admin") return isAdmin;
-    if (requiredRole === "supervisor") return isAdminOrSupervisor;
-    if (requiredRole === "admin_or_supervisor") return isAdminOrSupervisor;
+  const hasAccess = (item: SidebarItem) => {
+    // Role check first
+    const requiredRole = item.requiredRole;
+    if (requiredRole) {
+      if (requiredRole === "admin" && !isAdmin) return false;
+      if ((requiredRole === "supervisor" || requiredRole === "admin_or_supervisor") && !isAdminOrSupervisor) return false;
+    }
+    // Page permission check (admins skip)
+    if (item.pageKey && !canAccessPage(item.pageKey)) return false;
     return true;
   };
 
