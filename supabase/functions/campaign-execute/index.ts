@@ -254,7 +254,7 @@ serve(async (req) => {
 
       const { data: pendingContacts } = await supabase
         .from('campaign_contacts')
-        .select('id, phone, variables')
+        .select('id, phone, variables, contact_id')
         .eq('campaign_id', campaignId)
         .eq('status', 'pending')
         .limit(batchSize);
