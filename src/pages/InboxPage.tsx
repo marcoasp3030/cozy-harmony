@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, Send, Phone, MoreVertical, Kanban, List, StickyNote, LayoutTemplate, Slash, ArrowLeft, Brain, Loader2, Sparkles, FileText as SummarizeIcon, MousePointerClick, X, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Search, Send, Phone, MoreVertical, Kanban, List, StickyNote, LayoutTemplate, Slash, ArrowLeft, Brain, Loader2, Sparkles, FileText as SummarizeIcon, MousePointerClick, X, ThumbsUp, ThumbsDown, SearchCheck } from "lucide-react";
 import { MediaUploader, AttachmentPreview, uploadMediaFile } from "@/components/inbox/MediaUploader";
 import type { MediaAttachment } from "@/components/inbox/MediaUploader";
 import AudioRecorder from "@/components/inbox/AudioRecorder";
