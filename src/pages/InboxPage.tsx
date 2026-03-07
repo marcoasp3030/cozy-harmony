@@ -794,6 +794,11 @@ const InboxPage = () => {
           <h1 className="font-heading text-xl md:text-2xl font-bold">Inbox</h1>
           <p className="text-xs md:text-sm text-muted-foreground">Atenda seus clientes em tempo real</p>
         </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setGlobalSearchOpen(true)}>
+            <SearchCheck className="h-4 w-4" />
+            <span className="hidden sm:inline">Pesquisar mensagens</span>
+          </Button>
         <ToggleGroup type="single" value={viewMode} onValueChange={(v) => { if (v) { setViewMode(v as "list" | "kanban"); localStorage.setItem("inbox_view_mode", v); } }} className="border border-border rounded-lg p-0.5">
           <ToggleGroupItem value="list" aria-label="Visão lista" className="h-8 w-8 p-0 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
             <List className="h-4 w-4" />
