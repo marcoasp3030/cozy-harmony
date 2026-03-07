@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Plus, Upload, Search, MoreHorizontal, Trash2, Loader2,
-  ChevronLeft, ChevronRight, Filter, Tag, X, Users,
+  ChevronLeft, ChevronRight, Filter, Tag, X, Users, Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,7 @@ import { formatPhoneDisplay } from "@/lib/validators";
 import ImportContactsDialog from "@/components/contacts/ImportContactsDialog";
 import ContactFormDialog from "@/components/contacts/ContactFormDialog";
 import ContactDetailDialog from "@/components/contacts/ContactDetailDialog";
+import DuplicateContactsDialog from "@/components/contacts/DuplicateContactsDialog";
 
 interface Contact {
   id: string;
@@ -66,6 +67,7 @@ const Contacts = () => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number>(50);
   const queryClient = useQueryClient();
@@ -317,6 +319,10 @@ const Contacts = () => {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setDuplicateOpen(true)}>
+            <Copy className="mr-2 h-4 w-4" />
+            <span className="hidden sm:inline">Duplicados</span>
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
             <Upload className="mr-2 h-4 w-4" />
             <span className="hidden sm:inline">Importar</span>
@@ -651,6 +657,12 @@ const Contacts = () => {
         open={importOpen}
         onOpenChange={setImportOpen}
         onImportComplete={invalidate}
+      />
+
+      <DuplicateContactsDialog
+        open={duplicateOpen}
+        onOpenChange={setDuplicateOpen}
+        onMerged={invalidate}
       />
 
       <ContactFormDialog
