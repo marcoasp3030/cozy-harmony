@@ -850,6 +850,15 @@ const UserManagement = () => {
           </div>
         </DialogContent>
       </Dialog>
+      {/* Permissions dialog */}
+      {permissionsTarget && (
+        <UserPermissionsDialog
+          open={!!permissionsTarget}
+          onOpenChange={(open) => !open && setPermissionsTarget(null)}
+          userId={permissionsTarget.user_id}
+          userName={permissionsTarget.name}
+        />
+      )}
     </div>
   );
 };
