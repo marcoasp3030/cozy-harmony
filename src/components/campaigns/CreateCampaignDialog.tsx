@@ -415,6 +415,7 @@ export default function CreateCampaignDialog({
           warmUpEnabled: form.warmUpEnabled,
           contentVariation: form.contentVariation,
           maxConsecutiveFailures: form.maxConsecutiveFailures,
+          verifyNumbers: form.verifyNumbers,
           batchSize: 30,
           batchCooldownSec: 15,
           businessHourStart: 8,
