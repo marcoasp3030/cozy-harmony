@@ -71,6 +71,8 @@ interface CampaignForm {
   description: string;
   selectedContactIds: string[];
   selectedTagIds: string[];
+  selectedFunnelStageIds: string[];
+  minScore: number;
   messageType: string;
   messageContent: string;
   mediaUrl: string;
