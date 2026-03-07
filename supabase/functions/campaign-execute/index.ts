@@ -278,6 +278,12 @@ serve(async (req) => {
       let consecutiveFailures = 0;
       let autoPaused = false;
 
+      // Use service role client for updating contacts table (whatsapp_exists)
+      const supabaseService = createClient(
+        Deno.env.get('SUPABASE_URL')!,
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+      );
+
       for (const contact of pendingContacts) {
         // ── CHECK PAUSE MID-EXECUTION ────────────────────────
         if (sent > 0 && sent % 10 === 0) {
@@ -313,6 +319,49 @@ serve(async (req) => {
           }
         }
 
+        const cleanNumber = String(contact.phone).replace(/\D/g, '');
+
+        // ── VERIFY NUMBER ON WHATSAPP ────────────────────────
+        if (campaignSettings.verifyNumbers) {
+          try {
+            const verifyRes = await fetch(`${baseUrl}/misc/isOnWhatsapp`, {
+              method: 'POST',
+              headers: { 'token': config.instanceToken, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ number: cleanNumber }),
+            });
+            const verifyData = await verifyRes.json();
+            // UazAPI returns: { exists: true/false } or { numberExists: true/false } or array format
+            const exists = verifyData?.exists ?? verifyData?.numberExists ?? 
+              (Array.isArray(verifyData) ? verifyData[0]?.exists : null) ?? true;
+            
+            console.log(`Verify ${cleanNumber}: exists=${exists}`, JSON.stringify(verifyData).slice(0, 200));
+
+            if (!exists) {
+              // Mark as failed and update contact record
+              await supabase.from('campaign_contacts').update({
+                status: 'failed',
+                error: 'Número não existe no WhatsApp',
+              }).eq('id', contact.id);
+              
+              // Update contacts table so future campaigns skip this number
+              if (contact.contact_id) {
+                await supabaseService.from('contacts').update({ whatsapp_exists: false }).eq('id', contact.contact_id);
+              }
+              
+              failed++;
+              console.log(`Skipped ${cleanNumber}: not on WhatsApp`);
+              // Small delay even for skipped numbers
+              await new Promise((r) => setTimeout(r, 500));
+              continue;
+            } else if (contact.contact_id) {
+              // Confirm number exists
+              await supabaseService.from('contacts').update({ whatsapp_exists: true }).eq('id', contact.contact_id);
+            }
+          } catch (verifyErr) {
+            console.warn(`Could not verify ${cleanNumber}, proceeding anyway:`, verifyErr);
+          }
+        }
+
         // ── REPLACE VARIABLES ────────────────────────────────
         let text = messageContent;
         if (contact.variables && typeof contact.variables === 'object') {
@@ -328,7 +377,6 @@ serve(async (req) => {
         }
 
         // ── BUILD SEND BODY ──────────────────────────────────
-        const cleanNumber = String(contact.phone).replace(/\D/g, '');
         const sendBody: Record<string, unknown> = { number: cleanNumber };
         let sendEndpoint: string;
 
