@@ -72,9 +72,9 @@ const DEFAULT_PERMISSIONS: UserPermissions = {
 
 export function useUserPermissions() {
   const { user } = useAuth();
-  const { isAdmin } = useUserRole();
+  const { isAdmin, isLoading: isRoleLoading } = useUserRole();
 
-  const { data: permissions = null, isLoading } = useQuery({
+  const { data: permissions = null, isLoading: isPermLoading } = useQuery({
     queryKey: ["user-permissions", user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
@@ -104,6 +104,8 @@ export function useUserPermissions() {
     enabled: !!user?.id,
     staleTime: 5 * 60 * 1000,
   });
+
+  const isLoading = isRoleLoading || isPermLoading;
 
   // Admins always have full access
   const effectivePermissions = isAdmin ? DEFAULT_PERMISSIONS : permissions;
