@@ -30,6 +30,8 @@ const DEFAULT_SETTINGS = {
   maxConsecutiveFailures: 5,
   // Timezone offset for business hours calculation
   timezoneOffset: -3, // BRT (UTC-3)
+  // Verify if number exists on WhatsApp before sending (reduces block risk)
+  verifyNumbers: true,
 };
 
 /** Random integer between min and max (inclusive) */
