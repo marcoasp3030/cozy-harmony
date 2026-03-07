@@ -657,7 +657,13 @@ const OrganizationManagement = () => {
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => removeMemberMutation.mutate()}
+              onClick={() => {
+                if (!removeMember) return;
+                removeMemberMutation.mutate({
+                  orgId: removeMember.orgId,
+                  userId: removeMember.member.user_id,
+                });
+              }}
             >
               {removeMemberMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Remover
