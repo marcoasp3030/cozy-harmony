@@ -62,6 +62,14 @@ function RoleGuard({ children, requiredRole }: { children: React.ReactNode; requ
   return <>{children}</>;
 }
 
+function PermissionGuard({ children, pageKey }: { children: React.ReactNode; pageKey: string }) {
+  const { canAccessPage, isLoading } = useUserPermissions();
+  
+  if (isLoading) return <PageLoader />;
+  if (!canAccessPage(pageKey)) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
 function AuthRedirect() {
   const { user, loading } = useAuth();
   if (loading) return null;
