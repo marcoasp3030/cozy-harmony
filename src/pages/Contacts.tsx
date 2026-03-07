@@ -34,6 +34,7 @@ import { formatPhoneDisplay } from "@/lib/validators";
 import ImportContactsDialog from "@/components/contacts/ImportContactsDialog";
 import ContactFormDialog from "@/components/contacts/ContactFormDialog";
 import ContactDetailDialog from "@/components/contacts/ContactDetailDialog";
+import DuplicateContactsDialog from "@/components/contacts/DuplicateContactsDialog";
 
 interface Contact {
   id: string;
