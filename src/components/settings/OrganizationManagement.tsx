@@ -266,28 +266,36 @@ const OrganizationManagement = () => {
     mutationFn: async () => {
       if (!addMemberOrgId) throw new Error("Org não selecionada");
 
-      const { data: userData, error: userErr } = await supabase.functions.invoke("create-admin", {
-        body: { email: memberEmail.trim(), password: memberPassword, name: memberName.trim() },
-      });
-      if (userErr) throw userErr;
-      if (userData?.error) throw new Error(userData.error);
+      let userId: string;
 
-      const newUserId = userData?.user?.id;
-      if (!newUserId) throw new Error("Erro ao criar usuário");
+      if (addMemberMode === "existing") {
+        if (!selectedUserId) throw new Error("Selecione um usuário");
+        userId = selectedUserId;
+      } else {
+        const { data: userData, error: userErr } = await supabase.functions.invoke("create-admin", {
+          body: { email: memberEmail.trim(), password: memberPassword, name: memberName.trim() },
+        });
+        if (userErr) throw userErr;
+        if (userData?.error) throw new Error(userData.error);
 
-      const appRole = memberRole === "owner" || memberRole === "admin" ? "admin" : memberRole === "supervisor" ? "supervisor" : "atendente";
-      await supabase.from("user_roles").insert({ user_id: newUserId, role: appRole as any });
+        userId = userData?.user?.id;
+        if (!userId) throw new Error("Erro ao criar usuário");
+
+        const appRole = memberRole === "owner" || memberRole === "admin" ? "admin" : memberRole === "supervisor" ? "supervisor" : "atendente";
+        await supabase.from("user_roles").insert({ user_id: userId, role: appRole as any });
+      }
 
       const { error: memErr } = await supabase
         .from("organization_members")
-        .insert({ org_id: addMemberOrgId, user_id: newUserId, role: memberRole });
+        .insert({ org_id: addMemberOrgId, user_id: userId, role: memberRole });
       if (memErr) throw memErr;
     },
     onSuccess: () => {
       invalidateOrgs();
+      queryClient.invalidateQueries({ queryKey: ["all-profiles"] });
       toast.success("Membro adicionado!");
       setAddMemberOrgId(null);
-      setMemberEmail(""); setMemberName(""); setMemberPassword(""); setMemberRole("admin");
+      setSelectedUserId(""); setMemberEmail(""); setMemberName(""); setMemberPassword(""); setMemberRole("admin"); setAddMemberMode("existing");
     },
     onError: (err: any) => toast.error(err.message || "Erro ao adicionar membro"),
   });
