@@ -357,7 +357,7 @@ export default function CreateCampaignDialog({
       case "info":
         return form.name.trim().length > 0;
       case "recipients":
-        return form.selectedContactIds.length > 0 || form.selectedTagIds.length > 0;
+        return form.selectedContactIds.length > 0 || form.selectedTagIds.length > 0 || form.selectedFunnelStageIds.length > 0 || form.minScore > 0;
       case "message":
         return form.messageContent.trim().length > 0;
       case "schedule":
