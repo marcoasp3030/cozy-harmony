@@ -1211,6 +1211,7 @@ export default function CreateCampaignDialog({
                     {form.businessHoursOnly && <Badge variant="outline" className="text-xs">Horário comercial</Badge>}
                     {form.warmUpEnabled && <Badge variant="outline" className="text-xs">Warm-up</Badge>}
                     {form.contentVariation && <Badge variant="outline" className="text-xs">Variação de conteúdo</Badge>}
+                    {form.verifyNumbers && <Badge variant="outline" className="text-xs">Verificação de número</Badge>}
                     <Badge variant="outline" className="text-xs">Delay: {form.delayMin/1000}-{form.delayMax/1000}s</Badge>
                     <Badge variant="outline" className="text-xs">Limite: {form.dailyLimit}/dia</Badge>
                   </div>
