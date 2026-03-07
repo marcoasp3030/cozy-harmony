@@ -279,6 +279,7 @@ const ImportContactsDialog = ({
     let success = 0;
     let failed = 0;
     let duplicates = 0;
+    const importedIds: string[] = [];
 
     const batchSize = 50;
     for (let i = 0; i < validRows.length; i += batchSize) {
@@ -292,16 +293,34 @@ const ImportContactsDialog = ({
       const { error, data } = await supabase
         .from("contacts")
         .upsert(contacts, { onConflict: "user_id,phone", ignoreDuplicates: true })
-        .select();
+        .select("id");
 
       if (error) {
         failed += batch.length;
       } else {
         success += data?.length || 0;
-        // Count duplicates as ones that were updated vs truly new
+        if (data) importedIds.push(...data.map((d: any) => d.id));
       }
 
-      setImportProgress(Math.min(100, Math.round(((i + batchSize) / validRows.length) * 100)));
+      setImportProgress(Math.min(90, Math.round(((i + batchSize) / validRows.length) * 90)));
+    }
+
+    // Apply tags to imported contacts
+    if (selectedTagIds.length > 0 && importedIds.length > 0) {
+      const tagBatchSize = 200;
+      for (let i = 0; i < importedIds.length; i += tagBatchSize) {
+        const idBatch = importedIds.slice(i, i + tagBatchSize);
+        const tagRows = idBatch.flatMap((contactId) =>
+          selectedTagIds.map((tagId) => ({ contact_id: contactId, tag_id: tagId }))
+        );
+        await supabase.from("contact_tags").upsert(tagRows, {
+          onConflict: "contact_id,tag_id",
+          ignoreDuplicates: true,
+        });
+      }
+      setImportProgress(100);
+    } else {
+      setImportProgress(100);
     }
 
     setImportResult({ success, failed, duplicates });
