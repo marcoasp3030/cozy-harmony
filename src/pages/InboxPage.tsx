@@ -799,14 +799,15 @@ const InboxPage = () => {
             <SearchCheck className="h-4 w-4" />
             <span className="hidden sm:inline">Pesquisar mensagens</span>
           </Button>
-        <ToggleGroup type="single" value={viewMode} onValueChange={(v) => { if (v) { setViewMode(v as "list" | "kanban"); localStorage.setItem("inbox_view_mode", v); } }} className="border border-border rounded-lg p-0.5">
-          <ToggleGroupItem value="list" aria-label="Visão lista" className="h-8 w-8 p-0 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
-            <List className="h-4 w-4" />
-          </ToggleGroupItem>
-          <ToggleGroupItem value="kanban" aria-label="Visão kanban" className="h-8 w-8 p-0 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
-            <Kanban className="h-4 w-4" />
-          </ToggleGroupItem>
-        </ToggleGroup>
+          <ToggleGroup type="single" value={viewMode} onValueChange={(v) => { if (v) { setViewMode(v as "list" | "kanban"); localStorage.setItem("inbox_view_mode", v); } }} className="border border-border rounded-lg p-0.5">
+            <ToggleGroupItem value="list" aria-label="Visão lista" className="h-8 w-8 p-0 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+              <List className="h-4 w-4" />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="kanban" aria-label="Visão kanban" className="h-8 w-8 p-0 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+              <Kanban className="h-4 w-4" />
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
       </div>
 
       {viewMode === "kanban" ? (
