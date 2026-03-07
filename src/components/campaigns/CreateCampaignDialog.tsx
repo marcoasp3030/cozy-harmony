@@ -182,6 +182,7 @@ export default function CreateCampaignDialog({
         warmUpEnabled: s.warmUpEnabled ?? initialForm.warmUpEnabled,
         contentVariation: s.contentVariation ?? initialForm.contentVariation,
         maxConsecutiveFailures: s.maxConsecutiveFailures ?? initialForm.maxConsecutiveFailures,
+        verifyNumbers: s.verifyNumbers ?? initialForm.verifyNumbers,
         recurrenceEnabled: !!s.recurrence,
         recurrenceType: s.recurrence?.type || "weekly",
       });
