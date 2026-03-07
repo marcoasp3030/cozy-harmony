@@ -534,6 +534,58 @@ const ImportContactsDialog = ({
               </p>
             )}
 
+            {/* Tag Segmentation */}
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Tag className="h-4 w-4 text-primary" />
+                <Label className="text-sm font-semibold">Segmentar contatos importados</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Adicione tags para organizar estes contatos e facilitar o envio em massa nas campanhas.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {availableTags.map((tag) => (
+                  <Badge
+                    key={tag.id}
+                    variant={selectedTagIds.includes(tag.id) ? "default" : "outline"}
+                    className="cursor-pointer transition-all text-xs"
+                    style={
+                      selectedTagIds.includes(tag.id)
+                        ? { backgroundColor: tag.color, color: "#fff", borderColor: tag.color }
+                        : { borderColor: tag.color + "80", color: tag.color }
+                    }
+                    onClick={() => toggleTag(tag.id)}
+                  >
+                    {tag.name}
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="Criar nova tag..."
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  className="h-8 text-xs flex-1"
+                  onKeyDown={(e) => e.key === "Enter" && createAndSelectTag()}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs shrink-0"
+                  disabled={!newTagName.trim() || creatingTag}
+                  onClick={createAndSelectTag}
+                >
+                  {creatingTag ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3 mr-1" />}
+                  Criar
+                </Button>
+              </div>
+              {selectedTagIds.length > 0 && (
+                <p className="text-xs text-primary font-medium">
+                  ✓ {selectedTagIds.length} tag(s) serão aplicadas aos {validCount} contatos importados
+                </p>
+              )}
+            </div>
+
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setStep("mapping")}>Voltar</Button>
               <Button onClick={handleImport} disabled={validCount === 0}>
