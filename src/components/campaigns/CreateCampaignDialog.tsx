@@ -58,6 +58,14 @@ interface Template {
   variables: string[] | null;
 }
 
+interface FunnelStage {
+  id: string;
+  name: string;
+  color: string;
+  funnel_id: string;
+  funnel_name: string;
+}
+
 interface CampaignForm {
   name: string;
   description: string;
