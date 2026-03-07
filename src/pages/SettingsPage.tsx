@@ -999,6 +999,7 @@ const SettingsPage = () => {
           {isAdmin && <TabsTrigger value="vmpay" className="text-xs md:text-sm">VMPay</TabsTrigger>}
           <TabsTrigger value="knowledge" className="text-xs md:text-sm">Base de Conhecimento</TabsTrigger>
           {isAdminOrSupervisor && <TabsTrigger value="users" className="text-xs md:text-sm">Usuários</TabsTrigger>}
+          {isAdmin && <TabsTrigger value="organizations" className="text-xs md:text-sm">Empresas</TabsTrigger>}
           {isAdmin && <TabsTrigger value="webhooks" className="text-xs md:text-sm">Webhooks</TabsTrigger>}
         </TabsList>
 
