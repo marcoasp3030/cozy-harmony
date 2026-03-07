@@ -604,6 +604,13 @@ const UserManagement = () => {
                             <KeyRound className="mr-2 h-4 w-4" /> Resetar senha
                           </DropdownMenuItem>
 
+                          {/* Permissions - for admins */}
+                          {isAdmin && (
+                            <DropdownMenuItem onClick={() => setPermissionsTarget(u)}>
+                              <ShieldCheck className="mr-2 h-4 w-4" /> Permissões
+                            </DropdownMenuItem>
+                          )}
+
                           {/* Instance visibility - for attendants */}
                           {u.role === "atendente" && (
                             <DropdownMenuItem onClick={() => openInstancesDialog(u)}>
