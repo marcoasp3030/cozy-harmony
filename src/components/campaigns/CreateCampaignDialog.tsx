@@ -1148,9 +1148,13 @@ export default function CreateCampaignDialog({
                 <div className="px-4 py-3">
                   <p className="text-xs text-muted-foreground">Destinatários</p>
                   <p className="font-medium">
-                    {form.selectedContactIds.length} contato(s)
-                    {form.selectedTagIds.length > 0 && ` + ${form.selectedTagIds.length} tag(s)`}
+                    {estimatedCount !== null ? `~${estimatedCount} contato(s) estimado(s)` : `${form.selectedContactIds.length} contato(s)`}
                   </p>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {form.selectedTagIds.length > 0 && <Badge variant="outline" className="text-xs">{form.selectedTagIds.length} tag(s)</Badge>}
+                    {form.selectedFunnelStageIds.length > 0 && <Badge variant="outline" className="text-xs">{form.selectedFunnelStageIds.length} estágio(s)</Badge>}
+                    {form.minScore > 0 && <Badge variant="outline" className="text-xs">Score ≥ {form.minScore}</Badge>}
+                  </div>
                 </div>
                 <div className="px-4 py-3">
                   <p className="text-xs text-muted-foreground">Tipo</p>
