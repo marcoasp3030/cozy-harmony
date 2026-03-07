@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Wifi, WifiOff, CheckCircle2, Loader2, QrCode, Unplug, Save, Plus, Link2, ExternalLink, Copy, Check, Volume2, VolumeX, Brain, Eye, EyeOff, Sparkles, FileText, Image, Mic, Video, MessageSquare, Wrench, Bell, BellOff, Package, Clock } from "lucide-react";
 import InstanceManager from "@/components/settings/InstanceManager";
 import UserManagement from "@/components/settings/UserManagement";
+import OrganizationManagement from "@/components/settings/OrganizationManagement";
 import BusinessHoursSettings from "@/components/settings/BusinessHoursSettings";
 import InactivitySettings from "@/components/settings/InactivitySettings";
 import ElevenLabsSettings from "@/components/settings/ElevenLabsSettings";
@@ -998,6 +999,7 @@ const SettingsPage = () => {
           {isAdmin && <TabsTrigger value="vmpay" className="text-xs md:text-sm">VMPay</TabsTrigger>}
           <TabsTrigger value="knowledge" className="text-xs md:text-sm">Base de Conhecimento</TabsTrigger>
           {isAdminOrSupervisor && <TabsTrigger value="users" className="text-xs md:text-sm">Usuários</TabsTrigger>}
+          {isAdmin && <TabsTrigger value="organizations" className="text-xs md:text-sm">Empresas</TabsTrigger>}
           {isAdmin && <TabsTrigger value="webhooks" className="text-xs md:text-sm">Webhooks</TabsTrigger>}
         </TabsList>
 
@@ -1059,6 +1061,12 @@ const SettingsPage = () => {
         {isAdminOrSupervisor && (
           <TabsContent value="users">
             <UserManagement />
+          </TabsContent>
+        )}
+
+        {isAdmin && (
+          <TabsContent value="organizations">
+            <OrganizationManagement />
           </TabsContent>
         )}
 
