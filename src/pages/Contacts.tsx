@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Plus, Upload, Search, MoreHorizontal, Trash2, Loader2,
-  ChevronLeft, ChevronRight, Filter, Tag, X, Users,
+  ChevronLeft, ChevronRight, Filter, Tag, X, Users, Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
