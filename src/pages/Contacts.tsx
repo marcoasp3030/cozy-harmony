@@ -659,6 +659,12 @@ const Contacts = () => {
         onImportComplete={invalidate}
       />
 
+      <DuplicateContactsDialog
+        open={duplicateOpen}
+        onOpenChange={setDuplicateOpen}
+        onMerged={invalidate}
+      />
+
       <ContactFormDialog
         open={formOpen}
         onOpenChange={setFormOpen}
