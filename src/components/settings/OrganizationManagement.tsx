@@ -100,11 +100,29 @@ const OrganizationManagement = () => {
 
   // Add member state
   const [addMemberOrgId, setAddMemberOrgId] = useState<string | null>(null);
+  const [addMemberMode, setAddMemberMode] = useState<"existing" | "new">("existing");
+  const [selectedUserId, setSelectedUserId] = useState("");
   const [memberEmail, setMemberEmail] = useState("");
   const [memberName, setMemberName] = useState("");
   const [memberPassword, setMemberPassword] = useState("");
   const [memberRole, setMemberRole] = useState("admin");
   const [showMemberPassword, setShowMemberPassword] = useState(false);
+
+  // Fetch all profiles for linking existing users
+  const { data: allProfiles = [] } = useQuery({
+    queryKey: ["all-profiles"],
+    queryFn: async () => {
+      const { data } = await supabase.from("profiles").select("user_id, name, email").order("name");
+      return data || [];
+    },
+    enabled: isAdmin && !!addMemberOrgId,
+  });
+
+  // Filter out users already in the selected org
+  const availableProfiles = allProfiles.filter((p) => {
+    const org = organizations.find((o) => o.id === addMemberOrgId);
+    return !org?.members.some((m) => m.user_id === p.user_id);
+  });
 
   // Remove member state
   const [removeMember, setRemoveMember] = useState<{ orgId: string; member: OrgMember } | null>(null);
@@ -248,28 +266,36 @@ const OrganizationManagement = () => {
     mutationFn: async () => {
       if (!addMemberOrgId) throw new Error("Org não selecionada");
 
-      const { data: userData, error: userErr } = await supabase.functions.invoke("create-admin", {
-        body: { email: memberEmail.trim(), password: memberPassword, name: memberName.trim() },
-      });
-      if (userErr) throw userErr;
-      if (userData?.error) throw new Error(userData.error);
+      let userId: string;
 
-      const newUserId = userData?.user?.id;
-      if (!newUserId) throw new Error("Erro ao criar usuário");
+      if (addMemberMode === "existing") {
+        if (!selectedUserId) throw new Error("Selecione um usuário");
+        userId = selectedUserId;
+      } else {
+        const { data: userData, error: userErr } = await supabase.functions.invoke("create-admin", {
+          body: { email: memberEmail.trim(), password: memberPassword, name: memberName.trim() },
+        });
+        if (userErr) throw userErr;
+        if (userData?.error) throw new Error(userData.error);
 
-      const appRole = memberRole === "owner" || memberRole === "admin" ? "admin" : memberRole === "supervisor" ? "supervisor" : "atendente";
-      await supabase.from("user_roles").insert({ user_id: newUserId, role: appRole as any });
+        userId = userData?.user?.id;
+        if (!userId) throw new Error("Erro ao criar usuário");
+
+        const appRole = memberRole === "owner" || memberRole === "admin" ? "admin" : memberRole === "supervisor" ? "supervisor" : "atendente";
+        await supabase.from("user_roles").insert({ user_id: userId, role: appRole as any });
+      }
 
       const { error: memErr } = await supabase
         .from("organization_members")
-        .insert({ org_id: addMemberOrgId, user_id: newUserId, role: memberRole });
+        .insert({ org_id: addMemberOrgId, user_id: userId, role: memberRole });
       if (memErr) throw memErr;
     },
     onSuccess: () => {
       invalidateOrgs();
+      queryClient.invalidateQueries({ queryKey: ["all-profiles"] });
       toast.success("Membro adicionado!");
       setAddMemberOrgId(null);
-      setMemberEmail(""); setMemberName(""); setMemberPassword(""); setMemberRole("admin");
+      setSelectedUserId(""); setMemberEmail(""); setMemberName(""); setMemberPassword(""); setMemberRole("admin"); setAddMemberMode("existing");
     },
     onError: (err: any) => toast.error(err.message || "Erro ao adicionar membro"),
   });
@@ -556,40 +582,83 @@ const OrganizationManagement = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Add member dialog */}
-      <Dialog open={!!addMemberOrgId} onOpenChange={(open) => !open && setAddMemberOrgId(null)}>
+      <Dialog open={!!addMemberOrgId} onOpenChange={(open) => { if (!open) { setAddMemberOrgId(null); setAddMemberMode("existing"); setSelectedUserId(""); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Adicionar Membro</DialogTitle>
-            <DialogDescription>Crie um novo usuário e adicione-o a esta empresa.</DialogDescription>
+            <DialogDescription>Vincule um usuário existente ou crie um novo.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 pt-2">
-            <div className="space-y-2">
-              <Label>Nome *</Label>
-              <Input placeholder="Nome completo" value={memberName} onChange={(e) => setMemberName(e.target.value)} />
+            {/* Mode toggle */}
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant={addMemberMode === "existing" ? "default" : "outline"}
+                onClick={() => setAddMemberMode("existing")}
+                className="flex-1"
+              >
+                Usuário Existente
+              </Button>
+              <Button
+                size="sm"
+                variant={addMemberMode === "new" ? "default" : "outline"}
+                onClick={() => setAddMemberMode("new")}
+                className="flex-1"
+              >
+                Novo Usuário
+              </Button>
             </div>
-            <div className="space-y-2">
-              <Label>Email *</Label>
-              <Input type="email" placeholder="usuario@empresa.com" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Senha *</Label>
-              <div className="relative">
-                <Input
-                  type={showMemberPassword ? "text" : "password"}
-                  placeholder="Mínimo 6 caracteres"
-                  value={memberPassword}
-                  onChange={(e) => setMemberPassword(e.target.value)}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowMemberPassword(!showMemberPassword)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {showMemberPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
+
+            {addMemberMode === "existing" ? (
+              <div className="space-y-2">
+                <Label>Selecionar Usuário *</Label>
+                <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                  <SelectTrigger><SelectValue placeholder="Selecione um usuário..." /></SelectTrigger>
+                  <SelectContent>
+                    {availableProfiles.map((p) => (
+                      <SelectItem key={p.user_id} value={p.user_id}>
+                        {p.name} ({p.email})
+                      </SelectItem>
+                    ))}
+                    {availableProfiles.length === 0 && (
+                      <div className="px-2 py-3 text-sm text-muted-foreground text-center">
+                        Nenhum usuário disponível
+                      </div>
+                    )}
+                  </SelectContent>
+                </Select>
               </div>
-            </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label>Nome *</Label>
+                  <Input placeholder="Nome completo" value={memberName} onChange={(e) => setMemberName(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Email *</Label>
+                  <Input type="email" placeholder="usuario@empresa.com" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Senha *</Label>
+                  <div className="relative">
+                    <Input
+                      type={showMemberPassword ? "text" : "password"}
+                      placeholder="Mínimo 6 caracteres"
+                      value={memberPassword}
+                      onChange={(e) => setMemberPassword(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowMemberPassword(!showMemberPassword)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showMemberPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+
             <div className="space-y-2">
               <Label>Papel na empresa</Label>
               <Select value={memberRole} onValueChange={setMemberRole}>
@@ -603,7 +672,10 @@ const OrganizationManagement = () => {
             </div>
             <Button
               className="w-full"
-              disabled={!memberName.trim() || !memberEmail.trim() || memberPassword.length < 6 || addMemberMutation.isPending}
+              disabled={
+                addMemberMutation.isPending ||
+                (addMemberMode === "existing" ? !selectedUserId : (!memberName.trim() || !memberEmail.trim() || memberPassword.length < 6))
+              }
               onClick={() => addMemberMutation.mutate()}
             >
               {addMemberMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
