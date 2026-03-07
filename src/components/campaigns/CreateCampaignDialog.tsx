@@ -118,6 +118,7 @@ const initialForm: CampaignForm = {
   warmUpEnabled: false,
   contentVariation: true,
   maxConsecutiveFailures: 5,
+  verifyNumbers: true,
   recurrenceEnabled: false,
   recurrenceType: "weekly",
   interactive: getDefaultInteractive(),
