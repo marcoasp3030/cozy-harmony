@@ -1065,6 +1065,12 @@ const SettingsPage = () => {
         )}
 
         {isAdmin && (
+          <TabsContent value="organizations">
+            <OrganizationManagement />
+          </TabsContent>
+        )}
+
+        {isAdmin && (
           <TabsContent value="webhooks">
             <WebhookConfig />
           </TabsContent>
