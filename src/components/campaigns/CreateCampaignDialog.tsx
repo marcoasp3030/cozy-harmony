@@ -88,6 +88,8 @@ interface CampaignForm {
   warmUpEnabled: boolean;
   contentVariation: boolean;
   maxConsecutiveFailures: number;
+  // Number verification
+  verifyNumbers: boolean;
   // Recurrence
   recurrenceEnabled: boolean;
   recurrenceType: "daily" | "weekly" | "monthly";
@@ -116,6 +118,7 @@ const initialForm: CampaignForm = {
   warmUpEnabled: false,
   contentVariation: true,
   maxConsecutiveFailures: 5,
+  verifyNumbers: true,
   recurrenceEnabled: false,
   recurrenceType: "weekly",
   interactive: getDefaultInteractive(),
@@ -179,6 +182,7 @@ export default function CreateCampaignDialog({
         warmUpEnabled: s.warmUpEnabled ?? initialForm.warmUpEnabled,
         contentVariation: s.contentVariation ?? initialForm.contentVariation,
         maxConsecutiveFailures: s.maxConsecutiveFailures ?? initialForm.maxConsecutiveFailures,
+        verifyNumbers: s.verifyNumbers ?? initialForm.verifyNumbers,
         recurrenceEnabled: !!s.recurrence,
         recurrenceType: s.recurrence?.type || "weekly",
       });
@@ -412,6 +416,7 @@ export default function CreateCampaignDialog({
           warmUpEnabled: form.warmUpEnabled,
           contentVariation: form.contentVariation,
           maxConsecutiveFailures: form.maxConsecutiveFailures,
+          verifyNumbers: form.verifyNumbers,
           batchSize: 30,
           batchCooldownSec: 15,
           businessHourStart: 8,
@@ -494,10 +499,13 @@ export default function CreateCampaignDialog({
         allContactIds = new Set([...allContactIds].filter((id) => scoredSet.has(id)));
       }
 
-      const { data: contactPhones } = await supabase
+      // Filter out contacts known to not exist on WhatsApp
+      let contactsQuery = supabase
         .from("contacts")
         .select("id, phone")
-        .in("id", Array.from(allContactIds));
+        .in("id", Array.from(allContactIds))
+        .neq("whatsapp_exists", false);
+      const { data: contactPhones } = await contactsQuery;
 
       if (contactPhones && contactPhones.length > 0) {
         const rows = contactPhones.map((c) => ({
@@ -1058,6 +1066,15 @@ export default function CreateCampaignDialog({
                     <Switch checked={form.warmUpEnabled} onCheckedChange={(v) => update("warmUpEnabled", v)} />
                   </div>
 
+                  {/* Verify Numbers */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Verificar números no WhatsApp</p>
+                      <p className="text-xs text-muted-foreground">Checa se o número existe antes de enviar, reduzindo risco de bloqueio</p>
+                    </div>
+                    <Switch checked={form.verifyNumbers} onCheckedChange={(v) => update("verifyNumbers", v)} />
+                  </div>
+
                   <Separator />
 
                   {/* Content Variation */}
@@ -1194,6 +1211,7 @@ export default function CreateCampaignDialog({
                     {form.businessHoursOnly && <Badge variant="outline" className="text-xs">Horário comercial</Badge>}
                     {form.warmUpEnabled && <Badge variant="outline" className="text-xs">Warm-up</Badge>}
                     {form.contentVariation && <Badge variant="outline" className="text-xs">Variação de conteúdo</Badge>}
+                    {form.verifyNumbers && <Badge variant="outline" className="text-xs">Verificação de número</Badge>}
                     <Badge variant="outline" className="text-xs">Delay: {form.delayMin/1000}-{form.delayMax/1000}s</Badge>
                     <Badge variant="outline" className="text-xs">Limite: {form.dailyLimit}/dia</Badge>
                   </div>
