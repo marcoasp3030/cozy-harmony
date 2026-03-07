@@ -129,6 +129,50 @@ const ImportContactsDialog = ({
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Tag segmentation
+  const [availableTags, setAvailableTags] = useState<{ id: string; name: string; color: string }[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [newTagName, setNewTagName] = useState("");
+  const [creatingTag, setCreatingTag] = useState(false);
+
+  // Load tags
+  useEffect(() => {
+    if (!open) return;
+    supabase.from("tags").select("id, name, color").order("name").then(({ data }) => {
+      setAvailableTags(data || []);
+    });
+  }, [open]);
+
+  const toggleTag = (id: string) => {
+    setSelectedTagIds((prev) =>
+      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
+    );
+  };
+
+  const createAndSelectTag = async () => {
+    const trimmed = newTagName.trim();
+    if (!trimmed) return;
+    setCreatingTag(true);
+    try {
+      const colors = ["#6366f1", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6", "#ef4444", "#14b8a6"];
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      const { data, error } = await supabase
+        .from("tags")
+        .insert({ name: trimmed, color })
+        .select("id, name, color")
+        .single();
+      if (error) throw error;
+      setAvailableTags((prev) => [...prev, data as any]);
+      setSelectedTagIds((prev) => [...prev, data!.id]);
+      setNewTagName("");
+      toast.success(`Tag "${trimmed}" criada!`);
+    } catch (err: any) {
+      toast.error("Erro ao criar tag: " + (err.message || ""));
+    } finally {
+      setCreatingTag(false);
+    }
+  };
+
   const reset = () => {
     setStep("upload");
     setFileName("");
@@ -139,6 +183,8 @@ const ImportContactsDialog = ({
     setImporting(false);
     setImportProgress(0);
     setImportResult({ success: 0, failed: 0, duplicates: 0 });
+    setSelectedTagIds([]);
+    setNewTagName("");
   };
 
   const handleClose = (open: boolean) => {
