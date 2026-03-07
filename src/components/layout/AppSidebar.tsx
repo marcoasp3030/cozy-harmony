@@ -46,6 +46,7 @@ interface SidebarItem {
   icon: any;
   badgeKey: BadgeKey | null;
   requiredRole?: RequiredRole;
+  pageKey?: string;
 }
 
 const mainItems: SidebarItem[] = [
