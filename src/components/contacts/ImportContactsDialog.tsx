@@ -639,6 +639,21 @@ const ImportContactsDialog = ({
                 <p className="text-xs text-muted-foreground">Erros</p>
               </div>
             </div>
+            {selectedTagIds.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap justify-center">
+                <Tag className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Tags aplicadas:</span>
+                {selectedTagIds.map((id) => {
+                  const tag = availableTags.find((t) => t.id === id);
+                  if (!tag) return null;
+                  return (
+                    <Badge key={id} variant="outline" className="text-xs" style={{ borderColor: tag.color, color: tag.color }}>
+                      {tag.name}
+                    </Badge>
+                  );
+                })}
+              </div>
+            )}
             <Button
               className="mt-2"
               onClick={() => {
