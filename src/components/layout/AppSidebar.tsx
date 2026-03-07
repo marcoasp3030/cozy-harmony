@@ -50,14 +50,14 @@ interface SidebarItem {
 }
 
 const mainItems: SidebarItem[] = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, badgeKey: null },
-  { to: "/inbox", label: "Inbox", icon: Inbox, badgeKey: "inbox" as const },
-  { to: "/contacts", label: "Contatos", icon: Users, badgeKey: null },
-  { to: "/campaigns", label: "Campanhas", icon: Megaphone, badgeKey: "campaigns" as const },
-  { to: "/automations", label: "Automações", icon: Bot, badgeKey: "automations" as const },
-  { to: "/funnels", label: "Funis", icon: GitBranchPlus, badgeKey: null },
-  { to: "/occurrences", label: "Ocorrências", icon: ClipboardList, badgeKey: null },
-  { to: "/queue", label: "Fila", icon: ListOrdered, badgeKey: null },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, badgeKey: null, pageKey: "dashboard" },
+  { to: "/inbox", label: "Inbox", icon: Inbox, badgeKey: "inbox" as const, pageKey: "inbox" },
+  { to: "/contacts", label: "Contatos", icon: Users, badgeKey: null, pageKey: "contacts" },
+  { to: "/campaigns", label: "Campanhas", icon: Megaphone, badgeKey: "campaigns" as const, pageKey: "campaigns" },
+  { to: "/automations", label: "Automações", icon: Bot, badgeKey: "automations" as const, pageKey: "automations" },
+  { to: "/funnels", label: "Funis", icon: GitBranchPlus, badgeKey: null, pageKey: "funnels" },
+  { to: "/occurrences", label: "Ocorrências", icon: ClipboardList, badgeKey: null, pageKey: "occurrences" },
+  { to: "/queue", label: "Fila", icon: ListOrdered, badgeKey: null, pageKey: "queue" },
   { to: "/attendants", label: "Atendentes", icon: Headphones, badgeKey: null, requiredRole: "admin_or_supervisor" },
 ];
 
