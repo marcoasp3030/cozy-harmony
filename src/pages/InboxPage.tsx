@@ -116,6 +116,8 @@ const InboxPage = () => {
   const { instances, defaultInstance } = useWhatsAppInstances();
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
   const [agentProfiles, setAgentProfiles] = useState<{ user_id: string; name: string }[]>([]);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null);
 
   const selectedConv = conversations.find((c) => c.id === selectedConvId);
   const contact = selectedConv?.contact;
