@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
 import {
   Dialog,
@@ -10,6 +10,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -34,6 +36,8 @@ import {
   Loader2,
   X,
   Download,
+  Tag,
+  Plus,
 } from "lucide-react";
 import { validatePhone } from "@/lib/validators";
 import { supabase } from "@/integrations/supabase/client";
