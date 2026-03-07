@@ -67,6 +67,7 @@ const Contacts = () => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number>(50);
   const queryClient = useQueryClient();
