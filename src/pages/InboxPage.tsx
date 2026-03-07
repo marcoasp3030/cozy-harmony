@@ -1332,6 +1332,27 @@ const InboxPage = () => {
         )}
       </div>
       )}
+      <GlobalMessageSearch
+        open={globalSearchOpen}
+        onOpenChange={setGlobalSearchOpen}
+        onNavigate={(conversationId, messageId) => {
+          setSelectedConvId(conversationId);
+          setViewMode("list");
+          setHighlightMessageId(messageId);
+          // Scroll to message after it loads
+          setTimeout(() => {
+            const el = document.getElementById(`msg-${messageId}`);
+            if (el) {
+              el.scrollIntoView({ behavior: "smooth", block: "center" });
+              el.classList.add("ring-2", "ring-primary", "ring-offset-2", "rounded-lg");
+              setTimeout(() => {
+                el.classList.remove("ring-2", "ring-primary", "ring-offset-2", "rounded-lg");
+                setHighlightMessageId(null);
+              }, 3000);
+            }
+          }, 600);
+        }}
+      />
     </div>
   );
 };
