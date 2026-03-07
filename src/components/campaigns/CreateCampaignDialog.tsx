@@ -550,29 +550,111 @@ export default function CreateCampaignDialog({
 
           {step === "recipients" && (
             <div className="space-y-4">
-              {/* Tags */}
-              {tags.length > 0 && (
+              {/* Segmentation Filters */}
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Filter className="h-4 w-4 text-primary" />
+                  <p className="text-sm font-semibold">Segmentação Avançada</p>
+                </div>
+
+                {/* Tags */}
+                {tags.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-xs flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-primary" /> Filtrar por Tags
+                    </Label>
+                    <div className="flex flex-wrap gap-2">
+                      {tags.map((tag) => (
+                        <Badge
+                          key={tag.id}
+                          variant={form.selectedTagIds.includes(tag.id) ? "default" : "outline"}
+                          className="cursor-pointer transition-colors"
+                          style={
+                            form.selectedTagIds.includes(tag.id)
+                              ? { backgroundColor: tag.color, color: "#fff" }
+                              : { borderColor: tag.color, color: tag.color }
+                          }
+                          onClick={() => toggleTag(tag.id)}
+                        >
+                          {tag.name}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Funnel Stages */}
+                {funnelStages.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-xs flex items-center gap-1.5">
+                      <GitBranch className="h-3 w-3 text-primary" /> Filtrar por Estágio do Funil
+                    </Label>
+                    <div className="flex flex-wrap gap-2">
+                      {funnelStages.map((stage) => (
+                        <Badge
+                          key={stage.id}
+                          variant={form.selectedFunnelStageIds.includes(stage.id) ? "default" : "outline"}
+                          className="cursor-pointer transition-colors"
+                          style={
+                            form.selectedFunnelStageIds.includes(stage.id)
+                              ? { backgroundColor: stage.color, color: "#fff" }
+                              : { borderColor: stage.color, color: stage.color }
+                          }
+                          onClick={() => toggleFunnelStage(stage.id)}
+                        >
+                          <span className="text-[10px] opacity-70 mr-1">{stage.funnel_name} ›</span>
+                          {stage.name}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Minimum Score */}
                 <div className="space-y-2">
-                  <Label>Selecionar por Tags</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {tags.map((tag) => (
-                      <Badge
-                        key={tag.id}
-                        variant={form.selectedTagIds.includes(tag.id) ? "default" : "outline"}
-                        className="cursor-pointer transition-colors"
-                        style={
-                          form.selectedTagIds.includes(tag.id)
-                            ? { backgroundColor: tag.color, color: "#fff" }
-                            : { borderColor: tag.color, color: tag.color }
-                        }
-                        onClick={() => toggleTag(tag.id)}
-                      >
-                        {tag.name}
-                      </Badge>
-                    ))}
+                  <Label className="text-xs flex items-center gap-1.5">
+                    <TrendingUp className="h-3 w-3 text-primary" /> Score Mínimo
+                  </Label>
+                  <div className="flex items-center gap-3">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={1000}
+                      value={form.minScore}
+                      onChange={(e) => update("minScore", Math.max(0, Number(e.target.value)))}
+                      className="w-28 h-8 text-sm"
+                      placeholder="0"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {form.minScore > 0
+                        ? `Apenas contatos com ≥ ${form.minScore} pontos`
+                        : "Sem filtro de score"}
+                    </p>
                   </div>
                 </div>
-              )}
+
+                {/* Estimated Total */}
+                <div className="rounded-md bg-background border border-border px-3 py-2 flex items-center gap-2">
+                  <Users className="h-4 w-4 text-primary" />
+                  {countLoading ? (
+                    <div className="flex items-center gap-1.5">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">Calculando...</span>
+                    </div>
+                  ) : (
+                    <p className="text-sm font-medium">
+                      {estimatedCount !== null ? (
+                        <>
+                          <span className="text-primary text-lg font-bold">{estimatedCount}</span>
+                          {" "}contato(s) estimado(s)
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">Selecione filtros ou contatos</span>
+                      )}
+                    </p>
+                  )}
+                </div>
+              </div>
 
               <Separator />
 
@@ -637,6 +719,8 @@ export default function CreateCampaignDialog({
                 <p className="text-xs text-muted-foreground">
                   {form.selectedContactIds.length} contato(s) selecionado(s)
                   {form.selectedTagIds.length > 0 && ` + ${form.selectedTagIds.length} tag(s)`}
+                  {form.selectedFunnelStageIds.length > 0 && ` + ${form.selectedFunnelStageIds.length} estágio(s)`}
+                  {form.minScore > 0 && ` (score ≥ ${form.minScore})`}
                 </p>
               </div>
             </div>
