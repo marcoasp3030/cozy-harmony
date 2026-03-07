@@ -62,9 +62,9 @@ const mainItems: SidebarItem[] = [
 ];
 
 const secondaryItems: SidebarItem[] = [
-  { to: "/templates", label: "Templates", icon: FileText, badgeKey: null },
-  { to: "/reports", label: "Relatórios", icon: BarChart3, badgeKey: null },
-  { to: "/settings", label: "Configurações", icon: Settings, badgeKey: null },
+  { to: "/templates", label: "Templates", icon: FileText, badgeKey: null, pageKey: "templates" },
+  { to: "/reports", label: "Relatórios", icon: BarChart3, badgeKey: null, pageKey: "reports" },
+  { to: "/settings", label: "Configurações", icon: Settings, badgeKey: null, pageKey: "settings" },
 ];
 
 type BadgeKey = "inbox" | "campaigns" | "automations";
