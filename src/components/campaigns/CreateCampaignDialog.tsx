@@ -88,6 +88,8 @@ interface CampaignForm {
   warmUpEnabled: boolean;
   contentVariation: boolean;
   maxConsecutiveFailures: number;
+  // Number verification
+  verifyNumbers: boolean;
   // Recurrence
   recurrenceEnabled: boolean;
   recurrenceType: "daily" | "weekly" | "monthly";
