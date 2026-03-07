@@ -90,7 +90,7 @@ const AppSidebar = () => {
   };
 
   const renderItem = (item: SidebarItem) => {
-    if (!hasAccess(item.requiredRole)) return null;
+    if (!hasAccess(item)) return null;
     const isActive = location.pathname.startsWith(item.to);
     const Icon = item.icon;
     const badgeCount = item.badgeKey ? badges[item.badgeKey] : 0;
