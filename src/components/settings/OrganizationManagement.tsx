@@ -276,13 +276,12 @@ const OrganizationManagement = () => {
 
   // REMOVE MEMBER
   const removeMemberMutation = useMutation({
-    mutationFn: async () => {
-      if (!removeMember) throw new Error("Nenhum membro selecionado");
+    mutationFn: async ({ orgId, userId }: { orgId: string; userId: string }) => {
       const { error } = await supabase
         .from("organization_members")
         .delete()
-        .eq("org_id", removeMember.orgId)
-        .eq("user_id", removeMember.member.user_id);
+        .eq("org_id", orgId)
+        .eq("user_id", userId);
       if (error) throw error;
     },
     onSuccess: () => {
