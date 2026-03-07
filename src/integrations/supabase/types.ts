@@ -1443,6 +1443,7 @@ export type Database = {
         Returns: undefined
       }
       is_attendant_of: { Args: { _owner_user_id: string }; Returns: boolean }
+      is_org_admin_of: { Args: { _org_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
       same_org: { Args: { _user_id: string }; Returns: boolean }
       search_products: {
