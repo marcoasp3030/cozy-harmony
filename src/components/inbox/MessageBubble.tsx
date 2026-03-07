@@ -213,7 +213,7 @@ const MessageBubble = ({ msg, onReact, onRetry, onDelete }: { msg: Message; onRe
 
   if (isNote) {
     return (
-      <div className="flex justify-center mb-2">
+      <div id={`msg-${msg.id}`} className="flex justify-center mb-2">
         <div className="max-w-[80%] rounded-lg bg-warning/10 border border-warning/20 px-3 py-2">
           <p className="text-xs font-medium text-warning mb-0.5">📝 Nota interna</p>
           <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
@@ -227,7 +227,8 @@ const MessageBubble = ({ msg, onReact, onRetry, onDelete }: { msg: Message; onRe
 
   return (
     <div
-      className={cn("flex mb-1 group relative", isOutbound ? "justify-end" : "justify-start")}
+      id={`msg-${msg.id}`}
+      className={cn("flex mb-1 group relative transition-all duration-300", isOutbound ? "justify-end" : "justify-start")}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { if (!menuOpen && !emojiOpen) setHovered(false); }}
     >

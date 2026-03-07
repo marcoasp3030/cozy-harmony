@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, Send, Phone, MoreVertical, Kanban, List, StickyNote, LayoutTemplate, Slash, ArrowLeft, Brain, Loader2, Sparkles, FileText as SummarizeIcon, MousePointerClick, X, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Search, Send, Phone, MoreVertical, Kanban, List, StickyNote, LayoutTemplate, Slash, ArrowLeft, Brain, Loader2, Sparkles, FileText as SummarizeIcon, MousePointerClick, X, ThumbsUp, ThumbsDown, SearchCheck } from "lucide-react";
 import { MediaUploader, AttachmentPreview, uploadMediaFile } from "@/components/inbox/MediaUploader";
 import type { MediaAttachment } from "@/components/inbox/MediaUploader";
 import AudioRecorder from "@/components/inbox/AudioRecorder";
@@ -27,6 +27,7 @@ import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { Message } from "@/components/inbox/MessageBubble";
 import InteractiveMessageBuilder, { getDefaultInteractive, type InteractiveMessage } from "@/components/shared/InteractiveMessageBuilder";
+import GlobalMessageSearch from "@/components/inbox/GlobalMessageSearch";
 
 interface Contact {
   id: string;
@@ -115,6 +116,8 @@ const InboxPage = () => {
   const { instances, defaultInstance } = useWhatsAppInstances();
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
   const [agentProfiles, setAgentProfiles] = useState<{ user_id: string; name: string }[]>([]);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null);
 
   const selectedConv = conversations.find((c) => c.id === selectedConvId);
   const contact = selectedConv?.contact;
@@ -791,14 +794,20 @@ const InboxPage = () => {
           <h1 className="font-heading text-xl md:text-2xl font-bold">Inbox</h1>
           <p className="text-xs md:text-sm text-muted-foreground">Atenda seus clientes em tempo real</p>
         </div>
-        <ToggleGroup type="single" value={viewMode} onValueChange={(v) => { if (v) { setViewMode(v as "list" | "kanban"); localStorage.setItem("inbox_view_mode", v); } }} className="border border-border rounded-lg p-0.5">
-          <ToggleGroupItem value="list" aria-label="Visão lista" className="h-8 w-8 p-0 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
-            <List className="h-4 w-4" />
-          </ToggleGroupItem>
-          <ToggleGroupItem value="kanban" aria-label="Visão kanban" className="h-8 w-8 p-0 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
-            <Kanban className="h-4 w-4" />
-          </ToggleGroupItem>
-        </ToggleGroup>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setGlobalSearchOpen(true)}>
+            <SearchCheck className="h-4 w-4" />
+            <span className="hidden sm:inline">Pesquisar mensagens</span>
+          </Button>
+          <ToggleGroup type="single" value={viewMode} onValueChange={(v) => { if (v) { setViewMode(v as "list" | "kanban"); localStorage.setItem("inbox_view_mode", v); } }} className="border border-border rounded-lg p-0.5">
+            <ToggleGroupItem value="list" aria-label="Visão lista" className="h-8 w-8 p-0 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+              <List className="h-4 w-4" />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="kanban" aria-label="Visão kanban" className="h-8 w-8 p-0 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+              <Kanban className="h-4 w-4" />
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
       </div>
 
       {viewMode === "kanban" ? (
@@ -1323,6 +1332,27 @@ const InboxPage = () => {
         )}
       </div>
       )}
+      <GlobalMessageSearch
+        open={globalSearchOpen}
+        onOpenChange={setGlobalSearchOpen}
+        onNavigate={(conversationId, messageId) => {
+          setSelectedConvId(conversationId);
+          setViewMode("list");
+          setHighlightMessageId(messageId);
+          // Scroll to message after it loads
+          setTimeout(() => {
+            const el = document.getElementById(`msg-${messageId}`);
+            if (el) {
+              el.scrollIntoView({ behavior: "smooth", block: "center" });
+              el.classList.add("ring-2", "ring-primary", "ring-offset-2", "rounded-lg");
+              setTimeout(() => {
+                el.classList.remove("ring-2", "ring-primary", "ring-offset-2", "rounded-lg");
+                setHighlightMessageId(null);
+              }, 3000);
+            }
+          }, 600);
+        }}
+      />
     </div>
   );
 };
