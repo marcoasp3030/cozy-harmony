@@ -276,13 +276,12 @@ const OrganizationManagement = () => {
 
   // REMOVE MEMBER
   const removeMemberMutation = useMutation({
-    mutationFn: async () => {
-      if (!removeMember) throw new Error("Nenhum membro selecionado");
+    mutationFn: async ({ orgId, userId }: { orgId: string; userId: string }) => {
       const { error } = await supabase
         .from("organization_members")
         .delete()
-        .eq("org_id", removeMember.orgId)
-        .eq("user_id", removeMember.member.user_id);
+        .eq("org_id", orgId)
+        .eq("user_id", userId);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -658,7 +657,13 @@ const OrganizationManagement = () => {
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => removeMemberMutation.mutate()}
+              onClick={() => {
+                if (!removeMember) return;
+                removeMemberMutation.mutate({
+                  orgId: removeMember.orgId,
+                  userId: removeMember.member.user_id,
+                });
+              }}
             >
               {removeMemberMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Remover
