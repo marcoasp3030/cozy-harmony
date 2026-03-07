@@ -16,6 +16,7 @@ import {
 import { format, subDays, startOfDay, endOfDay, eachDayOfInterval, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import NPSDashboard from "@/components/reports/NPSDashboard";
+import CampaignContactsReport from "@/components/reports/CampaignContactsReport";
 
 type DateRange = { from: Date; to: Date };
 
@@ -455,6 +456,9 @@ const Reports = () => {
               </CardContent>
             </Card>
           </div>
+
+          {/* Campaign contacts detail */}
+          <CampaignContactsReport campaigns={campaigns as any} />
         </TabsContent>
 
         {/* ═══════ ATENDENTES ═══════ */}
