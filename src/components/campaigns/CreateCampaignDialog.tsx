@@ -316,13 +316,27 @@ export default function CreateCampaignDialog({
     );
   };
 
-  const toggleTag = (id: string) => {
-    update(
-      "selectedTagIds",
-      form.selectedTagIds.includes(id)
-        ? form.selectedTagIds.filter((t) => t !== id)
-        : [...form.selectedTagIds, id],
-    );
+  const toggleTag = async (id: string) => {
+    const wasSelected = form.selectedTagIds.includes(id);
+    const newTagIds = wasSelected
+      ? form.selectedTagIds.filter((t) => t !== id)
+      : [...form.selectedTagIds, id];
+    update("selectedTagIds", newTagIds);
+
+    // Auto-load contacts from the selected tags into the individual selection
+    if (!wasSelected) {
+      const { data: tagContacts } = await supabase
+        .from("contact_tags")
+        .select("contact_id")
+        .eq("tag_id", id);
+      if (tagContacts && tagContacts.length > 0) {
+        const newIds = tagContacts.map((tc) => tc.contact_id).filter(Boolean) as string[];
+        setForm((prev) => ({
+          ...prev,
+          selectedContactIds: [...new Set([...prev.selectedContactIds, ...newIds])],
+        }));
+      }
+    }
   };
 
   const selectAll = () => {
