@@ -27,6 +27,7 @@ import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { Message } from "@/components/inbox/MessageBubble";
 import InteractiveMessageBuilder, { getDefaultInteractive, type InteractiveMessage } from "@/components/shared/InteractiveMessageBuilder";
+import GlobalMessageSearch from "@/components/inbox/GlobalMessageSearch";
 
 interface Contact {
   id: string;
