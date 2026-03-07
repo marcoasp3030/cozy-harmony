@@ -149,8 +149,11 @@ export default function CreateCampaignDialog({
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [funnelStages, setFunnelStages] = useState<FunnelStage[]>([]);
   const [contactSearch, setContactSearch] = useState("");
   const [loadingData, setLoadingData] = useState(false);
+  const [estimatedCount, setEstimatedCount] = useState<number | null>(null);
+  const [countLoading, setCountLoading] = useState(false);
 
   const stepIndex = STEPS.findIndex((s) => s.key === step);
   const isEditing = !!editCampaign;
