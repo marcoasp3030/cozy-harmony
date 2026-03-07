@@ -499,10 +499,13 @@ export default function CreateCampaignDialog({
         allContactIds = new Set([...allContactIds].filter((id) => scoredSet.has(id)));
       }
 
-      const { data: contactPhones } = await supabase
+      // Filter out contacts known to not exist on WhatsApp
+      let contactsQuery = supabase
         .from("contacts")
         .select("id, phone")
-        .in("id", Array.from(allContactIds));
+        .in("id", Array.from(allContactIds))
+        .neq("whatsapp_exists", false);
+      const { data: contactPhones } = await contactsQuery;
 
       if (contactPhones && contactPhones.length > 0) {
         const rows = contactPhones.map((c) => ({
