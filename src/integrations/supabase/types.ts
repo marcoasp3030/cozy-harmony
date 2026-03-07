@@ -1014,6 +1014,69 @@ export type Database = {
         }
         Relationships: []
       }
+      user_permissions: {
+        Row: {
+          allowed_pages: string[]
+          can_create_automations: boolean
+          can_create_campaigns: boolean
+          can_create_contacts: boolean
+          can_delete_automations: boolean
+          can_delete_campaigns: boolean
+          can_delete_contacts: boolean
+          can_edit_automations: boolean
+          can_edit_contacts: boolean
+          can_execute_campaigns: boolean
+          can_manage_funnels: boolean
+          can_manage_occurrences: boolean
+          can_manage_templates: boolean
+          can_view_reports: boolean
+          created_at: string
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          allowed_pages?: string[]
+          can_create_automations?: boolean
+          can_create_campaigns?: boolean
+          can_create_contacts?: boolean
+          can_delete_automations?: boolean
+          can_delete_campaigns?: boolean
+          can_delete_contacts?: boolean
+          can_edit_automations?: boolean
+          can_edit_contacts?: boolean
+          can_execute_campaigns?: boolean
+          can_manage_funnels?: boolean
+          can_manage_occurrences?: boolean
+          can_manage_templates?: boolean
+          can_view_reports?: boolean
+          created_at?: string
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          allowed_pages?: string[]
+          can_create_automations?: boolean
+          can_create_campaigns?: boolean
+          can_create_contacts?: boolean
+          can_delete_automations?: boolean
+          can_delete_campaigns?: boolean
+          can_delete_contacts?: boolean
+          can_edit_automations?: boolean
+          can_edit_contacts?: boolean
+          can_execute_campaigns?: boolean
+          can_manage_funnels?: boolean
+          can_manage_occurrences?: boolean
+          can_manage_templates?: boolean
+          can_view_reports?: boolean
+          created_at?: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string

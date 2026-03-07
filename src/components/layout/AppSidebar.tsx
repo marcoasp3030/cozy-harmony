@@ -36,6 +36,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useSidebarBadges } from "@/hooks/useSidebarBadges";
 import { useUserRole } from "@/hooks/useUserRole";
+import { useUserPermissions } from "@/hooks/useUserPermissions";
 
 type RequiredRole = "admin" | "supervisor" | "admin_or_supervisor" | null;
 
@@ -45,24 +46,25 @@ interface SidebarItem {
   icon: any;
   badgeKey: BadgeKey | null;
   requiredRole?: RequiredRole;
+  pageKey?: string;
 }
 
 const mainItems: SidebarItem[] = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, badgeKey: null },
-  { to: "/inbox", label: "Inbox", icon: Inbox, badgeKey: "inbox" as const },
-  { to: "/contacts", label: "Contatos", icon: Users, badgeKey: null },
-  { to: "/campaigns", label: "Campanhas", icon: Megaphone, badgeKey: "campaigns" as const },
-  { to: "/automations", label: "Automações", icon: Bot, badgeKey: "automations" as const },
-  { to: "/funnels", label: "Funis", icon: GitBranchPlus, badgeKey: null },
-  { to: "/occurrences", label: "Ocorrências", icon: ClipboardList, badgeKey: null },
-  { to: "/queue", label: "Fila", icon: ListOrdered, badgeKey: null },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, badgeKey: null, pageKey: "dashboard" },
+  { to: "/inbox", label: "Inbox", icon: Inbox, badgeKey: "inbox" as const, pageKey: "inbox" },
+  { to: "/contacts", label: "Contatos", icon: Users, badgeKey: null, pageKey: "contacts" },
+  { to: "/campaigns", label: "Campanhas", icon: Megaphone, badgeKey: "campaigns" as const, pageKey: "campaigns" },
+  { to: "/automations", label: "Automações", icon: Bot, badgeKey: "automations" as const, pageKey: "automations" },
+  { to: "/funnels", label: "Funis", icon: GitBranchPlus, badgeKey: null, pageKey: "funnels" },
+  { to: "/occurrences", label: "Ocorrências", icon: ClipboardList, badgeKey: null, pageKey: "occurrences" },
+  { to: "/queue", label: "Fila", icon: ListOrdered, badgeKey: null, pageKey: "queue" },
   { to: "/attendants", label: "Atendentes", icon: Headphones, badgeKey: null, requiredRole: "admin_or_supervisor" },
 ];
 
 const secondaryItems: SidebarItem[] = [
-  { to: "/templates", label: "Templates", icon: FileText, badgeKey: null },
-  { to: "/reports", label: "Relatórios", icon: BarChart3, badgeKey: null },
-  { to: "/settings", label: "Configurações", icon: Settings, badgeKey: null },
+  { to: "/templates", label: "Templates", icon: FileText, badgeKey: null, pageKey: "templates" },
+  { to: "/reports", label: "Relatórios", icon: BarChart3, badgeKey: null, pageKey: "reports" },
+  { to: "/settings", label: "Configurações", icon: Settings, badgeKey: null, pageKey: "settings" },
 ];
 
 type BadgeKey = "inbox" | "campaigns" | "automations";
@@ -73,17 +75,22 @@ const AppSidebar = () => {
   const location = useLocation();
   const badges = useSidebarBadges();
   const { isAdmin, isAdminOrSupervisor } = useUserRole();
+  const { canAccessPage } = useUserPermissions();
 
-  const hasAccess = (requiredRole?: RequiredRole) => {
-    if (!requiredRole) return true;
-    if (requiredRole === "admin") return isAdmin;
-    if (requiredRole === "supervisor") return isAdminOrSupervisor;
-    if (requiredRole === "admin_or_supervisor") return isAdminOrSupervisor;
+  const hasAccess = (item: SidebarItem) => {
+    // Role check first
+    const requiredRole = item.requiredRole;
+    if (requiredRole) {
+      if (requiredRole === "admin" && !isAdmin) return false;
+      if ((requiredRole === "supervisor" || requiredRole === "admin_or_supervisor") && !isAdminOrSupervisor) return false;
+    }
+    // Page permission check (admins skip)
+    if (item.pageKey && !canAccessPage(item.pageKey)) return false;
     return true;
   };
 
   const renderItem = (item: SidebarItem) => {
-    if (!hasAccess(item.requiredRole)) return null;
+    if (!hasAccess(item)) return null;
     const isActive = location.pathname.startsWith(item.to);
     const Icon = item.icon;
     const badgeCount = item.badgeKey ? badges[item.badgeKey] : 0;

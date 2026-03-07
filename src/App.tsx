@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useUserRole } from "@/hooks/useUserRole";
+import { useUserPermissions } from "@/hooks/useUserPermissions";
 import AppLayout from "@/components/layout/AppLayout";
 import Auth from "@/pages/Auth";
 
@@ -61,6 +62,14 @@ function RoleGuard({ children, requiredRole }: { children: React.ReactNode; requ
   return <>{children}</>;
 }
 
+function PermissionGuard({ children, pageKey }: { children: React.ReactNode; pageKey: string }) {
+  const { canAccessPage, isLoading } = useUserPermissions();
+  
+  if (isLoading) return <PageLoader />;
+  if (!canAccessPage(pageKey)) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
 function AuthRedirect() {
   const { user, loading } = useAuth();
   if (loading) return null;
@@ -86,16 +95,17 @@ const App = () => (
               }
             >
               <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/contacts" element={<Contacts />} />
-              <Route path="/campaigns" element={<Campaigns />} />
-              <Route path="/automations" element={<Automations />} />
-              <Route path="/inbox" element={<InboxPage />} />
-              <Route path="/funnels" element={<FunnelsPage />} />
-              <Route path="/occurrences" element={<OccurrencesPage />} />
+              <Route path="/contacts" element={<PermissionGuard pageKey="contacts"><Contacts /></PermissionGuard>} />
+              <Route path="/campaigns" element={<PermissionGuard pageKey="campaigns"><Campaigns /></PermissionGuard>} />
+              <Route path="/automations" element={<PermissionGuard pageKey="automations"><Automations /></PermissionGuard>} />
+              <Route path="/inbox" element={<PermissionGuard pageKey="inbox"><InboxPage /></PermissionGuard>} />
+              <Route path="/funnels" element={<PermissionGuard pageKey="funnels"><FunnelsPage /></PermissionGuard>} />
+              <Route path="/occurrences" element={<PermissionGuard pageKey="occurrences"><OccurrencesPage /></PermissionGuard>} />
               <Route path="/attendants" element={<RoleGuard requiredRole="admin_or_supervisor"><AttendantsPage /></RoleGuard>} />
-              <Route path="/queue" element={<QueuePage />} />
-              <Route path="/templates" element={<Templates />} />
-              <Route path="/reports" element={<Reports />} />
+              <Route path="/queue" element={<PermissionGuard pageKey="queue"><QueuePage /></PermissionGuard>} />
+              <Route path="/templates" element={<PermissionGuard pageKey="templates"><Templates /></PermissionGuard>} />
+              <Route path="/reports" element={<PermissionGuard pageKey="reports"><Reports /></PermissionGuard>} />
+              <Route path="/settings" element={<PermissionGuard pageKey="settings"><SettingsPage /></PermissionGuard>} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
             <Route path="*" element={<NotFound />} />

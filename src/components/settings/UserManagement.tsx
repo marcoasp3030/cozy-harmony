@@ -18,7 +18,9 @@ import {
   Pencil,
   KeyRound,
   MonitorSmartphone,
+  ShieldCheck,
 } from "lucide-react";
+import { UserPermissionsDialog } from "./UserPermissionsDialog";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -104,6 +106,7 @@ const UserManagement = () => {
   const [instancesDialogTarget, setInstancesDialogTarget] = useState<UserData | null>(null);
   const [editInstances, setEditInstances] = useState<string[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<UserData | null>(null);
+  const [permissionsTarget, setPermissionsTarget] = useState<UserData | null>(null);
 
   // Load supervisor's instances for assignment
   const { data: myInstances = [] } = useQuery({
@@ -601,6 +604,13 @@ const UserManagement = () => {
                             <KeyRound className="mr-2 h-4 w-4" /> Resetar senha
                           </DropdownMenuItem>
 
+                          {/* Permissions - for admins */}
+                          {isAdmin && (
+                            <DropdownMenuItem onClick={() => setPermissionsTarget(u)}>
+                              <ShieldCheck className="mr-2 h-4 w-4" /> Permissões
+                            </DropdownMenuItem>
+                          )}
+
                           {/* Instance visibility - for attendants */}
                           {u.role === "atendente" && (
                             <DropdownMenuItem onClick={() => openInstancesDialog(u)}>
@@ -840,6 +850,15 @@ const UserManagement = () => {
           </div>
         </DialogContent>
       </Dialog>
+      {/* Permissions dialog */}
+      {permissionsTarget && (
+        <UserPermissionsDialog
+          open={!!permissionsTarget}
+          onOpenChange={(open) => !open && setPermissionsTarget(null)}
+          userId={permissionsTarget.user_id}
+          userName={permissionsTarget.name}
+        />
+      )}
     </div>
   );
 };
