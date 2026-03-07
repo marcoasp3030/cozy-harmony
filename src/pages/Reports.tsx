@@ -456,6 +456,9 @@ const Reports = () => {
               </CardContent>
             </Card>
           </div>
+
+          {/* Campaign contacts detail */}
+          <CampaignContactsReport campaigns={campaigns as any} />
         </TabsContent>
 
         {/* ═══════ ATENDENTES ═══════ */}
