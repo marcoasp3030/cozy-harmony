@@ -108,22 +108,6 @@ const OrganizationManagement = () => {
   const [memberRole, setMemberRole] = useState("admin");
   const [showMemberPassword, setShowMemberPassword] = useState(false);
 
-  // Fetch all profiles for linking existing users
-  const { data: allProfiles = [] } = useQuery({
-    queryKey: ["all-profiles"],
-    queryFn: async () => {
-      const { data } = await supabase.from("profiles").select("user_id, name, email").order("name");
-      return data || [];
-    },
-    enabled: isAdmin && !!addMemberOrgId,
-  });
-
-  // Filter out users already in the selected org
-  const availableProfiles = allProfiles.filter((p) => {
-    const org = organizations.find((o) => o.id === addMemberOrgId);
-    return !org?.members.some((m) => m.user_id === p.user_id);
-  });
-
   // Remove member state
   const [removeMember, setRemoveMember] = useState<{ orgId: string; member: OrgMember } | null>(null);
 
@@ -172,6 +156,22 @@ const OrganizationManagement = () => {
       return result;
     },
     enabled: isAdmin,
+  });
+
+  // Fetch all profiles for linking existing users
+  const { data: allProfiles = [] } = useQuery({
+    queryKey: ["all-profiles"],
+    queryFn: async () => {
+      const { data } = await supabase.from("profiles").select("user_id, name, email").order("name");
+      return data || [];
+    },
+    enabled: isAdmin && !!addMemberOrgId,
+  });
+
+  // Filter out users already in the selected org
+  const availableProfiles = allProfiles.filter((p) => {
+    const org = organizations.find((o) => o.id === addMemberOrgId);
+    return !org?.members.some((m) => m.user_id === p.user_id);
   });
 
   const invalidateOrgs = () => queryClient.invalidateQueries({ queryKey: ["organizations"] });
