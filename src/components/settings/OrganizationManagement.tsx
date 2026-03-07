@@ -582,40 +582,83 @@ const OrganizationManagement = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Add member dialog */}
-      <Dialog open={!!addMemberOrgId} onOpenChange={(open) => !open && setAddMemberOrgId(null)}>
+      <Dialog open={!!addMemberOrgId} onOpenChange={(open) => { if (!open) { setAddMemberOrgId(null); setAddMemberMode("existing"); setSelectedUserId(""); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Adicionar Membro</DialogTitle>
-            <DialogDescription>Crie um novo usuário e adicione-o a esta empresa.</DialogDescription>
+            <DialogDescription>Vincule um usuário existente ou crie um novo.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 pt-2">
-            <div className="space-y-2">
-              <Label>Nome *</Label>
-              <Input placeholder="Nome completo" value={memberName} onChange={(e) => setMemberName(e.target.value)} />
+            {/* Mode toggle */}
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant={addMemberMode === "existing" ? "default" : "outline"}
+                onClick={() => setAddMemberMode("existing")}
+                className="flex-1"
+              >
+                Usuário Existente
+              </Button>
+              <Button
+                size="sm"
+                variant={addMemberMode === "new" ? "default" : "outline"}
+                onClick={() => setAddMemberMode("new")}
+                className="flex-1"
+              >
+                Novo Usuário
+              </Button>
             </div>
-            <div className="space-y-2">
-              <Label>Email *</Label>
-              <Input type="email" placeholder="usuario@empresa.com" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Senha *</Label>
-              <div className="relative">
-                <Input
-                  type={showMemberPassword ? "text" : "password"}
-                  placeholder="Mínimo 6 caracteres"
-                  value={memberPassword}
-                  onChange={(e) => setMemberPassword(e.target.value)}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowMemberPassword(!showMemberPassword)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {showMemberPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
+
+            {addMemberMode === "existing" ? (
+              <div className="space-y-2">
+                <Label>Selecionar Usuário *</Label>
+                <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                  <SelectTrigger><SelectValue placeholder="Selecione um usuário..." /></SelectTrigger>
+                  <SelectContent>
+                    {availableProfiles.map((p) => (
+                      <SelectItem key={p.user_id} value={p.user_id}>
+                        {p.name} ({p.email})
+                      </SelectItem>
+                    ))}
+                    {availableProfiles.length === 0 && (
+                      <div className="px-2 py-3 text-sm text-muted-foreground text-center">
+                        Nenhum usuário disponível
+                      </div>
+                    )}
+                  </SelectContent>
+                </Select>
               </div>
-            </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label>Nome *</Label>
+                  <Input placeholder="Nome completo" value={memberName} onChange={(e) => setMemberName(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Email *</Label>
+                  <Input type="email" placeholder="usuario@empresa.com" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Senha *</Label>
+                  <div className="relative">
+                    <Input
+                      type={showMemberPassword ? "text" : "password"}
+                      placeholder="Mínimo 6 caracteres"
+                      value={memberPassword}
+                      onChange={(e) => setMemberPassword(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowMemberPassword(!showMemberPassword)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showMemberPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+
             <div className="space-y-2">
               <Label>Papel na empresa</Label>
               <Select value={memberRole} onValueChange={setMemberRole}>
@@ -629,7 +672,10 @@ const OrganizationManagement = () => {
             </div>
             <Button
               className="w-full"
-              disabled={!memberName.trim() || !memberEmail.trim() || memberPassword.length < 6 || addMemberMutation.isPending}
+              disabled={
+                addMemberMutation.isPending ||
+                (addMemberMode === "existing" ? !selectedUserId : (!memberName.trim() || !memberEmail.trim() || memberPassword.length < 6))
+              }
               onClick={() => addMemberMutation.mutate()}
             >
               {addMemberMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
