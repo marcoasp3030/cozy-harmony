@@ -4,7 +4,7 @@ import { ptBR } from "date-fns/locale";
 import {
   CalendarIcon, ChevronLeft, ChevronRight, Users, FileText, Clock,
   CheckCircle2, Loader2, Search, X, ImageIcon, Video, FileAudio, File,
-  Shield, Info, MessageSquare, Sparkles, Eye,
+  Shield, Info, MessageSquare, Sparkles, Eye, Filter, TrendingUp, GitBranch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
