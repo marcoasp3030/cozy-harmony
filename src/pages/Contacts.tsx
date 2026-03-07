@@ -319,6 +319,10 @@ const Contacts = () => {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setDuplicateOpen(true)}>
+            <Copy className="mr-2 h-4 w-4" />
+            <span className="hidden sm:inline">Duplicados</span>
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
             <Upload className="mr-2 h-4 w-4" />
             <span className="hidden sm:inline">Importar</span>
