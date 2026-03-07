@@ -227,7 +227,8 @@ const MessageBubble = ({ msg, onReact, onRetry, onDelete }: { msg: Message; onRe
 
   return (
     <div
-      className={cn("flex mb-1 group relative", isOutbound ? "justify-end" : "justify-start")}
+      id={`msg-${msg.id}`}
+      className={cn("flex mb-1 group relative transition-all duration-300", isOutbound ? "justify-end" : "justify-start")}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { if (!menuOpen && !emojiOpen) setHovered(false); }}
     >
