@@ -207,16 +207,99 @@ export default function CreateCampaignDialog({
 
   const loadData = async () => {
     setLoadingData(true);
-    const [contactsRes, tagsRes, templatesRes] = await Promise.all([
+    const [contactsRes, tagsRes, templatesRes, funnelsRes, stagesRes] = await Promise.all([
       supabase.from("contacts").select("id, name, phone").order("name"),
       supabase.from("tags").select("id, name, color"),
       supabase.from("templates").select("id, name, content, type, variables"),
+      supabase.from("funnels").select("id, name"),
+      supabase.from("funnel_stages").select("id, name, color, funnel_id").order("position"),
     ]);
     setContacts(contactsRes.data || []);
     setTags(tagsRes.data || []);
     setTemplates(templatesRes.data || []);
+
+    const funnelMap = new Map((funnelsRes.data || []).map((f: any) => [f.id, f.name]));
+    setFunnelStages(
+      (stagesRes.data || []).map((s: any) => ({
+        ...s,
+        funnel_name: funnelMap.get(s.funnel_id) || "Funil",
+      }))
+    );
     setLoadingData(false);
   };
+
+  const toggleFunnelStage = (id: string) => {
+    update(
+      "selectedFunnelStageIds",
+      form.selectedFunnelStageIds.includes(id)
+        ? form.selectedFunnelStageIds.filter((s) => s !== id)
+        : [...form.selectedFunnelStageIds, id],
+    );
+  };
+
+  // Estimate total contacts based on filters
+  useEffect(() => {
+    const estimate = async () => {
+      const hasFilters = form.selectedTagIds.length > 0 || form.selectedFunnelStageIds.length > 0 || form.minScore > 0;
+      if (!hasFilters && form.selectedContactIds.length === 0) {
+        setEstimatedCount(null);
+        return;
+      }
+
+      setCountLoading(true);
+      try {
+        const allIds = new Set(form.selectedContactIds);
+
+        // Add contacts from tags
+        if (form.selectedTagIds.length > 0) {
+          const { data: tagContacts } = await supabase
+            .from("contact_tags")
+            .select("contact_id")
+            .in("tag_id", form.selectedTagIds);
+          tagContacts?.forEach((tc) => { if (tc.contact_id) allIds.add(tc.contact_id); });
+        }
+
+        // Add contacts from funnel stages
+        if (form.selectedFunnelStageIds.length > 0) {
+          const { data: convs } = await supabase
+            .from("conversations")
+            .select("contact_id")
+            .in("funnel_stage_id", form.selectedFunnelStageIds);
+          convs?.forEach((c) => { if (c.contact_id) allIds.add(c.contact_id); });
+        }
+
+        // Filter by min score
+        if (form.minScore > 0 && allIds.size > 0) {
+          const { data: scored } = await supabase
+            .from("conversations")
+            .select("contact_id")
+            .in("contact_id", Array.from(allIds))
+            .gte("score", form.minScore);
+          const scoredIds = new Set((scored || []).map((s) => s.contact_id));
+          // Keep only IDs that also pass score filter
+          for (const id of allIds) {
+            if (!scoredIds.has(id)) allIds.delete(id);
+          }
+        } else if (form.minScore > 0) {
+          // Score filter with no other selection = all contacts with that score
+          const { data: scored } = await supabase
+            .from("conversations")
+            .select("contact_id")
+            .gte("score", form.minScore);
+          scored?.forEach((s) => { if (s.contact_id) allIds.add(s.contact_id); });
+        }
+
+        setEstimatedCount(allIds.size);
+      } catch {
+        setEstimatedCount(null);
+      } finally {
+        setCountLoading(false);
+      }
+    };
+
+    const timer = setTimeout(estimate, 300);
+    return () => clearTimeout(timer);
+  }, [form.selectedContactIds, form.selectedTagIds, form.selectedFunnelStageIds, form.minScore]);
 
   const update = useCallback(
     <K extends keyof CampaignForm>(key: K, value: CampaignForm[K]) =>
