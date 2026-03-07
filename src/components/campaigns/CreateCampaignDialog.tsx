@@ -449,6 +449,37 @@ export default function CreateCampaignDialog({
         });
       }
 
+      // Add contacts from funnel stages
+      if (form.selectedFunnelStageIds.length > 0) {
+        const { data: funnelConvs } = await supabase
+          .from("conversations")
+          .select("contact_id")
+          .in("funnel_stage_id", form.selectedFunnelStageIds);
+        funnelConvs?.forEach((c) => {
+          if (c.contact_id) allContactIds.add(c.contact_id);
+        });
+      }
+
+      // Add contacts by minimum score (if no other filters, get all with that score)
+      if (form.minScore > 0 && allContactIds.size === 0) {
+        const { data: scored } = await supabase
+          .from("conversations")
+          .select("contact_id")
+          .gte("score", form.minScore);
+        scored?.forEach((s) => { if (s.contact_id) allContactIds.add(s.contact_id); });
+      }
+
+      // Filter by min score if set and we have contacts
+      if (form.minScore > 0 && allContactIds.size > 0) {
+        const { data: scored } = await supabase
+          .from("conversations")
+          .select("contact_id")
+          .in("contact_id", Array.from(allContactIds))
+          .gte("score", form.minScore);
+        const scoredSet = new Set((scored || []).map((s) => s.contact_id));
+        allContactIds = new Set([...allContactIds].filter((id) => scoredSet.has(id)));
+      }
+
       const { data: contactPhones } = await supabase
         .from("contacts")
         .select("id, phone")
