@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
 import {
   Dialog,
@@ -10,6 +10,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -34,6 +36,8 @@ import {
   Loader2,
   X,
   Download,
+  Tag,
+  Plus,
 } from "lucide-react";
 import { validatePhone } from "@/lib/validators";
 import { supabase } from "@/integrations/supabase/client";
@@ -125,6 +129,50 @@ const ImportContactsDialog = ({
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Tag segmentation
+  const [availableTags, setAvailableTags] = useState<{ id: string; name: string; color: string }[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [newTagName, setNewTagName] = useState("");
+  const [creatingTag, setCreatingTag] = useState(false);
+
+  // Load tags
+  useEffect(() => {
+    if (!open) return;
+    supabase.from("tags").select("id, name, color").order("name").then(({ data }) => {
+      setAvailableTags(data || []);
+    });
+  }, [open]);
+
+  const toggleTag = (id: string) => {
+    setSelectedTagIds((prev) =>
+      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
+    );
+  };
+
+  const createAndSelectTag = async () => {
+    const trimmed = newTagName.trim();
+    if (!trimmed) return;
+    setCreatingTag(true);
+    try {
+      const colors = ["#6366f1", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6", "#ef4444", "#14b8a6"];
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      const { data, error } = await supabase
+        .from("tags")
+        .insert({ name: trimmed, color })
+        .select("id, name, color")
+        .single();
+      if (error) throw error;
+      setAvailableTags((prev) => [...prev, data as any]);
+      setSelectedTagIds((prev) => [...prev, data!.id]);
+      setNewTagName("");
+      toast.success(`Tag "${trimmed}" criada!`);
+    } catch (err: any) {
+      toast.error("Erro ao criar tag: " + (err.message || ""));
+    } finally {
+      setCreatingTag(false);
+    }
+  };
+
   const reset = () => {
     setStep("upload");
     setFileName("");
@@ -135,6 +183,8 @@ const ImportContactsDialog = ({
     setImporting(false);
     setImportProgress(0);
     setImportResult({ success: 0, failed: 0, duplicates: 0 });
+    setSelectedTagIds([]);
+    setNewTagName("");
   };
 
   const handleClose = (open: boolean) => {
@@ -229,6 +279,7 @@ const ImportContactsDialog = ({
     let success = 0;
     let failed = 0;
     let duplicates = 0;
+    const importedIds: string[] = [];
 
     const batchSize = 50;
     for (let i = 0; i < validRows.length; i += batchSize) {
@@ -242,16 +293,34 @@ const ImportContactsDialog = ({
       const { error, data } = await supabase
         .from("contacts")
         .upsert(contacts, { onConflict: "user_id,phone", ignoreDuplicates: true })
-        .select();
+        .select("id");
 
       if (error) {
         failed += batch.length;
       } else {
         success += data?.length || 0;
-        // Count duplicates as ones that were updated vs truly new
+        if (data) importedIds.push(...data.map((d: any) => d.id));
       }
 
-      setImportProgress(Math.min(100, Math.round(((i + batchSize) / validRows.length) * 100)));
+      setImportProgress(Math.min(90, Math.round(((i + batchSize) / validRows.length) * 90)));
+    }
+
+    // Apply tags to imported contacts
+    if (selectedTagIds.length > 0 && importedIds.length > 0) {
+      const tagBatchSize = 200;
+      for (let i = 0; i < importedIds.length; i += tagBatchSize) {
+        const idBatch = importedIds.slice(i, i + tagBatchSize);
+        const tagRows = idBatch.flatMap((contactId) =>
+          selectedTagIds.map((tagId) => ({ contact_id: contactId, tag_id: tagId }))
+        );
+        await supabase.from("contact_tags").upsert(tagRows, {
+          onConflict: "contact_id,tag_id",
+          ignoreDuplicates: true,
+        });
+      }
+      setImportProgress(100);
+    } else {
+      setImportProgress(100);
     }
 
     setImportResult({ success, failed, duplicates });
@@ -484,6 +553,58 @@ const ImportContactsDialog = ({
               </p>
             )}
 
+            {/* Tag Segmentation */}
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Tag className="h-4 w-4 text-primary" />
+                <Label className="text-sm font-semibold">Segmentar contatos importados</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Adicione tags para organizar estes contatos e facilitar o envio em massa nas campanhas.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {availableTags.map((tag) => (
+                  <Badge
+                    key={tag.id}
+                    variant={selectedTagIds.includes(tag.id) ? "default" : "outline"}
+                    className="cursor-pointer transition-all text-xs"
+                    style={
+                      selectedTagIds.includes(tag.id)
+                        ? { backgroundColor: tag.color, color: "#fff", borderColor: tag.color }
+                        : { borderColor: tag.color + "80", color: tag.color }
+                    }
+                    onClick={() => toggleTag(tag.id)}
+                  >
+                    {tag.name}
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="Criar nova tag..."
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  className="h-8 text-xs flex-1"
+                  onKeyDown={(e) => e.key === "Enter" && createAndSelectTag()}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs shrink-0"
+                  disabled={!newTagName.trim() || creatingTag}
+                  onClick={createAndSelectTag}
+                >
+                  {creatingTag ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3 mr-1" />}
+                  Criar
+                </Button>
+              </div>
+              {selectedTagIds.length > 0 && (
+                <p className="text-xs text-primary font-medium">
+                  ✓ {selectedTagIds.length} tag(s) serão aplicadas aos {validCount} contatos importados
+                </p>
+              )}
+            </div>
+
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setStep("mapping")}>Voltar</Button>
               <Button onClick={handleImport} disabled={validCount === 0}>
@@ -518,6 +639,21 @@ const ImportContactsDialog = ({
                 <p className="text-xs text-muted-foreground">Erros</p>
               </div>
             </div>
+            {selectedTagIds.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap justify-center">
+                <Tag className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Tags aplicadas:</span>
+                {selectedTagIds.map((id) => {
+                  const tag = availableTags.find((t) => t.id === id);
+                  if (!tag) return null;
+                  return (
+                    <Badge key={id} variant="outline" className="text-xs" style={{ borderColor: tag.color, color: tag.color }}>
+                      {tag.name}
+                    </Badge>
+                  );
+                })}
+              </div>
+            )}
             <Button
               className="mt-2"
               onClick={() => {
