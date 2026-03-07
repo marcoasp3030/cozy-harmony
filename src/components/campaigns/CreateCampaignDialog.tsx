@@ -4,7 +4,7 @@ import { ptBR } from "date-fns/locale";
 import {
   CalendarIcon, ChevronLeft, ChevronRight, Users, FileText, Clock,
   CheckCircle2, Loader2, Search, X, ImageIcon, Video, FileAudio, File,
-  Shield, Info, MessageSquare, Sparkles, Eye,
+  Shield, Info, MessageSquare, Sparkles, Eye, Filter, TrendingUp, GitBranch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -58,11 +58,21 @@ interface Template {
   variables: string[] | null;
 }
 
+interface FunnelStage {
+  id: string;
+  name: string;
+  color: string;
+  funnel_id: string;
+  funnel_name: string;
+}
+
 interface CampaignForm {
   name: string;
   description: string;
   selectedContactIds: string[];
   selectedTagIds: string[];
+  selectedFunnelStageIds: string[];
+  minScore: number;
   messageType: string;
   messageContent: string;
   mediaUrl: string;
@@ -90,6 +100,8 @@ const initialForm: CampaignForm = {
   description: "",
   selectedContactIds: [],
   selectedTagIds: [],
+  selectedFunnelStageIds: [],
+  minScore: 0,
   messageType: "text",
   messageContent: "",
   mediaUrl: "",
@@ -137,8 +149,11 @@ export default function CreateCampaignDialog({
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [funnelStages, setFunnelStages] = useState<FunnelStage[]>([]);
   const [contactSearch, setContactSearch] = useState("");
   const [loadingData, setLoadingData] = useState(false);
+  const [estimatedCount, setEstimatedCount] = useState<number | null>(null);
+  const [countLoading, setCountLoading] = useState(false);
 
   const stepIndex = STEPS.findIndex((s) => s.key === step);
   const isEditing = !!editCampaign;
@@ -192,16 +207,99 @@ export default function CreateCampaignDialog({
 
   const loadData = async () => {
     setLoadingData(true);
-    const [contactsRes, tagsRes, templatesRes] = await Promise.all([
+    const [contactsRes, tagsRes, templatesRes, funnelsRes, stagesRes] = await Promise.all([
       supabase.from("contacts").select("id, name, phone").order("name"),
       supabase.from("tags").select("id, name, color"),
       supabase.from("templates").select("id, name, content, type, variables"),
+      supabase.from("funnels").select("id, name"),
+      supabase.from("funnel_stages").select("id, name, color, funnel_id").order("position"),
     ]);
     setContacts(contactsRes.data || []);
     setTags(tagsRes.data || []);
     setTemplates(templatesRes.data || []);
+
+    const funnelMap = new Map((funnelsRes.data || []).map((f: any) => [f.id, f.name]));
+    setFunnelStages(
+      (stagesRes.data || []).map((s: any) => ({
+        ...s,
+        funnel_name: funnelMap.get(s.funnel_id) || "Funil",
+      }))
+    );
     setLoadingData(false);
   };
+
+  const toggleFunnelStage = (id: string) => {
+    update(
+      "selectedFunnelStageIds",
+      form.selectedFunnelStageIds.includes(id)
+        ? form.selectedFunnelStageIds.filter((s) => s !== id)
+        : [...form.selectedFunnelStageIds, id],
+    );
+  };
+
+  // Estimate total contacts based on filters
+  useEffect(() => {
+    const estimate = async () => {
+      const hasFilters = form.selectedTagIds.length > 0 || form.selectedFunnelStageIds.length > 0 || form.minScore > 0;
+      if (!hasFilters && form.selectedContactIds.length === 0) {
+        setEstimatedCount(null);
+        return;
+      }
+
+      setCountLoading(true);
+      try {
+        const allIds = new Set(form.selectedContactIds);
+
+        // Add contacts from tags
+        if (form.selectedTagIds.length > 0) {
+          const { data: tagContacts } = await supabase
+            .from("contact_tags")
+            .select("contact_id")
+            .in("tag_id", form.selectedTagIds);
+          tagContacts?.forEach((tc) => { if (tc.contact_id) allIds.add(tc.contact_id); });
+        }
+
+        // Add contacts from funnel stages
+        if (form.selectedFunnelStageIds.length > 0) {
+          const { data: convs } = await supabase
+            .from("conversations")
+            .select("contact_id")
+            .in("funnel_stage_id", form.selectedFunnelStageIds);
+          convs?.forEach((c) => { if (c.contact_id) allIds.add(c.contact_id); });
+        }
+
+        // Filter by min score
+        if (form.minScore > 0 && allIds.size > 0) {
+          const { data: scored } = await supabase
+            .from("conversations")
+            .select("contact_id")
+            .in("contact_id", Array.from(allIds))
+            .gte("score", form.minScore);
+          const scoredIds = new Set((scored || []).map((s) => s.contact_id));
+          // Keep only IDs that also pass score filter
+          for (const id of allIds) {
+            if (!scoredIds.has(id)) allIds.delete(id);
+          }
+        } else if (form.minScore > 0) {
+          // Score filter with no other selection = all contacts with that score
+          const { data: scored } = await supabase
+            .from("conversations")
+            .select("contact_id")
+            .gte("score", form.minScore);
+          scored?.forEach((s) => { if (s.contact_id) allIds.add(s.contact_id); });
+        }
+
+        setEstimatedCount(allIds.size);
+      } catch {
+        setEstimatedCount(null);
+      } finally {
+        setCountLoading(false);
+      }
+    };
+
+    const timer = setTimeout(estimate, 300);
+    return () => clearTimeout(timer);
+  }, [form.selectedContactIds, form.selectedTagIds, form.selectedFunnelStageIds, form.minScore]);
 
   const update = useCallback(
     <K extends keyof CampaignForm>(key: K, value: CampaignForm[K]) =>
@@ -259,7 +357,7 @@ export default function CreateCampaignDialog({
       case "info":
         return form.name.trim().length > 0;
       case "recipients":
-        return form.selectedContactIds.length > 0 || form.selectedTagIds.length > 0;
+        return form.selectedContactIds.length > 0 || form.selectedTagIds.length > 0 || form.selectedFunnelStageIds.length > 0 || form.minScore > 0;
       case "message":
         return form.messageContent.trim().length > 0;
       case "schedule":
@@ -349,6 +447,37 @@ export default function CreateCampaignDialog({
         tagContacts?.forEach((tc) => {
           if (tc.contact_id) allContactIds.add(tc.contact_id);
         });
+      }
+
+      // Add contacts from funnel stages
+      if (form.selectedFunnelStageIds.length > 0) {
+        const { data: funnelConvs } = await supabase
+          .from("conversations")
+          .select("contact_id")
+          .in("funnel_stage_id", form.selectedFunnelStageIds);
+        funnelConvs?.forEach((c) => {
+          if (c.contact_id) allContactIds.add(c.contact_id);
+        });
+      }
+
+      // Add contacts by minimum score (if no other filters, get all with that score)
+      if (form.minScore > 0 && allContactIds.size === 0) {
+        const { data: scored } = await supabase
+          .from("conversations")
+          .select("contact_id")
+          .gte("score", form.minScore);
+        scored?.forEach((s) => { if (s.contact_id) allContactIds.add(s.contact_id); });
+      }
+
+      // Filter by min score if set and we have contacts
+      if (form.minScore > 0 && allContactIds.size > 0) {
+        const { data: scored } = await supabase
+          .from("conversations")
+          .select("contact_id")
+          .in("contact_id", Array.from(allContactIds))
+          .gte("score", form.minScore);
+        const scoredSet = new Set((scored || []).map((s) => s.contact_id));
+        allContactIds = new Set([...allContactIds].filter((id) => scoredSet.has(id)));
       }
 
       const { data: contactPhones } = await supabase
@@ -452,29 +581,111 @@ export default function CreateCampaignDialog({
 
           {step === "recipients" && (
             <div className="space-y-4">
-              {/* Tags */}
-              {tags.length > 0 && (
+              {/* Segmentation Filters */}
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Filter className="h-4 w-4 text-primary" />
+                  <p className="text-sm font-semibold">Segmentação Avançada</p>
+                </div>
+
+                {/* Tags */}
+                {tags.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-xs flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-primary" /> Filtrar por Tags
+                    </Label>
+                    <div className="flex flex-wrap gap-2">
+                      {tags.map((tag) => (
+                        <Badge
+                          key={tag.id}
+                          variant={form.selectedTagIds.includes(tag.id) ? "default" : "outline"}
+                          className="cursor-pointer transition-colors"
+                          style={
+                            form.selectedTagIds.includes(tag.id)
+                              ? { backgroundColor: tag.color, color: "#fff" }
+                              : { borderColor: tag.color, color: tag.color }
+                          }
+                          onClick={() => toggleTag(tag.id)}
+                        >
+                          {tag.name}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Funnel Stages */}
+                {funnelStages.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-xs flex items-center gap-1.5">
+                      <GitBranch className="h-3 w-3 text-primary" /> Filtrar por Estágio do Funil
+                    </Label>
+                    <div className="flex flex-wrap gap-2">
+                      {funnelStages.map((stage) => (
+                        <Badge
+                          key={stage.id}
+                          variant={form.selectedFunnelStageIds.includes(stage.id) ? "default" : "outline"}
+                          className="cursor-pointer transition-colors"
+                          style={
+                            form.selectedFunnelStageIds.includes(stage.id)
+                              ? { backgroundColor: stage.color, color: "#fff" }
+                              : { borderColor: stage.color, color: stage.color }
+                          }
+                          onClick={() => toggleFunnelStage(stage.id)}
+                        >
+                          <span className="text-[10px] opacity-70 mr-1">{stage.funnel_name} ›</span>
+                          {stage.name}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Minimum Score */}
                 <div className="space-y-2">
-                  <Label>Selecionar por Tags</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {tags.map((tag) => (
-                      <Badge
-                        key={tag.id}
-                        variant={form.selectedTagIds.includes(tag.id) ? "default" : "outline"}
-                        className="cursor-pointer transition-colors"
-                        style={
-                          form.selectedTagIds.includes(tag.id)
-                            ? { backgroundColor: tag.color, color: "#fff" }
-                            : { borderColor: tag.color, color: tag.color }
-                        }
-                        onClick={() => toggleTag(tag.id)}
-                      >
-                        {tag.name}
-                      </Badge>
-                    ))}
+                  <Label className="text-xs flex items-center gap-1.5">
+                    <TrendingUp className="h-3 w-3 text-primary" /> Score Mínimo
+                  </Label>
+                  <div className="flex items-center gap-3">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={1000}
+                      value={form.minScore}
+                      onChange={(e) => update("minScore", Math.max(0, Number(e.target.value)))}
+                      className="w-28 h-8 text-sm"
+                      placeholder="0"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {form.minScore > 0
+                        ? `Apenas contatos com ≥ ${form.minScore} pontos`
+                        : "Sem filtro de score"}
+                    </p>
                   </div>
                 </div>
-              )}
+
+                {/* Estimated Total */}
+                <div className="rounded-md bg-background border border-border px-3 py-2 flex items-center gap-2">
+                  <Users className="h-4 w-4 text-primary" />
+                  {countLoading ? (
+                    <div className="flex items-center gap-1.5">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">Calculando...</span>
+                    </div>
+                  ) : (
+                    <p className="text-sm font-medium">
+                      {estimatedCount !== null ? (
+                        <>
+                          <span className="text-primary text-lg font-bold">{estimatedCount}</span>
+                          {" "}contato(s) estimado(s)
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">Selecione filtros ou contatos</span>
+                      )}
+                    </p>
+                  )}
+                </div>
+              </div>
 
               <Separator />
 
@@ -539,6 +750,8 @@ export default function CreateCampaignDialog({
                 <p className="text-xs text-muted-foreground">
                   {form.selectedContactIds.length} contato(s) selecionado(s)
                   {form.selectedTagIds.length > 0 && ` + ${form.selectedTagIds.length} tag(s)`}
+                  {form.selectedFunnelStageIds.length > 0 && ` + ${form.selectedFunnelStageIds.length} estágio(s)`}
+                  {form.minScore > 0 && ` (score ≥ ${form.minScore})`}
                 </p>
               </div>
             </div>
@@ -935,9 +1148,13 @@ export default function CreateCampaignDialog({
                 <div className="px-4 py-3">
                   <p className="text-xs text-muted-foreground">Destinatários</p>
                   <p className="font-medium">
-                    {form.selectedContactIds.length} contato(s)
-                    {form.selectedTagIds.length > 0 && ` + ${form.selectedTagIds.length} tag(s)`}
+                    {estimatedCount !== null ? `~${estimatedCount} contato(s) estimado(s)` : `${form.selectedContactIds.length} contato(s)`}
                   </p>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {form.selectedTagIds.length > 0 && <Badge variant="outline" className="text-xs">{form.selectedTagIds.length} tag(s)</Badge>}
+                    {form.selectedFunnelStageIds.length > 0 && <Badge variant="outline" className="text-xs">{form.selectedFunnelStageIds.length} estágio(s)</Badge>}
+                    {form.minScore > 0 && <Badge variant="outline" className="text-xs">Score ≥ {form.minScore}</Badge>}
+                  </div>
                 </div>
                 <div className="px-4 py-3">
                   <p className="text-xs text-muted-foreground">Tipo</p>
