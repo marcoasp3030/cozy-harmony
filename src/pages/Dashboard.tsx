@@ -43,6 +43,8 @@ import { useNavigate } from "react-router-dom";
 import WhatsAppHealthPanel from "@/components/dashboard/WhatsAppHealthPanel";
 import FunnelLeadsPanel from "@/components/dashboard/FunnelLeadsPanel";
 import RealtimeMetricsPanel from "@/components/dashboard/RealtimeMetricsPanel";
+import AdminTenantDashboard from "@/components/dashboard/AdminTenantDashboard";
+import { useUserRole } from "@/hooks/useUserRole";
 
 // ── SLA types & helpers ─────────────────────────────────────────────
 
