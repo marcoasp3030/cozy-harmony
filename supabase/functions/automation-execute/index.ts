@@ -2806,7 +2806,7 @@ Responda APENAS com JSON válido:
       
       // Always add anti-hallucination instruction for prices
       if (!productContext) {
-        productContext = "\n\n🚫 PREÇOS: Você NÃO tem acesso ao catálogo de produtos neste momento. Se o cliente perguntar sobre preço ou valor de qualquer produto, NUNCA invente um valor. Peça para enviar uma 📸 *foto do código de barras* do produto para que o sistema possa consultar o valor no catálogo. Se o cliente tiver VÁRIOS produtos, diga que pode enviar todas as fotos de uma vez. Depois de identificar os produtos, o sistema perguntará a QUANTIDADE de cada um automaticamente. JAMAIS diga 'vou verificar' ou 'vou consultar' — isso cria expectativa de resposta que não virá. Sempre PEÇA a foto do código de barras diretamente.";
+        productContext = "\n\n🚫 SEM CATÁLOGO: Se perguntarem preço, peça foto do código de barras. NUNCA invente valores.";
       }
 
       // ── 4. SENTIMENT ANALYSIS + TONE ADAPTATION: detect emotional tone and communication style ──
