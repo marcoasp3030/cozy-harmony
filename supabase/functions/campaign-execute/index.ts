@@ -19,9 +19,11 @@ const DEFAULT_SETTINGS = {
   businessHoursOnly: true,
   businessHourStart: 8, // 8 AM
   businessHourEnd: 20,  // 8 PM
-  // Warm-up mode: gradually increases daily volume for new numbers
+  // Warm-up mode: progressive daily volume increase
   warmUpEnabled: false,
-  warmUpDayLimit: 50,   // Start with 50/day, increase gradually
+  // Progressive warm-up schedule: [day1, day2, day3, day4, day5]
+  // After day 5, uses the configured dailyLimit
+  warmUpSchedule: [20, 50, 100, 150, 200],
   // Pause between batches (seconds) — gives WhatsApp servers breathing room
   batchCooldownSec: 15,
   // Random variation in message content (append invisible chars to avoid duplicate detection)
@@ -151,21 +153,44 @@ serve(async (req) => {
         });
       }
 
-      // ── DAILY LIMIT CHECK ─────────────────────────────────
+      // ── DAILY LIMIT CHECK (with progressive warm-up) ─────
       const todaySent = await getTodaySentCount(supabase, userId);
-      const effectiveLimit = campaignSettings.warmUpEnabled
-        ? campaignSettings.warmUpDayLimit
-        : campaignSettings.dailyLimit;
+      let effectiveLimit = campaignSettings.dailyLimit;
+      let warmUpDay = 0;
+
+      if (campaignSettings.warmUpEnabled) {
+        // Calculate how many days since first campaign was started
+        const { data: firstCampaign } = await supabase
+          .from('campaigns')
+          .select('started_at')
+          .not('started_at', 'is', null)
+          .order('started_at', { ascending: true })
+          .limit(1);
+
+        if (firstCampaign && firstCampaign.length > 0 && firstCampaign[0].started_at) {
+          const firstStartDate = new Date(firstCampaign[0].started_at);
+          const now = new Date();
+          warmUpDay = Math.floor((now.getTime() - firstStartDate.getTime()) / (1000 * 60 * 60 * 24));
+        }
+
+        const schedule = campaignSettings.warmUpSchedule || [20, 50, 100, 150, 200];
+        if (warmUpDay < schedule.length) {
+          effectiveLimit = schedule[warmUpDay];
+        }
+        // After schedule ends, use configured dailyLimit
+        console.log(`Warm-up: day ${warmUpDay + 1}, limit=${effectiveLimit}`);
+      }
 
       if (todaySent >= effectiveLimit) {
         return json({
           error: `Limite diário atingido (${todaySent}/${effectiveLimit} mensagens). ` +
             (campaignSettings.warmUpEnabled
-              ? 'O modo warm-up limita envios para proteger seu número. Retome amanhã.'
+              ? `Warm-up progressivo: dia ${warmUpDay + 1}. O limite aumentará automaticamente amanhã.`
               : 'Retome amanhã para manter a saúde do número.'),
           code: 'DAILY_LIMIT_REACHED',
           todaySent,
           dailyLimit: effectiveLimit,
+          warmUpDay: campaignSettings.warmUpEnabled ? warmUpDay + 1 : undefined,
         });
       }
 
