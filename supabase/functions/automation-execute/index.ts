@@ -3221,11 +3221,20 @@ TIPOS DE PROBLEMA (colete dados, registre, resolva):
       const batchedImageCount = (ctx as any)._batchedImageUrls?.length || 0;
       if (ctx.messageType === "image" || (ctx as any)._lastImageUrl) {
         imageHint = `\n\n📸 IMAGEM RECEBIDA (${batchedImageCount > 1 ? batchedImageCount + " fotos" : "1 foto"}):
-- CÓDIGO DE BARRAS/PRODUTO → "Consultando no catálogo! 🔍" (sistema busca automaticamente)
-- COMPROVANTE → "Recebi, analisando! ✅"
-- Ilegível → peça reenvio com melhor foco
-- NÃO peça dados extras (nome/loja) quando receber código de barras
-- NÃO prometa ações — o sistema age automaticamente`;
+
+FLUXO OBRIGATÓRIO PARA CÓDIGO DE BARRAS/PRODUTO:
+1. Identifique o produto no catálogo (sistema busca automaticamente)
+2. CONFIRME com o cliente: "Encontrei *[nome do produto]* — R$ X,XX. Quantas unidades?" (1 frase só)
+3. AGUARDE a resposta da quantidade ANTES de calcular total ou enviar PIX
+4. SÓ após confirmar produto + quantidade → informe total e ofereça pagamento
+
+REGRAS:
+- NUNCA pule direto pro valor total sem confirmar o produto com o cliente
+- Se encontrou o produto, mostre nome + preço unitário + pergunte quantidade (TUDO em 1 msg curta)
+- Se NÃO encontrou, diga "Não encontrei esse produto. Pode enviar outra foto mais nítida do código de barras? 📸"
+- COMPROVANTE PIX → "Recebi, analisando! ✅"
+- Imagem ilegível → "Não consegui ler, envia de novo com mais foco? 📸"
+- NÃO peça dados extras (nome/loja) quando receber código de barras`;
       }
 
       // ── TTS DICTION: force formal spelling when reply will be audio ──
