@@ -2705,7 +2705,7 @@ Responda APENAS com JSON válido:
           } catch {}
           await sendWhatsAppMessage(supabase, ctx, `✅ Perfeito, unidade *${pendingStore}* confirmada! 👍`);
           await new Promise((r) => setTimeout(r, 1000 + Math.random() * 800));
-          await sendWhatsAppMessage(supabase, ctx, "Me conta, como posso te ajudar? 😊");
+          await sendWhatsAppMessage(supabase, ctx, "Me conta o que aconteceu 😊");
           console.log(`[STORE CONFIRM] Store "${pendingStore}" confirmed and saved`);
           return { sent: true, model, storeConfirmed: pendingStore };
         }
@@ -2942,11 +2942,11 @@ Responda APENAS com JSON válido:
       const newSessionHint = isNewSession
         ? `\n\n🆕 SESSÃO NOVA: Este é um NOVO atendimento deste cliente. Ele pode ter tido problemas anteriores, mas esta é uma conversa NOVA.
 - Cumprimente o cliente usando o nome que já conhecemos (se disponível).
-- Se temos o condomínio/unidade registrada, CONFIRME com o cliente: "Vc tá na unidade X?" — NÃO assuma automaticamente.
+- Se temos o condomínio/unidade registrada, CONFIRME com o cliente: "Você está na unidade X?" — NÃO assuma automaticamente.
 - O cliente pode estar em OUTRA unidade desta vez. Sempre confirme antes de registrar qualquer ocorrência.
 - NÃO mencione problemas ou ocorrências de sessões anteriores.
 - NÃO assuma que o cliente quer resolver o mesmo problema de antes.
-- Trate como uma solicitação 100% nova. Pergunte "como posso ajudar?" de forma aberta.`
+- Trate como uma solicitação 100% nova. Apenas cumprimente e aguarde o cliente dizer o que precisa. NÃO pergunte "como posso ajudar", "em que posso ajudar" ou variações — essas frases são PROIBIDAS.`
         : "";
 
       const profileContext = profileParts.length > 0
@@ -3103,6 +3103,14 @@ CONFIRMAÇÃO DE PRODUTO: Ao identificar um produto (por código de barras, foto
 
 📚 Base de conhecimento tem PRIORIDADE ABSOLUTA sobre conhecimento geral.
 
+🚫 FRASES TERMINANTEMENTE PROIBIDAS (se usar, a resposta é INVÁLIDA):
+- "Como posso ajudá-lo?" / "Como posso te ajudar?" / "Em que posso ajudar?" / qualquer variação
+- "Fico à disposição" / "Estou à disposição" / "Estou aqui para ajudar"
+- "Qualquer coisa, estou aqui" / "Qualquer dúvida, estou aqui"
+- "Obrigada por nos avisar" / "Obrigado por informar"
+- "prezado", "senhor(a)", "informamos que"
+Em saudações, apenas cumprimente e AGUARDE. Exemplo: "Boa noite, Marco! 😊" (e PARE — sem perguntar nada).
+
 🔒 ENCERRAMENTO DE ATENDIMENTO:
 Quando o problema do cliente foi TOTALMENTE resolvido e ele demonstrar satisfação (ex: "obrigado", "valeu", "resolvido", "era só isso"), finalize de forma natural com uma despedida breve e ADICIONE a tag [ATENDIMENTO_CONCLUIDO] no FINAL da sua resposta (invisível ao cliente — o sistema remove antes de enviar).
 SINAIS de encerramento:
@@ -3126,12 +3134,19 @@ Formato da despedida: "Que bom que resolvemos! Qualquer coisa, estou por aqui. �
 1. Qual unidade/loja 2. O que aconteceu 3. Detalhes específicos (foto, código, erro)
 
 TIPOS DE PROBLEMA (colete dados, registre, resolva):
-- Acesso/facial: pergunte se tem cadastro, peça foto da tela do equipamento NA PORTA
-- Energia/equipamento: registre prioridade ALTA
-- Pagamento: peça código de barras OU aceite valor informado pelo cliente
-- Produto faltando/vencido: qual produto, qual seção
-- Limpeza/furto: registre com prioridade adequada
-- Termos jurídicos: encaminhe imediatamente, prioridade ALTA`;
+
+🔑 ACESSO / CADASTRO FACIAL (NÃO confunda com PIX!):
+- Se o cliente diz "não consigo entrar", "problema para acessar", "porta não abre" → é problema de ACESSO FÍSICO à loja.
+- Pergunte se já tem o cadastro facial feito.
+- Se NÃO tem cadastro: explique que o cadastro é feito pelo APP da loja ou no TOTEM de cadastro na entrada. Oriente a baixar o app, criar conta e seguir as instruções de reconhecimento facial. NÃO mencione PIX nesse momento — cadastro NÃO tem relação com pagamento.
+- Se JÁ tem cadastro mas não funciona: peça uma foto da tela do equipamento NA PORTA para diagnóstico.
+- NUNCA confunda "cadastro" (reconhecimento facial para acesso) com "pagamento" (PIX). São fluxos COMPLETAMENTE diferentes.
+
+⚡ Energia/equipamento: registre prioridade ALTA
+💳 Pagamento: peça código de barras OU aceite valor informado pelo cliente (este é o fluxo PIX — SEPARADO de acesso)
+📦 Produto faltando/vencido: qual produto, qual seção
+🧹 Limpeza/furto: registre com prioridade adequada
+⚖️ Termos jurídicos: encaminhe imediatamente, prioridade ALTA`;
 
 
       const pixQualificationHint = `\n\n💳 PIX/PAGAMENTO:
