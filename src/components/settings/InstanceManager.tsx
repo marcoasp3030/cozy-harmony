@@ -652,6 +652,47 @@ export default function InstanceManager() {
           ))}
         </div>
       )}
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Excluir Instância
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Tem certeza que deseja remover esta instância? Esta ação não pode ser desfeita.
+            </p>
+            <div className="flex items-start space-x-3 rounded-lg border border-destructive/20 bg-destructive/5 p-3">
+              <Checkbox
+                id="delete-messages"
+                checked={deleteMessages}
+                onCheckedChange={(checked) => setDeleteMessages(checked === true)}
+              />
+              <div className="space-y-1">
+                <label htmlFor="delete-messages" className="text-sm font-medium cursor-pointer">
+                  Apagar também todas as conversas e mensagens
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Remove todas as conversas do Inbox e Kanban associadas a esta organização. Os contatos serão mantidos.
+                </p>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={deleting}>
+              {deleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              {deleteMessages ? "Excluir Tudo" : "Excluir Instância"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
