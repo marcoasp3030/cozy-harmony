@@ -195,14 +195,30 @@ serve(async (req) => {
     // ── CONNECT ──
     if (action === 'connect') {
       const result = await callUaz(baseUrl, '/instance/connect', 'token', tok, 'POST', {});
-      if (!result.ok) return json({ success: false, error: `Falha ao conectar (${result.status})`, debug: result.data });
       const d = result.data as any;
+
+      // 408 = timeout waiting for QR, but connection is in progress — fetch QR from /status
+      if (!result.ok && result.status !== 408) {
+        return json({ success: false, error: `Falha ao conectar (${result.status})`, debug: d });
+      }
+
       const qr = d?.qrcode || d?.qrCode || d?.qr || d?.base64 || d?.data?.qrcode || d?.instance?.qrcode || null;
       if (!qr) {
-        const statusRes = await callUaz(baseUrl, '/instance/status', 'token', tok, 'GET');
-        const sd = statusRes.data as any;
-        const statusQr = sd?.qrcode || sd?.qrCode || sd?.qr || sd?.base64 || sd?.data?.qrcode || sd?.instance?.qrcode || null;
-        return json({ success: true, qrcode: statusQr, connectData: d, statusData: sd });
+        // QR not in connect response — poll /status up to 3 times
+        for (let attempt = 0; attempt < 3; attempt++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const statusRes = await callUaz(baseUrl, '/instance/status', 'token', tok, 'GET');
+          const sd = statusRes.data as any;
+          const statusQr = sd?.qrcode || sd?.qrCode || sd?.qr || sd?.base64 || sd?.data?.qrcode || sd?.instance?.qrcode || null;
+          if (statusQr) {
+            return json({ success: true, qrcode: statusQr, connectData: d, statusData: sd });
+          }
+          // If already connected, no QR needed
+          if (sd?.connected || sd?.loggedIn || sd?.status?.connected) {
+            return json({ success: true, connected: true, ...sd });
+          }
+        }
+        return json({ success: true, qrcode: null, message: 'QR code ainda não disponível. Tente novamente em alguns segundos.', connectData: d });
       }
       return json({ success: true, qrcode: qr, ...d });
     }
