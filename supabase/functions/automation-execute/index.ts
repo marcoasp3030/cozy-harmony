@@ -2194,22 +2194,31 @@ Responda APENAS com o nome exato da loja da lista OU "NONE". Nada mais.`;
           } catch {}
         }
 
-        const extractPrompt = `Você é um analisador de conversas de atendimento da Nutricar Brasil (rede de mini mercados autônomos 24h).
+        const extractPrompt = `Você é um analisador rigoroso de conversas de atendimento da Nutricar Brasil (rede de mini mercados autônomos 24h).
 
-Analise a conversa abaixo e determine se há informações SUFICIENTES para registrar uma ocorrência.
+Analise a conversa COMPLETA e determine se TODOS os problemas do cliente foram identificados e compreendidos.
 
-CRITÉRIOS PARA "ready: true" — TODOS devem ser atendidos:
-1. O cliente descreveu CLARAMENTE qual é o problema (não basta dizer "tenho um problema")
-2. A IA já fez as perguntas de qualificação necessárias (qual produto, o que aconteceu, etc.)
-3. O cliente respondeu com detalhes suficientes
+⚠️ REGRA CRÍTICA: NÃO registre a ocorrência prematuramente!
+- Espere até que o cliente termine de explicar TODOS os problemas
+- Se o cliente está no meio de uma explicação, NÃO é hora de registrar
+- Se o cliente mencionou múltiplos problemas, TODOS devem estar claros antes de registrar
+- Se a IA ainda está fazendo perguntas de qualificação, NÃO registre
 
-CRITÉRIOS PARA "ready: false":
-- Cliente só mencionou o problema de forma vaga sem detalhes
-- A IA ainda está coletando informações
-- Faltam dados essenciais (ex: cliente disse "produto com problema" mas não disse QUAL produto nem O QUE aconteceu)
-- Conversa é apenas cumprimento/saudação
+CRITÉRIOS OBRIGATÓRIOS para "ready: true" — TODOS devem ser atendidos:
+1. O cliente descreveu CLARAMENTE e COMPLETAMENTE qual(is) é(são) o(s) problema(s)
+2. A IA já fez as perguntas necessárias E o cliente já respondeu
+3. Não há perguntas pendentes sem resposta
+4. O cliente não está no meio de uma explicação (não mandou "espera", "tem mais", etc.)
+5. Os detalhes essenciais estão claros: O QUE aconteceu, QUANDO (se relevante), QUAL produto/local
 
-TIPOS DE OCORRÊNCIA: elogio, reclamacao, furto, falta_produto, produto_vencido, loja_suja, problema_pagamento, loja_sem_energia, acesso_bloqueado, sugestao, duvida, outro
+CRITÉRIOS para "ready: false":
+- Cliente mencionou problema de forma vaga
+- A IA ainda está coletando informações ou fez uma pergunta que não foi respondida
+- Cliente está enviando fotos/áudios que ainda não foram processados
+- Conversa é apenas saudação ou dúvida simples sem problema real
+- Cliente disse que tem mais a relatar
+
+TIPOS: elogio, reclamacao, furto, falta_produto, produto_vencido, loja_suja, problema_pagamento, loja_sem_energia, acesso_bloqueado, sugestao, duvida, outro
 
 PRIORIDADE:
 - alta (furto, produto vencido, loja sem energia, cobrança indevida, acesso bloqueado)
@@ -2220,7 +2229,7 @@ DADOS DO CONTATO:
 - Nome: "${contactName}"
 - Telefone: ${contactPhone}
 - Loja confirmada: ${confirmedStore || "Não confirmada"}
-${vmpayStoreList ? `\nLOJAS CADASTRADAS (use para identificar a loja mesmo com abreviações como "t5"=Tamboré 5, "alpha 5"=Alphaville 5):\n${vmpayStoreList}` : ""}
+${vmpayStoreList ? `\nLOJAS CADASTRADAS:\n${vmpayStoreList}` : ""}
 
 CONVERSA:
 ${conversationContext.slice(0, 4000)}
@@ -2229,12 +2238,12 @@ ${extraContext ? "\n" + extraContext.slice(0, 1000) : ""}
 Responda APENAS com JSON válido:
 {
   "ready": true/false,
-  "reason": "motivo se não está pronto (ex: 'cliente não informou qual produto')",
-  "store_name": "nome da loja ou Não informada",
+  "reason": "motivo detalhado se não está pronto",
+  "store_name": "nome EXATO da loja da lista ou Não informada (NUNCA invente)",
   "contact_name": "nome do cliente",
   "type": "tipo da ocorrência",
   "priority": "alta/normal/baixa",
-  "summary": "Resumo COMPLETO com todos os detalhes coletados. Max 5 frases."
+  "summary": "Resumo completo com TODOS os problemas relatados. Max 5 frases."
 }`;
 
         const aiReply = await callAIWithUserKeys(occKeys, extractPrompt, { maxTokens: 500, temperature: 0.1, timeoutMs: 15000 });
