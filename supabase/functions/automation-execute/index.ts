@@ -1829,7 +1829,36 @@ Responda APENAS com o texto da mensagem.`;
         }
       }
 
-      // ── Auto-populate missing variables from available context ──
+      // ── DEDUP GUARD: Prevent repeated group notifications for same contact+problem ──
+      try {
+        const dedupWindowMs = 60 * 60 * 1000; // 1 hour
+        const dedupCutoff = new Date(Date.now() - dedupWindowMs).toISOString();
+        const { data: recentGroupMsgs } = await supabase
+          .from("messages")
+          .select("content, created_at")
+          .eq("contact_id", ctx.contactId)
+          .eq("direction", "outbound")
+          .gte("created_at", dedupCutoff)
+          .order("created_at", { ascending: false })
+          .limit(20);
+
+        if (recentGroupMsgs?.length) {
+          const currentDesc = (ctx.variables["descricao"] || ctx.variables["transcricao"] || ctx.messageContent || "").toLowerCase().slice(0, 150);
+          const hasRecentGroupNotification = recentGroupMsgs.some((m: any) => {
+            const content = (m.content || "").toLowerCase();
+            // Check if a group alert was already sent for this contact recently
+            return content.includes("🚨") && content.includes("alerta");
+          });
+
+          if (hasRecentGroupNotification) {
+            console.log(`[NOTIFY_GROUP] ⚠️ DEDUP: Group notification already sent for contact ${ctx.contactId} within last hour — skipping`);
+            return { sent: false, reason: "deduplicated", message: "Notificação já enviada recentemente para este contato" };
+          }
+        }
+      } catch (dedupErr) {
+        console.error("[NOTIFY_GROUP] Dedup check error:", dedupErr);
+      }
+
       // loja: from custom_fields.condominio, or try to detect from conversation
       if (!ctx.variables["loja"]) {
         let loja = "";
