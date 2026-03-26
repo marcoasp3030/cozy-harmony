@@ -2300,8 +2300,14 @@ Responda APENAS com JSON válido:
                 .limit(5);
 
               if (recentOcc?.length) {
-                console.log(`[OCCURRENCE] Dedup: skipping, recent occurrence exists`);
-                return { flagged: true, deferred: false, deduplicated: true };
+                // Check if same type of occurrence already exists
+                const sameTypeExists = recentOcc.some((o: any) => o.type === occType2);
+                if (sameTypeExists) {
+                  console.log(`[OCCURRENCE] Dedup: skipping, same type "${occType2}" already registered for this contact in last 2h`);
+                  return { flagged: true, deferred: false, deduplicated: true };
+                }
+                // Different type — allow but log
+                console.log(`[OCCURRENCE] Recent occurrence exists but different type (existing: ${recentOcc.map((o: any) => o.type).join(",")}, new: ${occType2}) — allowing`);
               }
 
               const storeName = parsed.store_name || confirmedStore || "Não informada";
