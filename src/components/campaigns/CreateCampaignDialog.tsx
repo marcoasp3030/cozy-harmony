@@ -422,7 +422,7 @@ export default function CreateCampaignDialog({
           businessHourStart: 8,
           businessHourEnd: 20,
           timezoneOffset: -3,
-          warmUpDayLimit: 50,
+          warmUpSchedule: [20, 50, 100, 150, 200],
           ...(form.recurrenceEnabled ? { recurrence: { type: form.recurrenceType } } : {}),
           ...(form.interactive.type !== "none" ? { interactive: form.interactive } : {}),
         } as any,
