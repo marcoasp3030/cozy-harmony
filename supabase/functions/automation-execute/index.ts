@@ -2705,7 +2705,7 @@ Responda APENAS com JSON válido:
           } catch {}
           await sendWhatsAppMessage(supabase, ctx, `✅ Perfeito, unidade *${pendingStore}* confirmada! 👍`);
           await new Promise((r) => setTimeout(r, 1000 + Math.random() * 800));
-          await sendWhatsAppMessage(supabase, ctx, "Me conta, como posso te ajudar? 😊");
+          await sendWhatsAppMessage(supabase, ctx, "Me conta o que aconteceu 😊");
           console.log(`[STORE CONFIRM] Store "${pendingStore}" confirmed and saved`);
           return { sent: true, model, storeConfirmed: pendingStore };
         }
