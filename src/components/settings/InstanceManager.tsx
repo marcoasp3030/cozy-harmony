@@ -420,6 +420,10 @@ export default function InstanceManager() {
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
   const [linkedAutomations, setLinkedAutomations] = useState<LinkedAutomation[]>([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleteMessages, setDeleteMessages] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     supabase.from("automations").select("id, name, is_active, instance_id").then(({ data }) => {
