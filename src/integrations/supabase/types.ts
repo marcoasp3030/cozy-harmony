@@ -797,6 +797,95 @@ export type Database = {
           },
         ]
       }
+      message_retry_queue: {
+        Row: {
+          attempts: number
+          contact_id: string | null
+          created_at: string
+          id: string
+          instance_id: string | null
+          last_attempted_at: string | null
+          last_error: string | null
+          max_attempts: number
+          message_id: string | null
+          message_type: string
+          next_retry_at: string
+          org_id: string | null
+          payload: Json
+          phone: string
+          resolved_at: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          attempts?: number
+          contact_id?: string | null
+          created_at?: string
+          id?: string
+          instance_id?: string | null
+          last_attempted_at?: string | null
+          last_error?: string | null
+          max_attempts?: number
+          message_id?: string | null
+          message_type?: string
+          next_retry_at?: string
+          org_id?: string | null
+          payload?: Json
+          phone: string
+          resolved_at?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          attempts?: number
+          contact_id?: string | null
+          created_at?: string
+          id?: string
+          instance_id?: string | null
+          last_attempted_at?: string | null
+          last_error?: string | null
+          max_attempts?: number
+          message_id?: string | null
+          message_type?: string
+          next_retry_at?: string
+          org_id?: string | null
+          payload?: Json
+          phone?: string
+          resolved_at?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_retry_queue_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_retry_queue_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_instances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_retry_queue_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_retry_queue_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       messages: {
         Row: {
           campaign_id: string | null

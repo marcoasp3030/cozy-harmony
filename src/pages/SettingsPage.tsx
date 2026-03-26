@@ -10,6 +10,7 @@ import ProductCatalog from "@/components/settings/ProductCatalog";
 import VmPaySettings from "@/components/settings/VmPaySettings";
 import KnowledgeBase from "@/components/settings/KnowledgeBase";
 import LlmUsageDashboard from "@/components/settings/LlmUsageDashboard";
+import RetryQueuePanel from "@/components/settings/RetryQueuePanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1000,8 +1001,9 @@ const SettingsPage = () => {
           <TabsTrigger value="knowledge" className="text-xs md:text-sm">Base de Conhecimento</TabsTrigger>
           {isAdminOrSupervisor && <TabsTrigger value="users" className="text-xs md:text-sm">Usuários</TabsTrigger>}
           {isAdmin && <TabsTrigger value="organizations" className="text-xs md:text-sm">Empresas</TabsTrigger>}
-          {isAdmin && <TabsTrigger value="webhooks" className="text-xs md:text-sm">Webhooks</TabsTrigger>}
-        </TabsList>
+           {isAdmin && <TabsTrigger value="webhooks" className="text-xs md:text-sm">Webhooks</TabsTrigger>}
+           {isAdmin && <TabsTrigger value="retry" className="text-xs md:text-sm">Fila de Retry</TabsTrigger>}
+         </TabsList>
 
         {isAdmin && (
           <TabsContent value="apiwhatsapp" className="space-y-4">
@@ -1085,6 +1087,12 @@ const SettingsPage = () => {
         <TabsContent value="elevenlabs">
           <ElevenLabsSettings />
         </TabsContent>
+
+        {isAdmin && (
+          <TabsContent value="retry">
+            <RetryQueuePanel />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

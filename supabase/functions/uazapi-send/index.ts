@@ -61,22 +61,26 @@ serve(async (req) => {
 
     // ── RESOLVE CONFIG: whatsapp_instances table or legacy settings ──
     let config: { baseUrl: string; instanceToken: string } | null = null;
+    let resolvedInstanceId: string | null = instanceId || null;
 
     if (instanceId) {
       const { data: inst } = await supabase
         .from('whatsapp_instances')
-        .select('base_url, instance_token')
+        .select('id, base_url, instance_token')
         .eq('id', instanceId)
         .eq('user_id', userId)
         .single();
-      if (inst) config = { baseUrl: (inst as any).base_url, instanceToken: (inst as any).instance_token };
+      if (inst) {
+        config = { baseUrl: (inst as any).base_url, instanceToken: (inst as any).instance_token };
+        resolvedInstanceId = (inst as any).id;
+      }
     }
 
     if (!config) {
       // Try default instance
       const { data: instances } = await supabase
         .from('whatsapp_instances')
-        .select('base_url, instance_token')
+        .select('id, base_url, instance_token')
         .eq('user_id', userId)
         .order('is_default', { ascending: false })
         .limit(1);
@@ -84,6 +88,7 @@ serve(async (req) => {
       if (instances && instances.length > 0) {
         const inst = instances[0] as any;
         config = { baseUrl: inst.base_url, instanceToken: inst.instance_token };
+        resolvedInstanceId = inst.id;
       } else {
         // Legacy fallback
         const { data: settings } = await supabase
@@ -176,7 +181,36 @@ serve(async (req) => {
     const data = await res.json();
 
     if (!res.ok) {
-      return new Response(JSON.stringify({ success: false, error: `UazAPI retornou status ${res.status}`, details: data }), {
+      // ── Enqueue for retry on transient errors (5xx, timeouts, rate limits) ──
+      const isRetryable = res.status >= 500 || res.status === 429 || res.status === 408;
+      if (isRetryable) {
+        try {
+          const serviceClient = createClient(
+            Deno.env.get('SUPABASE_URL')!,
+            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+          );
+          // Store the full payload + endpoint for replay
+          const retryPayload = { ...sendBody, _endpoint: endpoint };
+          await serviceClient.from('message_retry_queue').insert({
+            user_id: userId,
+            phone: cleanNumber,
+            message_type: type,
+            instance_id: resolvedInstanceId,
+            payload: retryPayload,
+            next_retry_at: new Date(Date.now() + 30_000).toISOString(),
+          });
+          console.log(`[RETRY-ENQUEUE] Message to ${cleanNumber} queued for retry (HTTP ${res.status})`);
+        } catch (retryErr) {
+          console.error('[RETRY-ENQUEUE] Failed to enqueue:', retryErr);
+        }
+      }
+
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: `UazAPI retornou status ${res.status}`, 
+        details: data,
+        retryQueued: isRetryable,
+      }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
