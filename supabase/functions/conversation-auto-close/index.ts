@@ -285,8 +285,8 @@ Responda APENAS o resumo atualizado (max 200 palavras).`;
           if (pendingOccurrence) {
             console.log(`[OCCURRENCE-DEFERRED] Processing deferred occurrence for conv ${conv.id}`);
 
-            // Dedup check
-            const dedupMinutes = 30;
+            // Dedup check — 2 hour window
+            const dedupMinutes = 120;
             const dedupCutoff = new Date(Date.now() - dedupMinutes * 60 * 1000).toISOString();
             const { data: recentOcc } = await supabase
               .from('occurrences')
@@ -294,10 +294,10 @@ Responda APENAS o resumo atualizado (max 200 palavras).`;
               .eq('contact_phone', contact.phone)
               .gte('created_at', dedupCutoff)
               .order('created_at', { ascending: false })
-              .limit(1);
+              .limit(5);
 
             if (recentOcc && recentOcc.length > 0) {
-              console.log(`[OCCURRENCE-DEFERRED] Dedup: skipping for ${contact.phone}, recent occurrence ${recentOcc[0].id}`);
+              console.log(`[OCCURRENCE-DEFERRED] Dedup: skipping for ${contact.phone}, ${recentOcc.length} recent occurrences found`);
             } else {
               // Load FULL conversation messages for AI analysis
               const { data: allMessages } = await supabase
