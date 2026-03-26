@@ -2785,7 +2785,7 @@ Responda APENAS com JSON válido:
       if (ctx.variables["produto_encontrado"] === "true" && ctx.variables["produtos_lista"]) {
         productContext = "\n\n📦 PRODUTOS ENCONTRADOS NO CATÁLOGO (dados reais — USE ESTES PREÇOS, não invente valores):\n" +
           ctx.variables["produtos_lista"] +
-          "\n\n⚠️ OBRIGATÓRIO: Use EXATAMENTE os preços listados acima. NÃO invente, arredonde ou altere valores. Se o cliente perguntar sobre um produto que NÃO está na lista acima, diga que vai verificar.";
+          "\n\n⚠️ OBRIGATÓRIO: Use EXATAMENTE os preços acima. CONFIRME o produto com o cliente e pergunte a quantidade ANTES de calcular total.";
         console.log("[LLM CONTEXT] Using pre-fetched product data from search_product node");
       } else {
         // Determine search query: prioritize image identification, then message text
@@ -2835,11 +2835,11 @@ Responda APENAS com JSON válido:
                 return `${i + 1}. *${p.name}* — ${pf}${p.category ? ` (${p.category})` : ""}${p.barcode ? ` | Cód: ${p.barcode}` : ""}`;
               }).join("\n");
               
-              productContext = "\n\n📦 PRODUTOS ENCONTRADOS NO CATÁLOGO (dados reais — USE ESTES PREÇOS, não invente valores):\n" +
+              productContext = "\n\n📦 PRODUTOS ENCONTRADOS NO CATÁLOGO (dados reais):\n" +
                 products.map((p: any) => 
                   `- ${p.name}${p.barcode ? ` (cód: ${p.barcode})` : ""}: R$ ${Number(p.price).toFixed(2)}${p.category ? ` [${p.category}]` : ""}`
                 ).join("\n") +
-                "\n\n⚠️ OBRIGATÓRIO: Use EXATAMENTE os preços listados acima. NÃO invente, arredonde ou altere valores.";
+                "\n\n⚠️ CONFIRME o produto com o cliente e pergunte a quantidade ANTES de calcular total ou enviar PIX.";
               console.log(`[LLM CONTEXT] Dynamic search found ${products.length} products for "${searchQuery}"`);
             } else {
               console.log(`[LLM CONTEXT] No products found for "${searchQuery}"`);
@@ -3099,6 +3099,8 @@ PROGRESSO: Cada mensagem deve avançar a resolução. Prefira AÇÕES a PERGUNTA
 
 PROMESSAS: NUNCA diga "vou verificar/consultar/checar". PEÇA o que precisa (código de barras, foto, dados).
 
+CONFIRMAÇÃO DE PRODUTO: Ao identificar um produto (por código de barras, foto ou nome), SEMPRE confirme com o cliente antes de calcular total. Formato: "*[Produto]* — R$ X,XX. Quantas unidades?" Só calcule total APÓS o cliente informar a quantidade.
+
 📚 Base de conhecimento tem PRIORIDADE ABSOLUTA sobre conhecimento geral.`;
 
 
@@ -3221,11 +3223,20 @@ TIPOS DE PROBLEMA (colete dados, registre, resolva):
       const batchedImageCount = (ctx as any)._batchedImageUrls?.length || 0;
       if (ctx.messageType === "image" || (ctx as any)._lastImageUrl) {
         imageHint = `\n\n📸 IMAGEM RECEBIDA (${batchedImageCount > 1 ? batchedImageCount + " fotos" : "1 foto"}):
-- CÓDIGO DE BARRAS/PRODUTO → "Consultando no catálogo! 🔍" (sistema busca automaticamente)
-- COMPROVANTE → "Recebi, analisando! ✅"
-- Ilegível → peça reenvio com melhor foco
-- NÃO peça dados extras (nome/loja) quando receber código de barras
-- NÃO prometa ações — o sistema age automaticamente`;
+
+FLUXO OBRIGATÓRIO PARA CÓDIGO DE BARRAS/PRODUTO:
+1. Identifique o produto no catálogo (sistema busca automaticamente)
+2. CONFIRME com o cliente: "Encontrei *[nome do produto]* — R$ X,XX. Quantas unidades?" (1 frase só)
+3. AGUARDE a resposta da quantidade ANTES de calcular total ou enviar PIX
+4. SÓ após confirmar produto + quantidade → informe total e ofereça pagamento
+
+REGRAS:
+- NUNCA pule direto pro valor total sem confirmar o produto com o cliente
+- Se encontrou o produto, mostre nome + preço unitário + pergunte quantidade (TUDO em 1 msg curta)
+- Se NÃO encontrou, diga "Não encontrei esse produto. Pode enviar outra foto mais nítida do código de barras? 📸"
+- COMPROVANTE PIX → "Recebi, analisando! ✅"
+- Imagem ilegível → "Não consegui ler, envia de novo com mais foco? 📸"
+- NÃO peça dados extras (nome/loja) quando receber código de barras`;
       }
 
       // ── TTS DICTION: force formal spelling when reply will be audio ──
