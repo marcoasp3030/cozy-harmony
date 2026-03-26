@@ -3101,7 +3101,20 @@ PROMESSAS: NUNCA diga "vou verificar/consultar/checar". PEÇA o que precisa (có
 
 CONFIRMAÇÃO DE PRODUTO: Ao identificar um produto (por código de barras, foto ou nome), SEMPRE confirme com o cliente antes de calcular total. Formato: "*[Produto]* — R$ X,XX. Quantas unidades?" Só calcule total APÓS o cliente informar a quantidade.
 
-📚 Base de conhecimento tem PRIORIDADE ABSOLUTA sobre conhecimento geral.`;
+📚 Base de conhecimento tem PRIORIDADE ABSOLUTA sobre conhecimento geral.
+
+🔒 ENCERRAMENTO DE ATENDIMENTO:
+Quando o problema do cliente foi TOTALMENTE resolvido e ele demonstrar satisfação (ex: "obrigado", "valeu", "resolvido", "era só isso"), finalize de forma natural com uma despedida breve e ADICIONE a tag [ATENDIMENTO_CONCLUIDO] no FINAL da sua resposta (invisível ao cliente — o sistema remove antes de enviar).
+SINAIS de encerramento:
+- Cliente agradeceu e não tem mais dúvidas
+- Problema foi resolvido e confirmado
+- Cliente disse "era isso", "só isso", "valeu", "obrigado pela ajuda"
+- Pagamento confirmado e sem pendências
+NÃO encerre se:
+- Ainda há perguntas sem resposta
+- O cliente mencionou outro problema
+- Há ação pendente (aguardando comprovante, código, etc.)
+Formato da despedida: "Que bom que resolvemos! Qualquer coisa, estou por aqui. 😊" (ou similar, CURTA)`;
 
 
       // ── 8. PIX QUALIFICATION + AUTONOMOUS STORE SUPPORT INSTRUCTIONS ──
