@@ -10,6 +10,7 @@ import ProductCatalog from "@/components/settings/ProductCatalog";
 import VmPaySettings from "@/components/settings/VmPaySettings";
 import KnowledgeBase from "@/components/settings/KnowledgeBase";
 import LlmUsageDashboard from "@/components/settings/LlmUsageDashboard";
+import RetryQueuePanel from "@/components/settings/RetryQueuePanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
