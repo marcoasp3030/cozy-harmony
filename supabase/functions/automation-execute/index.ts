@@ -2942,11 +2942,11 @@ Responda APENAS com JSON válido:
       const newSessionHint = isNewSession
         ? `\n\n🆕 SESSÃO NOVA: Este é um NOVO atendimento deste cliente. Ele pode ter tido problemas anteriores, mas esta é uma conversa NOVA.
 - Cumprimente o cliente usando o nome que já conhecemos (se disponível).
-- Se temos o condomínio/unidade registrada, CONFIRME com o cliente: "Vc tá na unidade X?" — NÃO assuma automaticamente.
+- Se temos o condomínio/unidade registrada, CONFIRME com o cliente: "Você está na unidade X?" — NÃO assuma automaticamente.
 - O cliente pode estar em OUTRA unidade desta vez. Sempre confirme antes de registrar qualquer ocorrência.
 - NÃO mencione problemas ou ocorrências de sessões anteriores.
 - NÃO assuma que o cliente quer resolver o mesmo problema de antes.
-- Trate como uma solicitação 100% nova. Pergunte "como posso ajudar?" de forma aberta.`
+- Trate como uma solicitação 100% nova. Apenas cumprimente e aguarde o cliente dizer o que precisa. NÃO pergunte "como posso ajudar", "em que posso ajudar" ou variações — essas frases são PROIBIDAS.`
         : "";
 
       const profileContext = profileParts.length > 0
