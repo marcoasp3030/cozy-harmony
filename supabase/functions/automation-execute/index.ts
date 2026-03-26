@@ -3101,7 +3101,20 @@ PROMESSAS: NUNCA diga "vou verificar/consultar/checar". PEÇA o que precisa (có
 
 CONFIRMAÇÃO DE PRODUTO: Ao identificar um produto (por código de barras, foto ou nome), SEMPRE confirme com o cliente antes de calcular total. Formato: "*[Produto]* — R$ X,XX. Quantas unidades?" Só calcule total APÓS o cliente informar a quantidade.
 
-📚 Base de conhecimento tem PRIORIDADE ABSOLUTA sobre conhecimento geral.`;
+📚 Base de conhecimento tem PRIORIDADE ABSOLUTA sobre conhecimento geral.
+
+🔒 ENCERRAMENTO DE ATENDIMENTO:
+Quando o problema do cliente foi TOTALMENTE resolvido e ele demonstrar satisfação (ex: "obrigado", "valeu", "resolvido", "era só isso"), finalize de forma natural com uma despedida breve e ADICIONE a tag [ATENDIMENTO_CONCLUIDO] no FINAL da sua resposta (invisível ao cliente — o sistema remove antes de enviar).
+SINAIS de encerramento:
+- Cliente agradeceu e não tem mais dúvidas
+- Problema foi resolvido e confirmado
+- Cliente disse "era isso", "só isso", "valeu", "obrigado pela ajuda"
+- Pagamento confirmado e sem pendências
+NÃO encerre se:
+- Ainda há perguntas sem resposta
+- O cliente mencionou outro problema
+- Há ação pendente (aguardando comprovante, código, etc.)
+Formato da despedida: "Que bom que resolvemos! Qualquer coisa, estou por aqui. 😊" (ou similar, CURTA)`;
 
 
       // ── 8. PIX QUALIFICATION + AUTONOMOUS STORE SUPPORT INSTRUCTIONS ──
@@ -4059,6 +4072,14 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
           }
         }
 
+        // ── AUTO-CLOSE DETECTION: check if AI signaled conversation completion ──
+        let shouldAutoClose = false;
+        if (reply.includes("[ATENDIMENTO_CONCLUIDO]")) {
+          shouldAutoClose = true;
+          reply = reply.replace(/\s*\[ATENDIMENTO_CONCLUIDO\]\s*/g, "").trim();
+          console.log(`[AUTO-CLOSE] AI signaled conversation completion for conv ${ctx.conversationId}`);
+        }
+
         // ── SMART MULTI-MESSAGE SEND: split on --- and send sequentially like a human ──
         if (!d.suppress_send && !shouldHoldPrimaryReply && !storeConfirmationHandled) {
           const messageParts = reply.includes("---")
@@ -4083,6 +4104,20 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
         } else if (!d.suppress_send && shouldHoldPrimaryReply) {
           ctx.variables["_audit_reply_suppressed"] = `Resposta suprimida para aguardar lookup de imagem: "${reply.slice(0, 200)}"`;
           console.log(`[AUDIT] Primary reply suppressed at ${new Date().toISOString()} — waiting for barcode lookup`);
+        }
+
+        // ── AUTO-CLOSE: mark conversation as resolved if AI signaled completion ──
+        if (shouldAutoClose && ctx.conversationId) {
+          try {
+            await supabase.from("conversations").update({
+              status: "resolved",
+              funnel_stage_id: null,
+              funnel_id: null,
+            }).eq("id", ctx.conversationId);
+            console.log(`[AUTO-CLOSE] ✅ Conversation ${ctx.conversationId} marked as resolved by AI`);
+          } catch (closeErr) {
+            console.error(`[AUTO-CLOSE] Failed to close conversation:`, closeErr);
+          }
         }
 
         if (shouldRunPostReplyLookup) {
