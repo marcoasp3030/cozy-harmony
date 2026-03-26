@@ -3824,10 +3824,11 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
         const isPaymentOrCatalogContext = /\b(valor|preço|preco|pix|pagamento|pagar|barcode|c[oó]digo\s+de\s+barras?)\b/i.test(customerContextForGuard) || hasCatalogProduct;
         if (!isPaymentOrCatalogContext) {
           const guarded = enforceConciseNaturalReply(reply);
-          if (guarded !== reply) {
+          if (guarded && guarded !== reply) {
             console.log(`[LLM STYLE GUARD] Reply normalized (${reply.length} -> ${guarded.length} chars)`);
+            reply = guarded;
           }
-          reply = guarded;
+          // If guarded returned empty, keep the original reply as-is
         }
 
         const isDifficultyContext = PIX_DIFFICULTY_KEYWORDS.test(customerContextForGuard);
