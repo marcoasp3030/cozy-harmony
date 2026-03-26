@@ -55,6 +55,67 @@ interface NodeLogEntry {
 // ── Cached WhatsApp instance lookup (avoids 5+ DB queries per execution) ──
 const instanceCache = new Map<string, { base_url: string; instance_token: string } | null>();
 
+// ── Knowledge Base in-memory cache (TTL 5 min) ──
+interface KBCacheEntry {
+  alwaysCats: Array<{ id: string; name: string }>;
+  demandCats: Array<{ id: string; name: string }>;
+  demandArts: Array<{ id: string; category_id: string; title: string; tags: string[] }>;
+  allArticles: Map<string, Array<{ id: string; title: string; content: string; category_id: string }>>;
+  fetchedAt: number;
+}
+const kbCache = new Map<string, KBCacheEntry>();
+const KB_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+async function getCachedKB(supabase: any, userId: string): Promise<KBCacheEntry> {
+  const now = Date.now();
+  const cached = kbCache.get(userId);
+  if (cached && (now - cached.fetchedAt) < KB_CACHE_TTL_MS) {
+    return cached;
+  }
+
+  // Fetch categories in parallel
+  const [alwaysRes, demandRes] = await Promise.all([
+    supabase.from("knowledge_categories").select("id, name").eq("created_by", userId).eq("always_inject", true),
+    supabase.from("knowledge_categories").select("id, name").eq("created_by", userId).eq("always_inject", false),
+  ]);
+
+  const alwaysCats = alwaysRes.data || [];
+  const demandCats = demandRes.data || [];
+
+  // Fetch demand articles for tag matching
+  const demandIds = demandCats.map((c: any) => c.id);
+  let demandArts: any[] = [];
+  if (demandIds.length > 0) {
+    const { data } = await supabase
+      .from("knowledge_articles")
+      .select("id, category_id, title, tags")
+      .eq("is_active", true)
+      .in("category_id", demandIds);
+    demandArts = data || [];
+  }
+
+  // Prefetch all active articles grouped by category for fast lookup
+  const allCatIds = [...alwaysCats.map((c: any) => c.id), ...demandIds];
+  const allArticles = new Map<string, Array<{ id: string; title: string; content: string; category_id: string }>>();
+  if (allCatIds.length > 0) {
+    const { data: arts } = await supabase
+      .from("knowledge_articles")
+      .select("id, title, content, category_id")
+      .eq("is_active", true)
+      .in("category_id", allCatIds);
+    for (const art of arts || []) {
+      const list = allArticles.get(art.category_id) || [];
+      list.push(art);
+      allArticles.set(art.category_id, list);
+    }
+  }
+
+  const entry: KBCacheEntry = { alwaysCats, demandCats, demandArts, allArticles, fetchedAt: now };
+  kbCache.set(userId, entry);
+  console.log(`[KB-CACHE] Refreshed for user ${userId}: ${alwaysCats.length} always-inject cats, ${demandCats.length} demand cats, ${allArticles.size} category article groups`);
+  return entry;
+}
+
 async function getCachedInstance(supabase: any, userId: string | null, instanceId?: string | null): Promise<{ base_url: string; instance_token: string } | null> {
   const cacheKey = instanceId || userId || "__default__";
   if (instanceCache.has(cacheKey)) return instanceCache.get(cacheKey)!;
