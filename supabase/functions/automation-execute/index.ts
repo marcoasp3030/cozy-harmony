@@ -2898,7 +2898,8 @@ Responda APENAS com JSON válido:
       const profileContext = profileParts.length > 0
         ? `\n\n👤 PERFIL DO CONTATO (dados já conhecidos):\n${profileParts.join("\n")}\n\n🚫 REGRAS DE DADOS CONHECIDOS:
 - Se o NOME do contato já está listado acima, NUNCA peça "nome completo" — use o nome que já temos.
-- Se a UNIDADE/LOJA/CONDOMÍNIO já está registrada no perfil: CONFIRME com o cliente antes de usar ("Vc tá na unidade X?"). O cliente pode estar em outra loja desta vez.
+- A UNIDADE/LOJA/CONDOMÍNIO registrada no perfil é apenas referência interna. NÃO mencione o nome da loja ao cliente a menos que ELE tenha mencionado primeiro nesta conversa OU esteja relatando um problema que exija confirmação de local.
+- Em saudações simples (Olá, Oi, Bom dia), NUNCA cite o nome da loja do perfil — apenas cumprimente normalmente.
 - Se o cliente JÁ INFORMOU a loja NESTA CONVERSA, NÃO pergunte novamente.
 
 🔍 REGRA DE CONTEXTO CONVERSACIONAL: Releia TODA a conversa acima antes de responder. Se o cliente já informou QUALQUER dado nesta conversa, considere como já coletado. NUNCA re-pergunte algo que já foi dito nesta sessão.${newSessionHint}`
@@ -3120,19 +3121,21 @@ Este é um mini mercado que funciona 24 horas por dia, 7 dias por semana, SEM fu
 📋 GUIA DE ATENDIMENTO POR TIPO DE PROBLEMA:
 
 🏷️ CONFIRMAÇÃO DE LOJA — PROTOCOLO OBRIGATÓRIO:
-- SEMPRE confirme a unidade/loja com o cliente ANTES de registrar qualquer ocorrência
-- Se o perfil já tem uma loja registrada, pergunte: "Você está na unidade [nome]?" — o cliente pode estar em OUTRA loja
+- Confirme a unidade/loja com o cliente APENAS quando ele relatar um PROBLEMA ou solicitar um SERVIÇO (pagamento, ocorrência, acesso, etc.)
+- Em SAUDAÇÕES INICIAIS (Olá, Oi, Bom dia, etc.) NÃO mencione nem pergunte sobre loja — apenas cumprimente e pergunte como pode ajudar
+- Se o perfil já tem uma loja registrada, só pergunte "Você está na unidade [nome]?" DEPOIS que o cliente descrever um problema
 - Se o cliente mencionar a loja no texto, confirme: "É na [nome], certo?"
 - NUNCA registre ocorrência sem confirmação da loja pelo cliente
-- Se o cliente NÃO informou a loja, pergunte de forma natural: "Em qual das nossas lojas você está?"
+- Se o cliente NÃO informou a loja E já relatou um problema, pergunte de forma natural: "Em qual das nossas lojas você está?"
 
 🔖 TAG DE CONFIRMAÇÃO DE LOJA — OBRIGATÓRIO:
-Quando você quiser confirmar a unidade/loja com o cliente, INCLUA na sua resposta a tag:
+Quando você quiser confirmar a unidade/loja com o cliente (SOMENTE após ele relatar um problema), INCLUA na sua resposta a tag:
 [CONFIRMAR_LOJA:NomeDaLoja]
 Exemplo: Se o cliente mencionou "w Ville", inclua [CONFIRMAR_LOJA:W Ville] na resposta.
-Se o perfil tem "Alphavita", inclua [CONFIRMAR_LOJA:Alphavita] na resposta.
+Se o perfil tem "Alphavita" E o cliente já relatou um problema, inclua [CONFIRMAR_LOJA:Alphavita] na resposta.
 NÃO escreva a pergunta de confirmação de loja por extenso — use APENAS a tag. O sistema vai gerar botões interativos automaticamente.
 Se você NÃO sabe o nome da loja, NÃO use a tag — pergunte normalmente "Em qual loja você está?".
+NUNCA use a tag [CONFIRMAR_LOJA] em resposta a saudações simples (Olá, Oi, Bom dia, etc.).
 
 📋 PROTOCOLO DE COLETA DE INFORMAÇÕES — ANTES DE REGISTRAR/ENCAMINHAR:
 Para CADA tipo de problema, colete os dados listados ANTES de dizer que vai resolver:
