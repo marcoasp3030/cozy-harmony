@@ -3159,34 +3159,11 @@ TIPOS DE PROBLEMA (colete dados, registre, resolva):
 - Termos jurídicos: encaminhe imediatamente, prioridade ALTA`;
 
 
-      const pixQualificationHint = `\n\n💳 REGRAS DE PIX/PAGAMENTO (OBRIGATÓRIO — SEGUIR À RISCA):
-- NUNCA envie a chave PIX proativamente em texto. NUNCA inclua o email "financeiro@nutricarbrasil.com.br" na sua resposta. O sistema controla o envio automaticamente.
-- O FLUXO OBRIGATÓRIO para qualquer situação envolvendo pagamento é:
-
-  📋 ETAPA 1 — ENTENDER O PROBLEMA:
-  - Demonstre empatia
-  - Pergunte SOMENTE os detalhes que ainda NÃO foram informados (loja, o que aconteceu)
-  - NÃO ofereça PIX nesta etapa
-
-  📸 ETAPA 2 — IDENTIFICAR PRODUTOS E VALORES:
-  - Peça ao cliente para enviar uma FOTO DO CÓDIGO DE BARRAS de TODOS os produtos que pegou
-  - Explique: "Com o código de barras consigo consultar o valor exato no sistema"
-  - Se o cliente enviar o nome do produto em vez do código, tente consultar, mas INCENTIVE o envio do código de barras para precisão
-  - ⚡ ATALHO: Se o cliente JÁ SABE o valor (ex: "preciso pagar R$ 15", "o total é 12,50", "cartão não passou, eram R$ 20"), NÃO peça código de barras. Aceite o valor informado pelo cliente e prossiga direto para a confirmação.
-  - DICA: Clientes cujo cartão foi recusado geralmente já viram o valor no totem — nesse caso NÃO é necessário pedir código de barras.
-
-  🛒 ETAPA 3 — CONFIRMAR VALORES:
-  - Após identificar os produtos/valores (via catálogo OU informados pelo cliente), confirme
-  - O SISTEMA enviará automaticamente um botão interativo perguntando se o cliente deseja receber a chave PIX
-  - NÃO tente enviar a chave PIX no texto — o sistema faz isso via botão
-
-  ✅ ETAPA 4 — CHAVE PIX (AUTOMÁTICA):
-  - A chave PIX SÓ é enviada quando o cliente clica no botão "Enviar chave PIX"
-  - Você NÃO precisa (e NÃO deve) enviar a chave no texto
-
-- NUNCA assuma que "problema com pagamento" = "quer pagar via PIX". O cliente pode querer estorno, reclamação, ou ajuda técnica.
-- Se o cliente NÃO informou valor E NÃO enviou código de barras, peça um dos dois antes de oferecer PIX.
-- Se o cliente disser "já paguei" ou "tá pago", NÃO envie chave PIX — peça o comprovante.`;
+      const pixQualificationHint = `\n\n💳 PIX/PAGAMENTO:
+- NUNCA envie chave PIX no texto (sistema envia via botão automaticamente)
+- Fluxo: 1) Entender problema → 2) Pedir código de barras (ou aceitar valor se cliente já sabe) → 3) Confirmar valor → 4) Sistema envia botão PIX
+- Se cliente já informou valor, NÃO peça código de barras
+- "Já paguei" → peça comprovante, NÃO envie PIX`;
 
       // ── 9. KNOWLEDGE BASE: inject relevant articles (CACHED + FUZZY SEARCH) ──
       let knowledgeContext = "";
