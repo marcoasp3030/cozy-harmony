@@ -4072,6 +4072,14 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
           }
         }
 
+        // ── AUTO-CLOSE DETECTION: check if AI signaled conversation completion ──
+        let shouldAutoClose = false;
+        if (reply.includes("[ATENDIMENTO_CONCLUIDO]")) {
+          shouldAutoClose = true;
+          reply = reply.replace(/\s*\[ATENDIMENTO_CONCLUIDO\]\s*/g, "").trim();
+          console.log(`[AUTO-CLOSE] AI signaled conversation completion for conv ${ctx.conversationId}`);
+        }
+
         // ── SMART MULTI-MESSAGE SEND: split on --- and send sequentially like a human ──
         if (!d.suppress_send && !shouldHoldPrimaryReply && !storeConfirmationHandled) {
           const messageParts = reply.includes("---")
