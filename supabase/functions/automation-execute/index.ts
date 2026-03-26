@@ -4106,7 +4106,20 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
           console.log(`[AUDIT] Primary reply suppressed at ${new Date().toISOString()} — waiting for barcode lookup`);
         }
 
-        if (shouldRunPostReplyLookup) {
+        // ── AUTO-CLOSE: mark conversation as resolved if AI signaled completion ──
+        if (shouldAutoClose && ctx.conversationId) {
+          try {
+            await supabase.from("conversations").update({
+              status: "resolved",
+              funnel_stage_id: null,
+              funnel_id: null,
+            }).eq("id", ctx.conversationId);
+            console.log(`[AUTO-CLOSE] ✅ Conversation ${ctx.conversationId} marked as resolved by AI`);
+          } catch (closeErr) {
+            console.error(`[AUTO-CLOSE] Failed to close conversation:`, closeErr);
+          }
+        }
+
           console.log("[POST-LLM] Triggered image product lookup after reply");
           try {
             // Quick AI call to extract barcode number AND/OR product name from the image
