@@ -1,0 +1,2 @@
+ALTER TABLE public.campaigns DROP CONSTRAINT campaigns_instance_id_fkey;
+ALTER TABLE public.campaigns ADD CONSTRAINT campaigns_instance_id_fkey FOREIGN KEY (instance_id) REFERENCES public.whatsapp_instances(id) ON DELETE SET NULL;
