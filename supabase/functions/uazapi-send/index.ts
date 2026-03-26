@@ -195,9 +195,9 @@ serve(async (req) => {
             user_id: userId,
             phone: cleanNumber,
             message_type: type,
-            instance_id: instanceId || null,
+            instance_id: resolvedInstanceId,
             payload: retryPayload,
-            next_retry_at: new Date(Date.now() + 30_000).toISOString(), // first retry in 30s
+            next_retry_at: new Date(Date.now() + 30_000).toISOString(),
           });
           console.log(`[RETRY-ENQUEUE] Message to ${cleanNumber} queued for retry (HTTP ${res.status})`);
         } catch (retryErr) {
