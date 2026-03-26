@@ -224,7 +224,8 @@ function enforceConciseNaturalReply(text: string): string {
   let concise = sentences.slice(0, 3).join(" ").trim();
 
   if (!concise) {
-    concise = "Entendi! Me envia uma 📸 foto do código de barras do produto para eu consultar o valor 😊";
+    // Return empty string — let the caller handle empty responses instead of injecting a hardcoded fallback
+    return "";
   }
 
   if (concise.length > 300) {
