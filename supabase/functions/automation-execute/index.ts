@@ -168,11 +168,11 @@ function mapModelForProvider(model: string, targetProvider: "openai" | "gemini")
   }
   if (targetProvider === "openai") {
     const openaiMap: Record<string, string> = {
-      "gemini-2.5-flash": "gpt-4o-2024-11-20",
-      "gemini-2.5-flash-lite": "gpt-4o-2024-11-20",
-      "gemini-2.5-pro": "gpt-4o-2024-11-20",
+      "gemini-2.5-flash": "gpt-4o",
+      "gemini-2.5-flash-lite": "gpt-4o",
+      "gemini-2.5-pro": "gpt-4o",
     };
-    return openaiMap[model] || (model.startsWith("gemini") ? "gpt-4o-2024-11-20" : model);
+    return openaiMap[model] || (model.startsWith("gemini") ? "gpt-4o" : model);
   }
   return model;
 }
@@ -274,11 +274,11 @@ async function callAIWithUserKeys(
 ): Promise<string> {
   const { maxTokens = 300, temperature = 0.2, timeoutMs = 15000 } = options;
 
-  // Determine provider order: prefer Gemini if OpenAI is disabled or unavailable
+  // Determine provider order: ALWAYS prefer OpenAI first for best accuracy
   const providers: Array<"openai" | "gemini"> = [];
   if (keys.openai && !disabledProviders.has("openai")) providers.push("openai");
   if (keys.gemini && !disabledProviders.has("gemini")) providers.push("gemini");
-  // If OpenAI was disabled but Gemini wasn't added yet, add it
+  // Fallback: if primary was disabled, still try the other
   if (providers.length === 0 && keys.gemini) providers.push("gemini");
   if (providers.length === 0 && keys.openai) providers.push("openai");
 
@@ -291,7 +291,7 @@ async function callAIWithUserKeys(
           method: "POST",
           headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: "gpt-4o-2024-11-20",
+            model: "gpt-4o",
             messages: [{ role: "system", content: prompt }],
             max_tokens: maxTokens,
             temperature: 0.7,
@@ -443,7 +443,7 @@ async function callAIVisionWithUserKeys(
         method: "POST",
         headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "gpt-4o-2024-11-20",
+          model: "gpt-4o",
           messages: [{
             role: "user",
             content: [
