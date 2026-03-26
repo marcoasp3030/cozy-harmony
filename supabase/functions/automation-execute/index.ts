@@ -2855,7 +2855,100 @@ Responda APENAS com JSON válido:
         }
       }
 
-      // ── 7. RESPONSE VARIATION INSTRUCTION ──
+      // ── 7. PERSONALIZED GREETING by time + history ──
+      let greetingHint = "";
+      if (isNewSession) {
+        const brHour = new Date(now + (-3 * 60 * 60 * 1000)).getUTCHours();
+        const greetingTime = brHour >= 5 && brHour < 12 ? "Bom dia" : brHour >= 12 && brHour < 18 ? "Boa tarde" : "Boa noite";
+        const contactName = contactProfile?.name && contactProfile.name !== "Não informado" ? contactProfile.name.split(" ")[0] : "";
+        
+        // Check last interaction for context
+        let lastInteractionContext = "";
+        try {
+          const { data: lastConv } = await supabase
+            .from("messages")
+            .select("content, created_at, type")
+            .eq("contact_id", ctx.contactId)
+            .eq("direction", "inbound")
+            .order("created_at", { ascending: false })
+            .limit(5);
+          
+          if (lastConv && lastConv.length > 1) {
+            const lastMsgDate = new Date(lastConv[1]?.created_at || "");
+            const daysDiff = Math.floor((now - lastMsgDate.getTime()) / (1000 * 60 * 60 * 24));
+            if (daysDiff >= 1 && daysDiff <= 30) {
+              lastInteractionContext = `\n- Última interação deste cliente foi há ${daysDiff} dia(s). Se relevante, use isso para personalizar: "Que bom te ver de novo!" ou similar.`;
+            }
+          }
+        } catch {}
+
+        // Detect store/unit from conversation_summary
+        let storeContext = "";
+        const summary = contactProfile?.conversation_summary || "";
+        const storeMatch = summary.match(/(?:unidade|loja|filial|centro|shopping)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)*)/i);
+        if (storeMatch) {
+          storeContext = `\n- A última unidade registrada do cliente é "${storeMatch[0].trim()}". NÃO assuma que ele está lá agora — pergunte naturalmente: "Você está na ${storeMatch[0].trim()}?"`;
+        }
+
+        greetingHint = `\n\n🌅 SAUDAÇÃO PERSONALIZADA (sessão nova):
+- Use "${greetingTime}${contactName ? `, ${contactName}` : ""}!" como base, mas VARIE naturalmente.
+- Alternativas: "${contactName || "Oi"}! ${greetingTime} 😊", "Ei${contactName ? ` ${contactName}` : ""}! ${greetingTime}!", ou "${greetingTime}! Tudo bem${contactName ? `, ${contactName}` : ""}?"
+- NUNCA use a mesma saudação duas vezes para o mesmo contato.${lastInteractionContext}${storeContext}`;
+        console.log(`[GREETING] Personalized greeting: ${greetingTime}, name=${contactName || "unknown"}`);
+      }
+
+      // ── 8. PROACTIVE PRODUCT PATTERN DETECTION ──
+      let proactiveHint = "";
+      if (isNewSession) {
+        try {
+          // Find products the client frequently asks about (from message history)
+          const { data: recentMsgs } = await supabase
+            .from("messages")
+            .select("content")
+            .eq("contact_id", ctx.contactId)
+            .eq("direction", "inbound")
+            .not("content", "is", null)
+            .order("created_at", { ascending: false })
+            .limit(50);
+          
+          if (recentMsgs && recentMsgs.length > 5) {
+            // Count product-related keyword occurrences
+            const productMentions: Record<string, number> = {};
+            const productPattern = /(?:pre[cç]o|quanto\s+(?:custa|é|tá)|valor)\s+(?:d[aoe]s?\s+)?(.{3,30}?)(?:\?|$|\.|,)/gi;
+            
+            for (const msg of recentMsgs) {
+              const content = msg.content || "";
+              let match;
+              while ((match = productPattern.exec(content)) !== null) {
+                const product = match[1].trim().toLowerCase();
+                if (product.length >= 3) {
+                  productMentions[product] = (productMentions[product] || 0) + 1;
+                }
+              }
+            }
+            
+            // Find top recurring product (asked 2+ times)
+            const topProducts = Object.entries(productMentions)
+              .filter(([, count]) => count >= 2)
+              .sort(([, a], [, b]) => b - a)
+              .slice(0, 3);
+            
+            if (topProducts.length > 0) {
+              const productList = topProducts.map(([name, count]) => `"${name}" (perguntou ${count}x)`).join(", ");
+              proactiveHint = `\n\n🎯 PROATIVIDADE (padrões detectados):
+- Este cliente pergunta frequentemente sobre: ${productList}.
+- Se o contexto permitir, ANTECIPE a necessidade: "Quer saber o preço do(a) [produto]?" ou "Já consultei o [produto] pra você!"
+- Use isso APENAS se fizer sentido no fluxo da conversa. NÃO force a sugestão se o cliente veio com outro assunto.
+- NUNCA invente preços — apenas sugira que pode consultar.`;
+              console.log(`[PROACTIVE] Detected product patterns: ${productList}`);
+            }
+          }
+        } catch (e) {
+          console.error("[PROACTIVE] Error:", e);
+        }
+      }
+
+      // ── 9. RESPONSE VARIATION INSTRUCTION ──
       const variationHint = `\n\n🎭 VARIAÇÃO DE RESPOSTAS:
 - NÃO repita a mesma saudação. Varie entre: "Oi", "Olá", "Ei", usar só o nome, ou ir direto ao ponto.
 - Se já cumprimentou antes nesta conversa, NÃO cumprimente de novo.
