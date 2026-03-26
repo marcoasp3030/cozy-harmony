@@ -1301,12 +1301,20 @@ Mensagem do cliente: "${classifyContent.slice(0, 500)}"`;
       const customerValueInteractive = valueMatchInteractive ? parseFloat(valueMatchInteractive[1].replace(",", ".")) : null;
       const hasCustomerValueInteractive = customerValueInteractive !== null && Number.isFinite(customerValueInteractive) && customerValueInteractive > 0;
 
-      if (isDifficultyInteractive && !isExplicitPixInteractive && isPaymentMsg && !hasCustomerValueInteractive) {
+      // ── IMAGE BYPASS: If the customer sent an image (barcode photo), skip difficulty guard
+      // and let the flow continue to image analysis / barcode extraction nodes ──
+      const hasImageInContext = ctx.messageType === "image" || !!(ctx as any)._batchedImageUrls?.length || !!(ctx as any)._lastImageUrl || !!ctx.variables["imagem_url"];
+
+      if (hasImageInContext && isDifficultyInteractive && isPaymentMsg) {
+        console.log(`[PIX GUARD] ⏭️ BYPASSED — customer sent image (barcode photo), letting flow continue to image analysis`);
+      }
+
+      if (isDifficultyInteractive && !isExplicitPixInteractive && isPaymentMsg && !hasCustomerValueInteractive && !hasImageInContext) {
         // Customer has a PROBLEM and did NOT state a value — ask for details
         console.log(`[PIX GUARD] Difficulty detected WITHOUT value — converting to AI qualification message`);
         ctx.variables["_difficulty_detected"] = "true";
         ctx.variables["_audit_reply_suppressed"] = `Mensagem interativa PIX bloqueada — relato de dificuldade: "${ctx.messageContent?.slice(0, 100)}"`;
-        
+
         // Use AI to generate a context-aware qualification message
         const { keys: guardKeys } = await getUserAIKeys(supabase, ctx.userId);
         
