@@ -1,0 +1,1 @@
+UPDATE automations SET instance_id = 'bfa7cf47-bffa-456d-8bb1-af0eb9471080' WHERE id = '714c97a8-1053-46ba-9db2-87d88bc0c5ec';
