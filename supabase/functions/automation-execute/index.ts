@@ -2288,14 +2288,16 @@ Responda APENAS com JSON válido:
                 return { flagged: true, deferred: true, reason: parsed.reason };
               }
 
-              // Dedup check
-              const dedupCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+              // Dedup check — 2 hour window, also check by type
+              const dedupCutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+              const validTypes2 = ["elogio", "reclamacao", "furto", "falta_produto", "produto_vencido", "loja_suja", "problema_pagamento", "loja_sem_energia", "acesso_bloqueado", "sugestao", "duvida", "outro"];
+              const occType2 = validTypes2.includes(parsed.type) ? parsed.type : defaultType;
               const { data: recentOcc } = await supabase
                 .from("occurrences")
-                .select("id")
+                .select("id, type, description")
                 .eq("contact_phone", contactPhone)
                 .gte("created_at", dedupCutoff)
-                .limit(1);
+                .limit(5);
 
               if (recentOcc?.length) {
                 console.log(`[OCCURRENCE] Dedup: skipping, recent occurrence exists`);
