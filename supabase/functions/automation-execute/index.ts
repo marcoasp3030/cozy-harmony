@@ -4097,6 +4097,64 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
           }
         }
 
+        // ── DEDUPLICATION GUARD: check if reply is too similar to recent outbound messages ──
+        if (!d.suppress_send && !shouldHoldPrimaryReply && !storeConfirmationHandled) {
+          try {
+            const { data: recentOutboundMsgs } = await supabase
+              .from("messages")
+              .select("content")
+              .eq("contact_id", ctx.contactId)
+              .eq("direction", "outbound")
+              .not("content", "is", null)
+              .order("created_at", { ascending: false })
+              .limit(8);
+
+            if (recentOutboundMsgs && recentOutboundMsgs.length > 0) {
+              const replyNorm = reply.toLowerCase().replace(/[^\w\s]/g, "").replace(/\s+/g, " ").trim();
+              const replyWords = new Set(replyNorm.split(" ").filter((w: string) => w.length > 3));
+              
+              for (const prevMsg of recentOutboundMsgs) {
+                const prevNorm = (prevMsg.content || "").toLowerCase().replace(/[^\w\s]/g, "").replace(/\s+/g, " ").trim();
+                if (!prevNorm || prevNorm.length < 20) continue;
+                
+                // Check exact substring match
+                if (replyNorm === prevNorm || replyNorm.includes(prevNorm) || prevNorm.includes(replyNorm)) {
+                  console.warn(`[DEDUP GUARD] ⚠️ Reply is duplicate/subset of recent outbound message — regenerating`);
+                  // Instead of blocking, add anti-repetition instruction and let the existing reply be modified
+                  reply = reply + "\n\n⚠️ [SISTEMA: Esta resposta é similar a uma mensagem já enviada. Reformule.]";
+                  // Re-call AI with stronger instruction
+                  const dedupPrompt = `${enrichedSystemPrompt}\n\n🚨 ALERTA CRÍTICO: Sua última resposta ("${reply.slice(0, 100)}...") é IDÊNTICA a uma mensagem já enviada nesta conversa. Você DEVE gerar uma resposta COMPLETAMENTE DIFERENTE que AVANCE a conversa. NÃO repita a mesma informação. Se não tem nada novo a adicionar, avance para a próxima etapa do atendimento.`;
+                  const dedupMessages = chatMessages.map((m: any) => ({ ...m }));
+                  dedupMessages[0] = { role: "system", content: dedupPrompt };
+                  
+                  const dedupReply = await callAIWithUserKeys(keys, dedupPrompt, { maxTokens, temperature: 0.8, timeoutMs: aiTimeoutSeconds * 1000 });
+                  if (dedupReply && dedupReply.length > 10) {
+                    reply = dedupReply;
+                    console.log(`[DEDUP GUARD] ✅ Regenerated reply (${reply.length} chars): "${reply.slice(0, 80)}..."`);
+                  }
+                  break;
+                }
+                
+                // Check word overlap similarity (Jaccard)
+                const prevWords = new Set(prevNorm.split(" ").filter((w: string) => w.length > 3));
+                if (prevWords.size < 3 || replyWords.size < 3) continue;
+                const intersection = [...replyWords].filter(w => prevWords.has(w)).length;
+                const union = new Set([...replyWords, ...prevWords]).size;
+                const similarity = intersection / union;
+                
+                if (similarity > 0.7) {
+                  console.warn(`[DEDUP GUARD] ⚠️ Reply has ${Math.round(similarity * 100)}% word overlap with recent message — will diversify`);
+                  // Don't block, but log for monitoring
+                  ctx.variables["_audit_dedup_warning"] = `Similarity ${Math.round(similarity * 100)}% with: "${(prevMsg.content || "").slice(0, 100)}"`;
+                  break;
+                }
+              }
+            }
+          } catch (dedupErr) {
+            console.error("[DEDUP GUARD] Error:", dedupErr);
+          }
+        }
+
         // ── SMART MULTI-MESSAGE SEND: split on --- and send sequentially like a human ──
         if (!d.suppress_send && !shouldHoldPrimaryReply && !storeConfirmationHandled) {
           const messageParts = reply.includes("---")
