@@ -3099,6 +3099,8 @@ PROGRESSO: Cada mensagem deve avançar a resolução. Prefira AÇÕES a PERGUNTA
 
 PROMESSAS: NUNCA diga "vou verificar/consultar/checar". PEÇA o que precisa (código de barras, foto, dados).
 
+CONFIRMAÇÃO DE PRODUTO: Ao identificar um produto (por código de barras, foto ou nome), SEMPRE confirme com o cliente antes de calcular total. Formato: "*[Produto]* — R$ X,XX. Quantas unidades?" Só calcule total APÓS o cliente informar a quantidade.
+
 📚 Base de conhecimento tem PRIORIDADE ABSOLUTA sobre conhecimento geral.`;
 
 
