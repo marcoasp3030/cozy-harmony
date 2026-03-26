@@ -274,11 +274,11 @@ async function callAIWithUserKeys(
 ): Promise<string> {
   const { maxTokens = 300, temperature = 0.2, timeoutMs = 15000 } = options;
 
-  // Determine provider order: prefer Gemini if OpenAI is disabled or unavailable
+  // Determine provider order: ALWAYS prefer OpenAI first for best accuracy
   const providers: Array<"openai" | "gemini"> = [];
   if (keys.openai && !disabledProviders.has("openai")) providers.push("openai");
   if (keys.gemini && !disabledProviders.has("gemini")) providers.push("gemini");
-  // If OpenAI was disabled but Gemini wasn't added yet, add it
+  // Fallback: if primary was disabled, still try the other
   if (providers.length === 0 && keys.gemini) providers.push("gemini");
   if (providers.length === 0 && keys.openai) providers.push("openai");
 
