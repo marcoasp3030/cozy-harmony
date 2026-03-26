@@ -2835,11 +2835,11 @@ Responda APENAS com JSON válido:
                 return `${i + 1}. *${p.name}* — ${pf}${p.category ? ` (${p.category})` : ""}${p.barcode ? ` | Cód: ${p.barcode}` : ""}`;
               }).join("\n");
               
-              productContext = "\n\n📦 PRODUTOS ENCONTRADOS NO CATÁLOGO (dados reais — USE ESTES PREÇOS, não invente valores):\n" +
+              productContext = "\n\n📦 PRODUTOS ENCONTRADOS NO CATÁLOGO (dados reais):\n" +
                 products.map((p: any) => 
                   `- ${p.name}${p.barcode ? ` (cód: ${p.barcode})` : ""}: R$ ${Number(p.price).toFixed(2)}${p.category ? ` [${p.category}]` : ""}`
                 ).join("\n") +
-                "\n\n⚠️ OBRIGATÓRIO: Use EXATAMENTE os preços listados acima. NÃO invente, arredonde ou altere valores.";
+                "\n\n⚠️ CONFIRME o produto com o cliente e pergunte a quantidade ANTES de calcular total ou enviar PIX.";
               console.log(`[LLM CONTEXT] Dynamic search found ${products.length} products for "${searchQuery}"`);
             } else {
               console.log(`[LLM CONTEXT] No products found for "${searchQuery}"`);
