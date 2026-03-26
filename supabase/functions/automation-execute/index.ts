@@ -2345,7 +2345,7 @@ Responda APENAS com JSON válido:
       const systemPrompt = interpolate(String(d.system_prompt || "Você é um assistente de atendimento."), ctx);
       const provider = d.provider || "openai";
       const model = d.model || (provider === "openai" ? "gpt-4o-2024-11-20" : "gemini-2.5-flash");
-      const maxTokens = parseInt(d.max_tokens) || 500;
+      const maxTokens = parseInt(d.max_tokens) || 250;
 
       // Get user API keys
       const { data: ownerAutomation } = await supabase
