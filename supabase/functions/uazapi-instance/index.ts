@@ -187,8 +187,30 @@ serve(async (req) => {
     // ── TEST ──
     if (action === 'test') {
       const result = await callUaz(baseUrl, '/instance/status', 'token', tok, 'GET');
-      if (!result.ok) return json({ connected: false, error: `Status retornou ${result.status}`, debug: result.data });
-      return json({ connected: true, ...result.data });
+      if (!result.ok) {
+        // If 401, the token is invalid on UazAPI — update DB status
+        if (result.status === 401) {
+          const updateId = instanceId || config.instanceName;
+          if (instanceId) {
+            await supabase.from('whatsapp_instances').update({ status: 'disconnected' } as any).eq('id', instanceId);
+          }
+          return json({ connected: false, error: 'Token inválido na UazAPI. Recrie a instância ou atualize o token.', debug: result.data });
+        }
+        return json({ connected: false, error: `Status retornou ${result.status}`, debug: result.data });
+      }
+      const d = result.data as any;
+      const connected = d?.connected || d?.loggedIn || d?.instance?.status === 'connected' || false;
+      // Update DB status based on real status
+      if (instanceId) {
+        const phone = d?.instance?.user?.id?.replace('@s.whatsapp.net', '') || d?.phone || null;
+        const deviceName = d?.instance?.user?.name || d?.pushname || d?.name || null;
+        await supabase.from('whatsapp_instances').update({
+          status: connected ? 'connected' : 'disconnected',
+          phone: phone || null,
+          device_name: deviceName || null,
+        } as any).eq('id', instanceId);
+      }
+      return json({ connected, ...d });
     }
 
     // ── CONNECT ──
