@@ -61,22 +61,26 @@ serve(async (req) => {
 
     // ── RESOLVE CONFIG: whatsapp_instances table or legacy settings ──
     let config: { baseUrl: string; instanceToken: string } | null = null;
+    let resolvedInstanceId: string | null = instanceId || null;
 
     if (instanceId) {
       const { data: inst } = await supabase
         .from('whatsapp_instances')
-        .select('base_url, instance_token')
+        .select('id, base_url, instance_token')
         .eq('id', instanceId)
         .eq('user_id', userId)
         .single();
-      if (inst) config = { baseUrl: (inst as any).base_url, instanceToken: (inst as any).instance_token };
+      if (inst) {
+        config = { baseUrl: (inst as any).base_url, instanceToken: (inst as any).instance_token };
+        resolvedInstanceId = (inst as any).id;
+      }
     }
 
     if (!config) {
       // Try default instance
       const { data: instances } = await supabase
         .from('whatsapp_instances')
-        .select('base_url, instance_token')
+        .select('id, base_url, instance_token')
         .eq('user_id', userId)
         .order('is_default', { ascending: false })
         .limit(1);
@@ -84,6 +88,7 @@ serve(async (req) => {
       if (instances && instances.length > 0) {
         const inst = instances[0] as any;
         config = { baseUrl: inst.base_url, instanceToken: inst.instance_token };
+        resolvedInstanceId = inst.id;
       } else {
         // Legacy fallback
         const { data: settings } = await supabase
