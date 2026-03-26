@@ -6637,7 +6637,7 @@ const TTS_PRONUNCIATION_FIXES: Record<string, string> = {
   'link': 'linque', 'Link': 'linque',
   'site': 'sáite', 'app': 'épp', 'App': 'épp',
   'shopping': 'chóping', 'Shopping': 'chóping',
-  'QR code': 'quiú-ár côde', 'QR Code': 'quiú-ár côde',
+  'QR code': 'cú érre code', 'QR Code': 'cú érre code', 'qrcode': 'cú érre code', 'QRCode': 'cú érre code', 'qr code': 'cú érre code',
   'drive-thru': 'dráive trú', 'self-service': 'sélfi sérvice',
   'checkout': 'tchéquiaut', 'Checkout': 'tchéquiaut',
   'cashback': 'quéchbéque', 'Cashback': 'quéchbéque',
