@@ -3831,9 +3831,11 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
           }
         }
 
-        // Never promise QR Code (this flow sends PIX key text only)
+        // Never promise QR Code for PAYMENT (this flow sends PIX key text only)
+        // But DO allow QR Code when talking about facial registration / store access
         const mentionsQrCode = /\b(qr\s*code|qrcode)\b/i.test(reply);
-        if (mentionsQrCode) {
+        const isCadastroContext = /\b(cadastr|reconhecimento\s*facial|acesso\s*[àa]\s*loja|porta\s*d[ea]\s*(entrada|loja)|escane[ai]r?\b)/i.test(reply);
+        if (mentionsQrCode && !isCadastroContext) {
           if (hasCatalogProduct) {
             reply = buildPixPaymentMessage(catalogProductName, catalogPriceValue);
             ctx.variables["_pix_key_sent"] = "true";
