@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   Plus, Trash2, Star, Loader2, QrCode, Wifi, WifiOff,
   CheckCircle2, RefreshCw, Smartphone, Clock, Unplug, Pencil, Zap,
-  Users, Copy, Check,
+  Users, Copy, Check, AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
