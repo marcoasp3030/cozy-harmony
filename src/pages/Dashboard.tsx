@@ -417,6 +417,7 @@ const SlaSummaryPanel = () => {
 const Dashboard = () => {
   const isConnected = true;
   const { stats, loading: statsLoading } = useDashboardStats();
+  const { isAdmin } = useUserRole();
 
   const msgChange = stats ? getChange(stats.messagesToday, stats.messagesYesterday) : { text: "", trend: "up" as const };
   const contactChange = stats ? getChange(stats.activeContacts, stats.activeContactsYesterday) : { text: "", trend: "up" as const };
