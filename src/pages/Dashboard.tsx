@@ -43,6 +43,8 @@ import { useNavigate } from "react-router-dom";
 import WhatsAppHealthPanel from "@/components/dashboard/WhatsAppHealthPanel";
 import FunnelLeadsPanel from "@/components/dashboard/FunnelLeadsPanel";
 import RealtimeMetricsPanel from "@/components/dashboard/RealtimeMetricsPanel";
+import AdminTenantDashboard from "@/components/dashboard/AdminTenantDashboard";
+import { useUserRole } from "@/hooks/useUserRole";
 
 // ── SLA types & helpers ─────────────────────────────────────────────
 
@@ -415,6 +417,7 @@ const SlaSummaryPanel = () => {
 const Dashboard = () => {
   const isConnected = true;
   const { stats, loading: statsLoading } = useDashboardStats();
+  const { isAdmin } = useUserRole();
 
   const msgChange = stats ? getChange(stats.messagesToday, stats.messagesYesterday) : { text: "", trend: "up" as const };
   const contactChange = stats ? getChange(stats.activeContacts, stats.activeContactsYesterday) : { text: "", trend: "up" as const };
@@ -483,6 +486,9 @@ const Dashboard = () => {
           </Card>
         ))}
       </div>
+
+      {/* Admin Multi-Tenant Panel */}
+      {isAdmin && <AdminTenantDashboard />}
 
       {/* Realtime Metrics */}
       <RealtimeMetricsPanel />
