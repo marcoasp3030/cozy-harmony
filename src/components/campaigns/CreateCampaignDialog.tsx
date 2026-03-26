@@ -1057,13 +1057,35 @@ export default function CreateCampaignDialog({
 
                   <Separator />
 
-                  {/* Warm-up Mode */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium">Modo warm-up</p>
-                      <p className="text-xs text-muted-foreground">Limite inicial de 50/dia para números novos</p>
+                   {/* Warm-up Mode */}
+                   <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium">Warm-up progressivo</p>
+                        <p className="text-xs text-muted-foreground">Aumenta o limite diário automaticamente</p>
+                      </div>
+                      <Switch checked={form.warmUpEnabled} onCheckedChange={(v) => update("warmUpEnabled", v)} />
                     </div>
-                    <Switch checked={form.warmUpEnabled} onCheckedChange={(v) => update("warmUpEnabled", v)} />
+                    {form.warmUpEnabled && (
+                      <div className="rounded-md bg-muted/50 p-3 space-y-1.5">
+                        <p className="text-xs font-medium text-muted-foreground">Escalonamento automático:</p>
+                        <div className="grid grid-cols-5 gap-1.5 text-center">
+                          {[
+                            { day: 1, limit: 20 },
+                            { day: 2, limit: 50 },
+                            { day: 3, limit: 100 },
+                            { day: 4, limit: 150 },
+                            { day: 5, limit: 200 },
+                          ].map((s) => (
+                            <div key={s.day} className="rounded bg-background p-1.5 border">
+                              <p className="text-[10px] text-muted-foreground">Dia {s.day}</p>
+                              <p className="text-xs font-bold">{s.limit}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">Após dia 5, usa o limite configurado ({form.dailyLimit})</p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Verify Numbers */}
