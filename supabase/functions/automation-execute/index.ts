@@ -3347,17 +3347,12 @@ Para CADA tipo de problema, colete os dados listados ANTES de dizer que vai reso
       let imageHint = "";
       const batchedImageCount = (ctx as any)._batchedImageUrls?.length || 0;
       if (ctx.messageType === "image" || (ctx as any)._lastImageUrl) {
-        const multiImageNote = batchedImageCount > 1
-          ? `\n⚠️ O CLIENTE ENVIOU ${batchedImageCount} IMAGENS DE UMA VEZ. Analise CADA imagem separadamente e identifique TODOS os produtos. Para cada produto encontrado, informe nome e preço individualmente.`
-          : "";
-        imageHint = `\n\n📸 IMAGEM RECEBIDA DO CLIENTE — INSTRUÇÕES ESPECIAIS:${multiImageNote}
-O cliente enviou ${batchedImageCount > 1 ? `${batchedImageCount} IMAGENS` : "uma IMAGEM"}. Sua prioridade é:
-1. Se a imagem contém um CÓDIGO DE BARRAS ou PRODUTO: diga "Já estou consultando esse produto no catálogo! 🔍" — O sistema fará a busca automaticamente e enviará o resultado logo em seguida.
-2. NÃO peça nome completo ou unidade quando o cliente envia uma foto de código de barras — isso significa que ele quer saber o preço ou pagar.
-3. Se a imagem é um COMPROVANTE DE PAGAMENTO: diga "Recebi seu comprovante, estou analisando! ✅" — o sistema verificará automaticamente.
-4. Se a imagem não é legível: peça para reenviar com mais foco/iluminação.
-5. NUNCA ignore a imagem ou responda como se fosse apenas texto.
-6. NUNCA diga "vou verificar" ou "vou enviar a chave" sem contexto — o sistema cuida dessas ações automaticamente.`;
+        imageHint = `\n\n📸 IMAGEM RECEBIDA (${batchedImageCount > 1 ? batchedImageCount + " fotos" : "1 foto"}):
+- CÓDIGO DE BARRAS/PRODUTO → "Consultando no catálogo! 🔍" (sistema busca automaticamente)
+- COMPROVANTE → "Recebi, analisando! ✅"
+- Ilegível → peça reenvio com melhor foco
+- NÃO peça dados extras (nome/loja) quando receber código de barras
+- NÃO prometa ações — o sistema age automaticamente`;
       }
 
       // ── TTS DICTION: force formal spelling when reply will be audio ──
