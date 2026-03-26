@@ -3934,15 +3934,20 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
             ? reply.split(/\n*---\n*/).map((s: string) => s.trim()).filter(Boolean)
             : [reply];
 
+          // ── STREAMING PARCIAL: send first segment immediately, rest with human-like delays ──
+          const sendStartTime = Date.now();
           for (let i = 0; i < messageParts.length; i++) {
             const part = messageParts[i];
-            const typingDelayMs = Math.min(Math.max(part.length * 30, 800), 3000);
-            if (i > 0) {
-              await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1500));
+            if (i === 0) {
+              // First bubble: send IMMEDIATELY (zero delay) to minimize perceived latency
+              await sendWhatsAppMessage(supabase, ctx, part);
+              console.log(`[STREAM-SEND] First bubble sent in ${Date.now() - sendStartTime}ms (${part.length} chars)`);
             } else {
-              await new Promise((r) => setTimeout(r, typingDelayMs));
+              // Subsequent bubbles: human-like typing delay
+              const typingDelayMs = Math.min(Math.max(part.length * 30, 800), 3000);
+              await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1500));
+              await sendWhatsAppMessage(supabase, ctx, part);
             }
-            await sendWhatsAppMessage(supabase, ctx, part);
           }
         } else if (!d.suppress_send && shouldHoldPrimaryReply) {
           ctx.variables["_audit_reply_suppressed"] = `Resposta suprimida para aguardar lookup de imagem: "${reply.slice(0, 200)}"`;
