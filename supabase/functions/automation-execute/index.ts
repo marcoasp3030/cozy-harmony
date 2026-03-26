@@ -168,11 +168,11 @@ function mapModelForProvider(model: string, targetProvider: "openai" | "gemini")
   }
   if (targetProvider === "openai") {
     const openaiMap: Record<string, string> = {
-      "gemini-2.5-flash": "gpt-4o-2024-11-20",
-      "gemini-2.5-flash-lite": "gpt-4o-2024-11-20",
-      "gemini-2.5-pro": "gpt-4o-2024-11-20",
+      "gemini-2.5-flash": "gpt-4o",
+      "gemini-2.5-flash-lite": "gpt-4o",
+      "gemini-2.5-pro": "gpt-4o",
     };
-    return openaiMap[model] || (model.startsWith("gemini") ? "gpt-4o-2024-11-20" : model);
+    return openaiMap[model] || (model.startsWith("gemini") ? "gpt-4o" : model);
   }
   return model;
 }
