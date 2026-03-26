@@ -1535,6 +1535,24 @@ export type Database = {
       is_org_admin_of: { Args: { _org_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
       same_org: { Args: { _user_id: string }; Returns: boolean }
+      search_knowledge_articles: {
+        Args: {
+          _limit?: number
+          _min_similarity?: number
+          _query: string
+          _user_id: string
+        }
+        Returns: {
+          best_similarity: number
+          category_id: string
+          content: string
+          content_similarity: number
+          id: string
+          tags: string[]
+          title: string
+          title_similarity: number
+        }[]
+      }
       search_products: {
         Args: { _limit?: number; _query: string; _user_id: string }
         Returns: {
