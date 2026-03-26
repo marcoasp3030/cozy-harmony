@@ -19,9 +19,11 @@ const DEFAULT_SETTINGS = {
   businessHoursOnly: true,
   businessHourStart: 8, // 8 AM
   businessHourEnd: 20,  // 8 PM
-  // Warm-up mode: gradually increases daily volume for new numbers
+  // Warm-up mode: progressive daily volume increase
   warmUpEnabled: false,
-  warmUpDayLimit: 50,   // Start with 50/day, increase gradually
+  // Progressive warm-up schedule: [day1, day2, day3, day4, day5]
+  // After day 5, uses the configured dailyLimit
+  warmUpSchedule: [20, 50, 100, 150, 200],
   // Pause between batches (seconds) — gives WhatsApp servers breathing room
   batchCooldownSec: 15,
   // Random variation in message content (append invisible chars to avoid duplicate detection)
