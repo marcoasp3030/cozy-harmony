@@ -2785,7 +2785,7 @@ Responda APENAS com JSON válido:
       if (ctx.variables["produto_encontrado"] === "true" && ctx.variables["produtos_lista"]) {
         productContext = "\n\n📦 PRODUTOS ENCONTRADOS NO CATÁLOGO (dados reais — USE ESTES PREÇOS, não invente valores):\n" +
           ctx.variables["produtos_lista"] +
-          "\n\n⚠️ OBRIGATÓRIO: Use EXATAMENTE os preços listados acima. NÃO invente, arredonde ou altere valores. Se o cliente perguntar sobre um produto que NÃO está na lista acima, diga que vai verificar.";
+          "\n\n⚠️ OBRIGATÓRIO: Use EXATAMENTE os preços acima. CONFIRME o produto com o cliente e pergunte a quantidade ANTES de calcular total.";
         console.log("[LLM CONTEXT] Using pre-fetched product data from search_product node");
       } else {
         // Determine search query: prioritize image identification, then message text
