@@ -2,14 +2,15 @@ import { useState, useEffect, useRef } from "react";
 import {
   Plus, Trash2, Star, Loader2, QrCode, Wifi, WifiOff,
   CheckCircle2, RefreshCw, Smartphone, Clock, Unplug, Pencil, Zap,
-  Users, Copy, Check,
+  Users, Copy, Check, AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useWhatsAppInstances, type WhatsAppInstance } from "@/hooks/useWhatsAppInstances";
@@ -420,6 +421,10 @@ export default function InstanceManager() {
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
   const [linkedAutomations, setLinkedAutomations] = useState<LinkedAutomation[]>([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleteMessages, setDeleteMessages] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     supabase.from("automations").select("id, name, is_active, instance_id").then(({ data }) => {
@@ -514,10 +519,55 @@ export default function InstanceManager() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Remover esta instância?")) return;
-    const { error } = await deleteInstance(id);
-    if (error) toast.error("Erro ao remover.");
-    else toast.success("Instância removida.");
+    setDeleteTargetId(id);
+    setDeleteMessages(false);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
+    setDeleting(true);
+    try {
+      if (deleteMessages) {
+        // Find all contacts that belong to this instance's owner
+        // Delete messages & conversations linked to contacts from this instance
+        const instance = instances.find(i => i.id === deleteTargetId);
+        if (instance) {
+          // Get conversations that were created under this user
+          const { data: conversations } = await supabase
+            .from("conversations")
+            .select("id, contact_id");
+
+          if (conversations && conversations.length > 0) {
+            const convIds = conversations.map(c => c.id);
+            const contactIds = [...new Set(conversations.map(c => c.contact_id))];
+
+            // Delete messages for these contacts
+            for (let i = 0; i < contactIds.length; i += 50) {
+              const batch = contactIds.slice(i, i + 50);
+              await supabase.from("messages").delete().in("contact_id", batch);
+            }
+
+            // Delete conversations
+            for (let i = 0; i < convIds.length; i += 50) {
+              const batch = convIds.slice(i, i + 50);
+              await supabase.from("conversations").delete().in("id", batch);
+            }
+
+            toast.success(`${conversations.length} conversas e mensagens removidas.`);
+          }
+        }
+      }
+
+      const { error } = await deleteInstance(deleteTargetId);
+      if (error) toast.error("Erro ao remover instância.");
+      else toast.success("Instância removida.");
+    } catch (err: any) {
+      toast.error("Erro: " + (err.message || "Tente novamente"));
+    }
+    setDeleting(false);
+    setDeleteDialogOpen(false);
+    setDeleteTargetId(null);
   };
 
   const handleSetDefault = async (id: string) => {
@@ -602,6 +652,47 @@ export default function InstanceManager() {
           ))}
         </div>
       )}
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Excluir Instância
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Tem certeza que deseja remover esta instância? Esta ação não pode ser desfeita.
+            </p>
+            <div className="flex items-start space-x-3 rounded-lg border border-destructive/20 bg-destructive/5 p-3">
+              <Checkbox
+                id="delete-messages"
+                checked={deleteMessages}
+                onCheckedChange={(checked) => setDeleteMessages(checked === true)}
+              />
+              <div className="space-y-1">
+                <label htmlFor="delete-messages" className="text-sm font-medium cursor-pointer">
+                  Apagar também todas as conversas e mensagens
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Remove todas as conversas do Inbox e Kanban associadas a esta organização. Os contatos serão mantidos.
+                </p>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={deleting}>
+              {deleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              {deleteMessages ? "Excluir Tudo" : "Excluir Instância"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
