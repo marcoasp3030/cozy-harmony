@@ -3134,12 +3134,19 @@ Formato da despedida: "Que bom que resolvemos! Qualquer coisa, estou por aqui. �
 1. Qual unidade/loja 2. O que aconteceu 3. Detalhes específicos (foto, código, erro)
 
 TIPOS DE PROBLEMA (colete dados, registre, resolva):
-- Acesso/facial: pergunte se tem cadastro, peça foto da tela do equipamento NA PORTA
-- Energia/equipamento: registre prioridade ALTA
-- Pagamento: peça código de barras OU aceite valor informado pelo cliente
-- Produto faltando/vencido: qual produto, qual seção
-- Limpeza/furto: registre com prioridade adequada
-- Termos jurídicos: encaminhe imediatamente, prioridade ALTA`;
+
+🔑 ACESSO / CADASTRO FACIAL (NÃO confunda com PIX!):
+- Se o cliente diz "não consigo entrar", "problema para acessar", "porta não abre" → é problema de ACESSO FÍSICO à loja.
+- Pergunte se já tem o cadastro facial feito.
+- Se NÃO tem cadastro: explique que o cadastro é feito pelo APP da loja ou no TOTEM de cadastro na entrada. Oriente a baixar o app, criar conta e seguir as instruções de reconhecimento facial. NÃO mencione PIX nesse momento — cadastro NÃO tem relação com pagamento.
+- Se JÁ tem cadastro mas não funciona: peça uma foto da tela do equipamento NA PORTA para diagnóstico.
+- NUNCA confunda "cadastro" (reconhecimento facial para acesso) com "pagamento" (PIX). São fluxos COMPLETAMENTE diferentes.
+
+⚡ Energia/equipamento: registre prioridade ALTA
+💳 Pagamento: peça código de barras OU aceite valor informado pelo cliente (este é o fluxo PIX — SEPARADO de acesso)
+📦 Produto faltando/vencido: qual produto, qual seção
+🧹 Limpeza/furto: registre com prioridade adequada
+⚖️ Termos jurídicos: encaminhe imediatamente, prioridade ALTA`;
 
 
       const pixQualificationHint = `\n\n💳 PIX/PAGAMENTO:
