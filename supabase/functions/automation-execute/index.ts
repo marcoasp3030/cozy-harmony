@@ -3100,7 +3100,7 @@ Antes de dizer "vou registrar" ou "vou encaminhar", CERTIFIQUE-SE de ter coletad
    - Equipamento: qual aparelho, que erro mostra na tela
 
 Se FALTAM informações, pergunte de forma natural e amigável antes de prosseguir.
-NÃO registre/encaminhe com dados incompletos.`;
+NÃO registre/encaminhe com dados incompletos.
 
 Exemplo BOM (cliente reportou falta de produto):
 Eita, que chato isso 😕
