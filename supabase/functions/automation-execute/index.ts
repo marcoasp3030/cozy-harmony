@@ -4078,6 +4078,14 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
           shouldAutoClose = true;
           reply = reply.replace(/\s*\[ATENDIMENTO_CONCLUIDO\]\s*/g, "").trim();
           console.log(`[AUTO-CLOSE] AI signaled conversation completion for conv ${ctx.conversationId}`);
+        } else {
+          // Debug: detect potential closure signals that AI didn't act on
+          const lastInbound = (conversationMessages || []).filter((m: any) => m.direction === 'inbound').slice(-1)[0];
+          const lastInboundText = (lastInbound?.content || '').toLowerCase().trim();
+          const closureKeywords = ['obrigado', 'obrigada', 'valeu', 'brigado', 'brigada', 'era só isso', 'era so isso', 'resolvido', 'resolveu', 'thanks', 'só isso', 'so isso', 'tchau', 'até mais', 'ate mais', 'flw', 'falou'];
+          const hasClosureSignal = closureKeywords.some(kw => lastInboundText.includes(kw));
+          const msgCount = (conversationMessages || []).length;
+          console.log(`[AUTO-CLOSE-DEBUG] conv=${ctx.conversationId} | msgs_in_context=${msgCount} | last_inbound="${lastInboundText.slice(0, 60)}" | closure_signal=${hasClosureSignal} | tag_NOT_generated=true`);
         }
 
         // ── SMART MULTI-MESSAGE SEND: split on --- and send sequentially like a human ──
