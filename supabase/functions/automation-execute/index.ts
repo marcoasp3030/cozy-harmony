@@ -3049,7 +3049,7 @@ Para CADA tipo de problema, colete os dados listados ANTES de dizer que vai reso
 - Se o cliente NÃO informou valor E NÃO enviou código de barras, peça um dos dois antes de oferecer PIX.
 - Se o cliente disser "já paguei" ou "tá pago", NÃO envie chave PIX — peça o comprovante.`;
 
-      // ── 9. KNOWLEDGE BASE: inject relevant articles (CACHED) ──
+      // ── 9. KNOWLEDGE BASE: inject relevant articles (CACHED + FUZZY SEARCH) ──
       let knowledgeContext = "";
       try {
         const kb = await getCachedKB(supabase, ctx.userId!);
@@ -3059,6 +3059,7 @@ Para CADA tipo de problema, colete os dados listados ANTES de dizer que vai reso
         const clientText = (groupedMessages || transcription || ctx.messageContent || "").toLowerCase();
         const matchedDemandIds: string[] = [];
 
+        // Phase 1: Exact tag/title matching from cache (fast, no DB call)
         if (clientText.length > 2 && kb.demandArts.length > 0) {
           for (const art of kb.demandArts) {
             const titleMatch = clientText.includes(art.title.toLowerCase());
@@ -3071,14 +3072,46 @@ Para CADA tipo de problema, colete os dados listados ANTES de dizer que vai reso
           }
         }
 
+        // Phase 2: Fuzzy search via pg_trgm (catches typos, partial matches, synonyms)
+        const fuzzyArticles: Array<{ id: string; title: string; content: string; category_id: string }> = [];
+        if (clientText.length > 3 && ctx.userId) {
+          try {
+            const { data: fuzzyResults } = await supabase.rpc("search_knowledge_articles", {
+              _user_id: ctx.userId,
+              _query: clientText.slice(0, 200),
+              _min_similarity: 0.15,
+              _limit: 10,
+            });
+            if (fuzzyResults?.length) {
+              for (const art of fuzzyResults as any[]) {
+                if (!matchedDemandIds.includes(art.category_id) && !alwaysCatIds.includes(art.category_id)) {
+                  matchedDemandIds.push(art.category_id);
+                }
+                fuzzyArticles.push({ id: art.id, title: art.title, content: art.content, category_id: art.category_id });
+              }
+              console.log(`[KB-FUZZY] Found ${fuzzyResults.length} articles via fuzzy search (best sim: ${(fuzzyResults as any[])[0]?.best_similarity?.toFixed(2)})`);
+            }
+          } catch (fuzzyErr) {
+            console.error("[KB-FUZZY] Fuzzy search error:", fuzzyErr);
+          }
+        }
+
         const allRelevantCatIds = [...alwaysCatIds, ...matchedDemandIds];
 
-        if (allRelevantCatIds.length > 0) {
-          // Collect articles from cache
+        if (allRelevantCatIds.length > 0 || fuzzyArticles.length > 0) {
           const kbArticles: Array<{ id: string; title: string; content: string; category_id: string }> = [];
+          const seenIds = new Set<string>();
+
           for (const catId of allRelevantCatIds) {
             const arts = kb.allArticles.get(catId);
-            if (arts) kbArticles.push(...arts);
+            if (arts) {
+              for (const a of arts) {
+                if (!seenIds.has(a.id)) { kbArticles.push(a); seenIds.add(a.id); }
+              }
+            }
+          }
+          for (const a of fuzzyArticles) {
+            if (!seenIds.has(a.id)) { kbArticles.push(a); seenIds.add(a.id); }
           }
 
           if (kbArticles.length > 0) {
@@ -3097,9 +3130,8 @@ Para CADA tipo de problema, colete os dados listados ANTES de dizer que vai reso
             for (const [cat, items] of Object.entries(grouped)) {
               knowledgeContext += `\n\n[${cat}]\n${items.join("\n")}`;
             }
-            console.log(`[KB] Injected ${kbArticles.length} articles from ${allRelevantCatIds.length} categories (cached)`);
+            console.log(`[KB] Injected ${kbArticles.length} articles (${fuzzyArticles.length} via fuzzy) from ${allRelevantCatIds.length} categories`);
 
-            // Increment hit_count for used articles (fire-and-forget, not cached)
             for (const artId of usedArticleIds) {
               supabase.rpc("increment_kb_hit_count", { _article_id: artId }).then(() => {}).catch(() => {});
             }
