@@ -3270,7 +3270,7 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
       }
 
       // ── Compose final enriched system prompt ──
-      const enrichedSystemPrompt = systemPrompt + profileContext + memoryHint + productContext + knowledgeContext + sentimentHint + toneHint + fewShotHint + languageHint + variationHint + autonomousStoreHint + pixQualificationHint + imageHint + ttsDictionHint;
+      const enrichedSystemPrompt = systemPrompt + profileContext + memoryHint + productContext + knowledgeContext + sentimentHint + toneHint + fewShotHint + languageHint + greetingHint + proactiveHint + variationHint + autonomousStoreHint + pixQualificationHint + imageHint + ttsDictionHint;
 
       // Merge and sort by created_at
       const allRecent = [
