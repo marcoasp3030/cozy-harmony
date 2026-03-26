@@ -519,10 +519,55 @@ export default function InstanceManager() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Remover esta instância?")) return;
-    const { error } = await deleteInstance(id);
-    if (error) toast.error("Erro ao remover.");
-    else toast.success("Instância removida.");
+    setDeleteTargetId(id);
+    setDeleteMessages(false);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
+    setDeleting(true);
+    try {
+      if (deleteMessages) {
+        // Find all contacts that belong to this instance's owner
+        // Delete messages & conversations linked to contacts from this instance
+        const instance = instances.find(i => i.id === deleteTargetId);
+        if (instance) {
+          // Get conversations that were created under this user
+          const { data: conversations } = await supabase
+            .from("conversations")
+            .select("id, contact_id");
+
+          if (conversations && conversations.length > 0) {
+            const convIds = conversations.map(c => c.id);
+            const contactIds = [...new Set(conversations.map(c => c.contact_id))];
+
+            // Delete messages for these contacts
+            for (let i = 0; i < contactIds.length; i += 50) {
+              const batch = contactIds.slice(i, i + 50);
+              await supabase.from("messages").delete().in("contact_id", batch);
+            }
+
+            // Delete conversations
+            for (let i = 0; i < convIds.length; i += 50) {
+              const batch = convIds.slice(i, i + 50);
+              await supabase.from("conversations").delete().in("id", batch);
+            }
+
+            toast.success(`${conversations.length} conversas e mensagens removidas.`);
+          }
+        }
+      }
+
+      const { error } = await deleteInstance(deleteTargetId);
+      if (error) toast.error("Erro ao remover instância.");
+      else toast.success("Instância removida.");
+    } catch (err: any) {
+      toast.error("Erro: " + (err.message || "Tente novamente"));
+    }
+    setDeleting(false);
+    setDeleteDialogOpen(false);
+    setDeleteTargetId(null);
   };
 
   const handleSetDefault = async (id: string) => {
