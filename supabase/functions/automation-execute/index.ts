@@ -3544,8 +3544,10 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
             });
             const controller2 = new AbortController();
             const tid2 = setTimeout(() => controller2.abort(), aiTimeoutSeconds * 1000);
+            const geminiModel = mapModelForProvider(model, "gemini");
+            const streamStartTime2 = Date.now();
             const resp = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/${mapModelForProvider(model, "gemini")}:generateContent?key=${keys.gemini}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:streamGenerateContent?alt=sse&key=${keys.gemini}`,
               {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -3558,7 +3560,36 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
               }
             );
             clearTimeout(tid2);
-            if (resp.ok) {
+            if (resp.ok && resp.body) {
+              // ── GEMINI STREAMING via SSE ──
+              const reader = resp.body.getReader();
+              const decoder = new TextDecoder();
+              let buffer = "";
+              let firstChunkTime2 = 0;
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                if (!firstChunkTime2) {
+                  firstChunkTime2 = Date.now();
+                  console.log(`[STREAM-GEMINI] First chunk in ${firstChunkTime2 - streamStartTime2}ms`);
+                }
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (!trimmed.startsWith("data: ")) continue;
+                  const jsonStr = trimmed.slice(6);
+                  try {
+                    const chunk = JSON.parse(jsonStr);
+                    const text = chunk.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (text) reply += text;
+                  } catch {}
+                }
+              }
+              reply = reply.trim();
+              console.log(`[STREAM-GEMINI] Complete in ${Date.now() - streamStartTime2}ms (${reply.length} chars)`);
+            } else if (resp.ok) {
               const data = await resp.json();
               reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
             } else {
