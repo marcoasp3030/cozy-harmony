@@ -487,6 +487,9 @@ const Dashboard = () => {
         ))}
       </div>
 
+      {/* Admin Multi-Tenant Panel */}
+      {isAdmin && <AdminTenantDashboard />}
+
       {/* Realtime Metrics */}
       <RealtimeMetricsPanel />
 
