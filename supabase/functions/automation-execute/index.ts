@@ -3049,39 +3049,18 @@ Para CADA tipo de problema, colete os dados listados ANTES de dizer que vai reso
 - Se o cliente NÃO informou valor E NÃO enviou código de barras, peça um dos dois antes de oferecer PIX.
 - Se o cliente disser "já paguei" ou "tá pago", NÃO envie chave PIX — peça o comprovante.`;
 
-      // ── 9. KNOWLEDGE BASE: inject relevant articles ──
+      // ── 9. KNOWLEDGE BASE: inject relevant articles (CACHED) ──
       let knowledgeContext = "";
       try {
-        // Load always_inject categories + their active articles
-        const { data: alwaysCats } = await supabase
-          .from("knowledge_categories")
-          .select("id, name")
-          .eq("created_by", ctx.userId)
-          .eq("always_inject", true);
-
-        const alwaysCatIds = (alwaysCats || []).map((c: any) => c.id);
-
-        // Load on-demand categories for keyword matching
-        const { data: demandCats } = await supabase
-          .from("knowledge_categories")
-          .select("id, name")
-          .eq("created_by", ctx.userId)
-          .eq("always_inject", false);
+        const kb = await getCachedKB(supabase, ctx.userId!);
+        const alwaysCatIds = kb.alwaysCats.map(c => c.id);
 
         // Determine which on-demand categories match the client's message
         const clientText = (groupedMessages || transcription || ctx.messageContent || "").toLowerCase();
         const matchedDemandIds: string[] = [];
 
-        if (clientText.length > 2 && demandCats?.length) {
-          // Load articles from demand categories to check tags
-          const demandIds = demandCats.map((c: any) => c.id);
-          const { data: demandArts } = await supabase
-            .from("knowledge_articles")
-            .select("id, category_id, title, tags")
-            .eq("is_active", true)
-            .in("category_id", demandIds);
-
-          for (const art of demandArts || []) {
+        if (clientText.length > 2 && kb.demandArts.length > 0) {
+          for (const art of kb.demandArts) {
             const titleMatch = clientText.includes(art.title.toLowerCase());
             const tagMatch = (art.tags || []).some((tag: string) => clientText.includes(tag.toLowerCase()));
             if (titleMatch || tagMatch) {
@@ -3095,15 +3074,16 @@ Para CADA tipo de problema, colete os dados listados ANTES de dizer que vai reso
         const allRelevantCatIds = [...alwaysCatIds, ...matchedDemandIds];
 
         if (allRelevantCatIds.length > 0) {
-          const { data: kbArticles } = await supabase
-            .from("knowledge_articles")
-            .select("id, title, content, category_id")
-            .eq("is_active", true)
-            .in("category_id", allRelevantCatIds);
+          // Collect articles from cache
+          const kbArticles: Array<{ id: string; title: string; content: string; category_id: string }> = [];
+          for (const catId of allRelevantCatIds) {
+            const arts = kb.allArticles.get(catId);
+            if (arts) kbArticles.push(...arts);
+          }
 
-          if (kbArticles?.length) {
-            const allCats = [...(alwaysCats || []), ...(demandCats || [])];
-            const catMap = Object.fromEntries(allCats.map((c: any) => [c.id, c.name]));
+          if (kbArticles.length > 0) {
+            const allCats = [...kb.alwaysCats, ...kb.demandCats];
+            const catMap = Object.fromEntries(allCats.map(c => [c.id, c.name]));
 
             knowledgeContext = "\n\n📚 BASE DE CONHECIMENTO DA EMPRESA (use estas informações para responder com precisão):";
             const grouped: Record<string, string[]> = {};
@@ -3117,13 +3097,11 @@ Para CADA tipo de problema, colete os dados listados ANTES de dizer que vai reso
             for (const [cat, items] of Object.entries(grouped)) {
               knowledgeContext += `\n\n[${cat}]\n${items.join("\n")}`;
             }
-            console.log(`[KB] Injected ${kbArticles.length} articles from ${allRelevantCatIds.length} categories`);
+            console.log(`[KB] Injected ${kbArticles.length} articles from ${allRelevantCatIds.length} categories (cached)`);
 
-            // Increment hit_count for used articles
-            if (usedArticleIds.length > 0) {
-              for (const artId of usedArticleIds) {
-                await supabase.rpc("increment_kb_hit_count", { _article_id: artId });
-              }
+            // Increment hit_count for used articles (fire-and-forget, not cached)
+            for (const artId of usedArticleIds) {
+              supabase.rpc("increment_kb_hit_count", { _article_id: artId }).then(() => {}).catch(() => {});
             }
           }
         }
