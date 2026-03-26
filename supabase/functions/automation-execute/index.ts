@@ -3462,14 +3462,16 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
               ? chatMessages.map((m: any) => ({ ...m, role: m.role === "system" ? "developer" : m.role }))
               : chatMessages;
             
-            const openaiBody: any = { model: openaiModel, messages: openaiMessages };
+            const openaiBody: any = { model: openaiModel, messages: openaiMessages, stream: !isReasoning };
             if (isReasoning) {
               openaiBody.max_completion_tokens = maxTokens;
+              delete openaiBody.stream;
             } else {
               openaiBody.max_tokens = maxTokens;
               openaiBody.temperature = 0.7;
             }
             
+            const streamStartTime = Date.now();
             const resp = await fetch("https://api.openai.com/v1/chat/completions", {
               method: "POST",
               headers: { Authorization: `Bearer ${keys.openai}`, "Content-Type": "application/json" },
@@ -3478,8 +3480,40 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
             });
             clearTimeout(tid);
             if (resp.ok) {
-              const data = await resp.json();
-              reply = data.choices?.[0]?.message?.content?.trim() || "";
+              if (openaiBody.stream && resp.body) {
+                // ── STREAMING: read SSE chunks for faster TTFB ──
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+                let firstChunkTime = 0;
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  buffer += decoder.decode(value, { stream: true });
+                  if (!firstChunkTime) {
+                    firstChunkTime = Date.now();
+                    console.log(`[STREAM] First chunk in ${firstChunkTime - streamStartTime}ms`);
+                  }
+                  const lines = buffer.split("\n");
+                  buffer = lines.pop() || "";
+                  for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith("data: ")) continue;
+                    const jsonStr = trimmed.slice(6);
+                    if (jsonStr === "[DONE]") break;
+                    try {
+                      const chunk = JSON.parse(jsonStr);
+                      const delta = chunk.choices?.[0]?.delta?.content;
+                      if (delta) reply += delta;
+                    } catch {}
+                  }
+                }
+                reply = reply.trim();
+                console.log(`[STREAM] Complete in ${Date.now() - streamStartTime}ms (TTFB: ${(firstChunkTime || Date.now()) - streamStartTime}ms, ${reply.length} chars)`);
+              } else {
+                const data = await resp.json();
+                reply = data.choices?.[0]?.message?.content?.trim() || "";
+              }
             } else {
               const errText = await resp.text();
               console.error(`OpenAI user key failed (${resp.status}): ${errText.slice(0, 100)}`);
@@ -3510,8 +3544,10 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
             });
             const controller2 = new AbortController();
             const tid2 = setTimeout(() => controller2.abort(), aiTimeoutSeconds * 1000);
+            const geminiModel = mapModelForProvider(model, "gemini");
+            const streamStartTime2 = Date.now();
             const resp = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/${mapModelForProvider(model, "gemini")}:generateContent?key=${keys.gemini}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:streamGenerateContent?alt=sse&key=${keys.gemini}`,
               {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -3524,7 +3560,36 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
               }
             );
             clearTimeout(tid2);
-            if (resp.ok) {
+            if (resp.ok && resp.body) {
+              // ── GEMINI STREAMING via SSE ──
+              const reader = resp.body.getReader();
+              const decoder = new TextDecoder();
+              let buffer = "";
+              let firstChunkTime2 = 0;
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                if (!firstChunkTime2) {
+                  firstChunkTime2 = Date.now();
+                  console.log(`[STREAM-GEMINI] First chunk in ${firstChunkTime2 - streamStartTime2}ms`);
+                }
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (!trimmed.startsWith("data: ")) continue;
+                  const jsonStr = trimmed.slice(6);
+                  try {
+                    const chunk = JSON.parse(jsonStr);
+                    const text = chunk.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (text) reply += text;
+                  } catch {}
+                }
+              }
+              reply = reply.trim();
+              console.log(`[STREAM-GEMINI] Complete in ${Date.now() - streamStartTime2}ms (${reply.length} chars)`);
+            } else if (resp.ok) {
               const data = await resp.json();
               reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
             } else {
@@ -3591,6 +3656,7 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
             try {
               const controller = new AbortController();
               const tid = setTimeout(() => controller.abort(), 30000);
+              const gatewayStartTime = Date.now();
               const gatewayResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
                 method: "POST",
                 headers: {
@@ -3602,11 +3668,42 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
                   messages: gatewayMessages,
                   max_tokens: maxTokens,
                   temperature: 0.7,
+                  stream: true,
                 }),
                 signal: controller.signal,
               });
               clearTimeout(tid);
-              if (gatewayResp.ok) {
+              if (gatewayResp.ok && gatewayResp.body) {
+                // ── GATEWAY STREAMING ──
+                const reader = gatewayResp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+                let firstChunkTime = 0;
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  buffer += decoder.decode(value, { stream: true });
+                  if (!firstChunkTime) {
+                    firstChunkTime = Date.now();
+                    console.log(`[STREAM-GATEWAY] First chunk in ${firstChunkTime - gatewayStartTime}ms`);
+                  }
+                  const lines = buffer.split("\n");
+                  buffer = lines.pop() || "";
+                  for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith("data: ")) continue;
+                    const jsonStr = trimmed.slice(6);
+                    if (jsonStr === "[DONE]") break;
+                    try {
+                      const chunk = JSON.parse(jsonStr);
+                      const delta = chunk.choices?.[0]?.delta?.content;
+                      if (delta) reply += delta;
+                    } catch {}
+                  }
+                }
+                reply = reply.trim();
+                if (reply) console.log(`[AI] Lovable Gateway streaming success (${reply.length} chars, ${Date.now() - gatewayStartTime}ms)`);
+              } else if (gatewayResp.ok) {
                 const data = await gatewayResp.json();
                 reply = data.choices?.[0]?.message?.content?.trim() || "";
                 if (reply) console.log(`[AI] Lovable Gateway success (${reply.length} chars)`);
@@ -3900,15 +3997,20 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
             ? reply.split(/\n*---\n*/).map((s: string) => s.trim()).filter(Boolean)
             : [reply];
 
+          // ── STREAMING PARCIAL: send first segment immediately, rest with human-like delays ──
+          const sendStartTime = Date.now();
           for (let i = 0; i < messageParts.length; i++) {
             const part = messageParts[i];
-            const typingDelayMs = Math.min(Math.max(part.length * 30, 800), 3000);
-            if (i > 0) {
-              await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1500));
+            if (i === 0) {
+              // First bubble: send IMMEDIATELY (zero delay) to minimize perceived latency
+              await sendWhatsAppMessage(supabase, ctx, part);
+              console.log(`[STREAM-SEND] First bubble sent in ${Date.now() - sendStartTime}ms (${part.length} chars)`);
             } else {
-              await new Promise((r) => setTimeout(r, typingDelayMs));
+              // Subsequent bubbles: human-like typing delay
+              const typingDelayMs = Math.min(Math.max(part.length * 30, 800), 3000);
+              await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1500));
+              await sendWhatsAppMessage(supabase, ctx, part);
             }
-            await sendWhatsAppMessage(supabase, ctx, part);
           }
         } else if (!d.suppress_send && shouldHoldPrimaryReply) {
           ctx.variables["_audit_reply_suppressed"] = `Resposta suprimida para aguardar lookup de imagem: "${reply.slice(0, 200)}"`;
