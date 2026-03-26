@@ -1087,6 +1087,12 @@ const SettingsPage = () => {
         <TabsContent value="elevenlabs">
           <ElevenLabsSettings />
         </TabsContent>
+
+        {isAdmin && (
+          <TabsContent value="retry">
+            <RetryQueuePanel />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
