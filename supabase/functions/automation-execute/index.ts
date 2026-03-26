@@ -4120,6 +4120,7 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
           }
         }
 
+        if (shouldRunPostReplyLookup) {
           console.log("[POST-LLM] Triggered image product lookup after reply");
           try {
             // Quick AI call to extract barcode number AND/OR product name from the image
