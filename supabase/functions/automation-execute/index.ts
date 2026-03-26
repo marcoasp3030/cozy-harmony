@@ -350,6 +350,42 @@ async function callAIWithUserKeys(
     }
   }
 
+  // ── Lovable AI Gateway fallback ──
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+  if (LOVABLE_API_KEY) {
+    console.log("[AI] User keys exhausted — falling back to Lovable AI Gateway (text)");
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [{ role: "system", content: prompt }],
+          max_tokens: maxTokens,
+          temperature,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(tid);
+      if (resp.ok) {
+        const data = await resp.json();
+        const text = data.choices?.[0]?.message?.content?.trim() || "";
+        if (text) {
+          console.log("[AI] Lovable AI Gateway fallback succeeded");
+          return text;
+        }
+      } else {
+        const errText = await resp.text();
+        console.error(`[AI] Lovable Gateway error (${resp.status}):`, errText.slice(0, 100));
+      }
+    } catch (e) {
+      clearTimeout(tid);
+      console.error("[AI] Lovable Gateway fallback failed:", e);
+    }
+  }
+
   return "";
 }
 
@@ -430,6 +466,48 @@ async function callAIVisionWithUserKeys(
     } catch (e) {
       clearTimeout(tid);
       console.error("[AI-VISION] OpenAI call failed:", e);
+    }
+  }
+
+  // ── Lovable AI Gateway fallback for vision ──
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+  if (LOVABLE_API_KEY) {
+    console.log("[AI-VISION] User keys exhausted — falling back to Lovable AI Gateway (vision)");
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [{
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+            ],
+          }],
+          max_tokens: maxTokens,
+          temperature,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(tid);
+      if (resp.ok) {
+        const data = await resp.json();
+        const text = data.choices?.[0]?.message?.content?.trim() || "";
+        if (text) {
+          console.log("[AI-VISION] Lovable AI Gateway fallback succeeded");
+          return text;
+        }
+      } else {
+        const errText = await resp.text();
+        console.error(`[AI-VISION] Lovable Gateway error (${resp.status}):`, errText.slice(0, 100));
+      }
+    } catch (e) {
+      clearTimeout(tid);
+      console.error("[AI-VISION] Lovable Gateway fallback failed:", e);
     }
   }
 
