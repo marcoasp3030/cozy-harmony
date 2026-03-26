@@ -3656,6 +3656,7 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
             try {
               const controller = new AbortController();
               const tid = setTimeout(() => controller.abort(), 30000);
+              const gatewayStartTime = Date.now();
               const gatewayResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
                 method: "POST",
                 headers: {
@@ -3667,11 +3668,42 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
                   messages: gatewayMessages,
                   max_tokens: maxTokens,
                   temperature: 0.7,
+                  stream: true,
                 }),
                 signal: controller.signal,
               });
               clearTimeout(tid);
-              if (gatewayResp.ok) {
+              if (gatewayResp.ok && gatewayResp.body) {
+                // ── GATEWAY STREAMING ──
+                const reader = gatewayResp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+                let firstChunkTime = 0;
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  buffer += decoder.decode(value, { stream: true });
+                  if (!firstChunkTime) {
+                    firstChunkTime = Date.now();
+                    console.log(`[STREAM-GATEWAY] First chunk in ${firstChunkTime - gatewayStartTime}ms`);
+                  }
+                  const lines = buffer.split("\n");
+                  buffer = lines.pop() || "";
+                  for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith("data: ")) continue;
+                    const jsonStr = trimmed.slice(6);
+                    if (jsonStr === "[DONE]") break;
+                    try {
+                      const chunk = JSON.parse(jsonStr);
+                      const delta = chunk.choices?.[0]?.delta?.content;
+                      if (delta) reply += delta;
+                    } catch {}
+                  }
+                }
+                reply = reply.trim();
+                if (reply) console.log(`[AI] Lovable Gateway streaming success (${reply.length} chars, ${Date.now() - gatewayStartTime}ms)`);
+              } else if (gatewayResp.ok) {
                 const data = await gatewayResp.json();
                 reply = data.choices?.[0]?.message?.content?.trim() || "";
                 if (reply) console.log(`[AI] Lovable Gateway success (${reply.length} chars)`);
