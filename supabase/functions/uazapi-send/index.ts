@@ -176,7 +176,36 @@ serve(async (req) => {
     const data = await res.json();
 
     if (!res.ok) {
-      return new Response(JSON.stringify({ success: false, error: `UazAPI retornou status ${res.status}`, details: data }), {
+      // ── Enqueue for retry on transient errors (5xx, timeouts, rate limits) ──
+      const isRetryable = res.status >= 500 || res.status === 429 || res.status === 408;
+      if (isRetryable) {
+        try {
+          const serviceClient = createClient(
+            Deno.env.get('SUPABASE_URL')!,
+            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+          );
+          // Store the full payload + endpoint for replay
+          const retryPayload = { ...sendBody, _endpoint: endpoint };
+          await serviceClient.from('message_retry_queue').insert({
+            user_id: userId,
+            phone: cleanNumber,
+            message_type: type,
+            instance_id: instanceId || null,
+            payload: retryPayload,
+            next_retry_at: new Date(Date.now() + 30_000).toISOString(), // first retry in 30s
+          });
+          console.log(`[RETRY-ENQUEUE] Message to ${cleanNumber} queued for retry (HTTP ${res.status})`);
+        } catch (retryErr) {
+          console.error('[RETRY-ENQUEUE] Failed to enqueue:', retryErr);
+        }
+      }
+
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: `UazAPI retornou status ${res.status}`, 
+        details: data,
+        retryQueued: isRetryable,
+      }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
