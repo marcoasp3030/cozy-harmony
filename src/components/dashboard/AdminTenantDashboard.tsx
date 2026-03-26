@@ -181,7 +181,7 @@ const AdminTenantDashboard = () => {
                         <div className="rounded bg-muted/50 px-2 py-1.5">
                           <div className="flex items-center justify-center gap-1">
                             {org.connectedInstances > 0 ? (
-                              <Wifi className="h-3 w-3 text-emerald-500" />
+                              <Wifi className="h-3 w-3 text-primary" />
                             ) : (
                               <WifiOff className="h-3 w-3 text-destructive" />
                             )}
