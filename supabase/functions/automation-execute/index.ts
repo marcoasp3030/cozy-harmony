@@ -2898,7 +2898,8 @@ Responda APENAS com JSON válido:
       const profileContext = profileParts.length > 0
         ? `\n\n👤 PERFIL DO CONTATO (dados já conhecidos):\n${profileParts.join("\n")}\n\n🚫 REGRAS DE DADOS CONHECIDOS:
 - Se o NOME do contato já está listado acima, NUNCA peça "nome completo" — use o nome que já temos.
-- Se a UNIDADE/LOJA/CONDOMÍNIO já está registrada no perfil: CONFIRME com o cliente antes de usar ("Vc tá na unidade X?"). O cliente pode estar em outra loja desta vez.
+- A UNIDADE/LOJA/CONDOMÍNIO registrada no perfil é apenas referência interna. NÃO mencione o nome da loja ao cliente a menos que ELE tenha mencionado primeiro nesta conversa OU esteja relatando um problema que exija confirmação de local.
+- Em saudações simples (Olá, Oi, Bom dia), NUNCA cite o nome da loja do perfil — apenas cumprimente normalmente.
 - Se o cliente JÁ INFORMOU a loja NESTA CONVERSA, NÃO pergunte novamente.
 
 🔍 REGRA DE CONTEXTO CONVERSACIONAL: Releia TODA a conversa acima antes de responder. Se o cliente já informou QUALQUER dado nesta conversa, considere como já coletado. NUNCA re-pergunte algo que já foi dito nesta sessão.${newSessionHint}`
