@@ -3857,6 +3857,26 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
       }
 
       if (reply) {
+        // ── LENGTH GUARD: trim overly verbose responses ──
+        if (reply.length > 300 && !imageBase64) {
+          const bubbles = reply.split(/\n---\n/).map(b => b.trim()).filter(Boolean);
+          if (bubbles.length > 2) {
+            reply = bubbles.slice(0, 2).join("\n---\n");
+            console.log(`[LENGTH GUARD] Trimmed from ${bubbles.length} bubbles to 2`);
+          }
+          if (reply.length > 350) {
+            const sentences = reply.match(/[^.!?\n]+[.!?]+/g) || [reply];
+            let trimmed = "";
+            for (const s of sentences) {
+              if ((trimmed + s).length > 300) break;
+              trimmed += s;
+            }
+            if (trimmed.length > 30) {
+              console.log(`[LENGTH GUARD] Truncated reply from ${reply.length} to ${trimmed.length} chars`);
+              reply = trimmed.trim();
+            }
+          }
+        }
         console.log(`[LLM] Reply generated (${reply.length} chars, maxTokens=${maxTokens}): "${reply.slice(0, 120)}..."`);
         const hasCatalogProduct =
           ctx.variables["produto_encontrado"] === "true" &&
