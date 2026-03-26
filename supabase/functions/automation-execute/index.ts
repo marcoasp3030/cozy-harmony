@@ -2345,7 +2345,7 @@ Responda APENAS com JSON válido:
       const systemPrompt = interpolate(String(d.system_prompt || "Você é um assistente de atendimento."), ctx);
       const provider = d.provider || "openai";
       const model = d.model || (provider === "openai" ? "gpt-4o-2024-11-20" : "gemini-2.5-flash");
-      const maxTokens = parseInt(d.max_tokens) || 2048;
+      const maxTokens = parseInt(d.max_tokens) || 500;
 
       // Get user API keys
       const { data: ownerAutomation } = await supabase
@@ -3072,11 +3072,16 @@ Antes de gerar sua resposta, execute MENTALMENTE este checklist:
 - Se a base diz "NÃO peça X", você NÃO pede X — mesmo que pareça lógico.
 - Se a base tem um roteiro de diagnóstico, siga-o na ORDEM indicada.
 
-📱 FORMATO DE RESPOSTA — MÚLTIPLAS MENSAGENS:
-- Responda como um HUMANO REAL faria no WhatsApp: envie 2-3 mensagens curtas em sequência, NÃO um textão.
-- Separe cada mensagem com "---" em uma linha sozinha.
-- Cada mensagem deve ter NO MÁXIMO 2-3 frases naturais e completas.
-- Isso simula o comportamento humano de digitar e enviar várias mensagens rápidas.
+📱 FORMATO DE RESPOSTA — BREVIDADE ABSOLUTA:
+- MÁXIMO 1-2 mensagens curtas. Cada mensagem com NO MÁXIMO 1-2 frases.
+- Separe mensagens com "---" em uma linha sozinha.
+- TOTAL da resposta: MÁXIMO 150 caracteres (incluindo emojis).
+- Se consegue resolver em 1 frase, NÃO use 2.
+- NUNCA liste múltiplas opções, roteiros ou instruções longas.
+- Exemplo BOM: "Em qual loja você está? 😊"
+- Exemplo RUIM: "Entendi seu problema! Vou te ajudar. Para isso, preciso saber em qual das nossas unidades você está, para que eu possa direcionar sua solicitação corretamente."
+- Exemplo BOM: "Recebi a foto! Já estou consultando o produto 🔍"
+- Exemplo RUIM: "Entendido! 📸 Recebi a foto! Para eu conseguir te ajudar com o valor e o pagamento, preciso que me envie uma 📸 foto do código de barras..."
 
 ✍️ NATURALIDADE E CLAREZA — REGRA CRÍTICA:
 - Escreva frases COMPLETAS e NATURAIS. Nunca corte palavras para encurtar.
@@ -3852,6 +3857,26 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
       }
 
       if (reply) {
+        // ── LENGTH GUARD: trim overly verbose responses ──
+        if (reply.length > 300 && !imageBase64) {
+          const bubbles = reply.split(/\n---\n/).map(b => b.trim()).filter(Boolean);
+          if (bubbles.length > 2) {
+            reply = bubbles.slice(0, 2).join("\n---\n");
+            console.log(`[LENGTH GUARD] Trimmed from ${bubbles.length} bubbles to 2`);
+          }
+          if (reply.length > 350) {
+            const sentences = reply.match(/[^.!?\n]+[.!?]+/g) || [reply];
+            let trimmed = "";
+            for (const s of sentences) {
+              if ((trimmed + s).length > 300) break;
+              trimmed += s;
+            }
+            if (trimmed.length > 30) {
+              console.log(`[LENGTH GUARD] Truncated reply from ${reply.length} to ${trimmed.length} chars`);
+              reply = trimmed.trim();
+            }
+          }
+        }
         console.log(`[LLM] Reply generated (${reply.length} chars, maxTokens=${maxTokens}): "${reply.slice(0, 120)}..."`);
         const hasCatalogProduct =
           ctx.variables["produto_encontrado"] === "true" &&
