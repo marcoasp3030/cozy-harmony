@@ -2866,10 +2866,10 @@ Responda APENAS com JSON válido:
           .select("suggestion_text")
           .eq("rating", "positive")
           .order("created_at", { ascending: false })
-          .limit(5);
+         .limit(3);
         if (goodExamples && goodExamples.length >= 2) {
           const examples = goodExamples.map((e: any) => `• "${e.suggestion_text}"`).join("\n");
-          fewShotHint = `\n\n💡 EXEMPLOS DE BOAS RESPOSTAS (avaliadas positivamente por atendentes reais — use como referência de TOM e ESTILO):\n${examples}\n\nIMPORTANTE: Estes são exemplos de estilo. NÃO copie literalmente. Adapte ao contexto da conversa atual.`;
+          fewShotHint = `\n\n💡 EXEMPLOS DE TOM (referência, não copie):\n${examples}`;
           console.log(`[FEW-SHOT] Injected ${goodExamples.length} positive examples`);
         }
       } catch {}
