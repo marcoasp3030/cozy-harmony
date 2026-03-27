@@ -3005,7 +3005,7 @@ Responda APENAS com JSON válido:
       }
 
       // ── 6b. SENTIMENT DETECTION: adjust tone when frustrated/angry ──
-      let sentimentHint = "";
+      // (reuses sentimentHint declared earlier — overwrite if new detection is stronger)
       const sentimentSample = (groupedMessages || transcription || ctx.messageContent || "").toLowerCase().trim();
       if (sentimentSample.length > 5) {
         // Frustration/anger indicators (strong)
