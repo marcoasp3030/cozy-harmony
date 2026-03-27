@@ -6725,6 +6725,8 @@ function normalizePronunciationTTS(text: string): string {
 
 function normalizeNumbersForTTS(text: string): string {
   let normalized = text;
+  // FIRST: strip emojis, WhatsApp formatting, URLs before any other processing
+  normalized = sanitizeTextForTTS(normalized);
   normalized = normalizePronunciationTTS(normalized);
   normalized = normalizeCurrencyTTS(normalized);
   normalized = normalizePercentagesTTS(normalized);
