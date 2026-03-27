@@ -6660,6 +6660,7 @@ function insertBreathingPausesTTS(text: string): string {
 
 // ── Pronunciation corrections for proper nouns & brands commonly mispronounced by TTS ──
 const TTS_PRONUNCIATION_FIXES: Record<string, string> = {
+  // Marcas automotivas
   'Audi': 'áudi', 'audi': 'áudi', 'AUDI': 'áudi',
   'Hyundai': 'riundái', 'hyundai': 'riundái',
   'Chevrolet': 'chevrôlé', 'chevrolet': 'chevrôlé',
@@ -6674,25 +6675,40 @@ const TTS_PRONUNCIATION_FIXES: Record<string, string> = {
   'Jeep': 'djípe', 'jeep': 'djípe',
   'Mitsubishi': 'mitsubíchi', 'Suzuki': 'suzúqui', 'Subaru': 'subáru',
   'Land Rover': 'lând rôver', 'Range Rover': 'rêindj rôver',
-  'WhatsApp': 'uótsapp', 'whatsapp': 'uótsapp',
+  // Redes sociais e tech
+  'WhatsApp': 'uótsap', 'whatsapp': 'uótsap', 'Whatsapp': 'uótsap',
   'Instagram': 'instagrãm', 'instagram': 'instagrãm',
   'Facebook': 'feicebuk', 'facebook': 'feicebuk',
   'Google': 'gúgol', 'google': 'gúgol',
   'YouTube': 'iutúbi', 'youtube': 'iutúbi',
   'iPhone': 'aifôni', 'iphone': 'aifôni',
   'Wi-Fi': 'uaifai', 'wifi': 'uaifai', 'WiFi': 'uaifai',
+  // Palavras estrangeiras comuns
   'delivery': 'delivéri', 'Delivery': 'delivéri',
   'online': 'onlaine', 'Online': 'onlaine',
-  'email': 'iméil', 'Email': 'iméil', 'e-mail': 'iméil',
+  'offline': 'óflaine', 'Offline': 'óflaine',
+  'email': 'iméiol', 'Email': 'iméiol', 'e-mail': 'iméiol',
   'login': 'lóguin', 'Login': 'lóguin',
-  'feedback': 'fídbéque', 'Feedback': 'fídbéque',
-  'link': 'linque', 'Link': 'linque',
-  'site': 'sáite', 'app': 'épp', 'App': 'épp',
-  'shopping': 'chóping', 'Shopping': 'chóping',
-  'QR code': 'cú érre code', 'QR Code': 'cú érre code', 'qrcode': 'cú érre code', 'QRCode': 'cú érre code', 'qr code': 'cú érre code',
-  'drive-thru': 'dráive trú', 'self-service': 'sélfi sérvice',
-  'checkout': 'tchéquiaut', 'Checkout': 'tchéquiaut',
-  'cashback': 'quéchbéque', 'Cashback': 'quéchbéque',
+  'feedback': 'fídbéqui', 'Feedback': 'fídbéqui',
+  'link': 'linqui', 'Link': 'linqui',
+  'site': 'sáitchi', 'app': 'épi', 'App': 'épi',
+  'shopping': 'chópin', 'Shopping': 'chópin',
+  'drive-thru': 'dráive trú', 'self-service': 'sélfi sérvici',
+  'checkout': 'tchéquiáuti', 'Checkout': 'tchéquiáuti',
+  'cashback': 'quéchbéqui', 'Cashback': 'quéchbéqui',
+  'design': 'dezáin', 'Design': 'dezáin',
+  'ok': 'oquêi', 'Ok': 'oquêi', 'OK': 'oquêi',
+  // Nutricar / negócio específico
+  'Nutricar': 'Nutricar', 'nutricar': 'Nutricar', 'NUTRICAR': 'Nutricar',
+  'totem': 'tôtem', 'Totem': 'tôtem',
+  'QR code': 'quêrri code', 'QR Code': 'quêrri code', 'qrcode': 'quêrri code', 'QRCode': 'quêrri code', 'qr code': 'quêrri code',
+  // Termos financeiros
+  'PIX': 'píqs', 'pix': 'píqs', 'Pix': 'píqs',
+  'CNPJ': 'cê ene pê jota', 'CPF': 'cê pê éfe',
+  // Unidades
+  'ml': 'mililitros', 'ML': 'mililitros',
+  'kg': 'quilos', 'KG': 'quilos',
+  'g': 'gramas',
 };
 
 function normalizePronunciationTTS(text: string): string {
