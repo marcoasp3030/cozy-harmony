@@ -3834,6 +3834,92 @@ Esta resposta será CONVERTIDA EM ÁUDIO. Você DEVE escrever com ortografia COM
           }
         }
         console.log(`[LLM] Reply generated (${reply.length} chars, maxTokens=${maxTokens}): "${reply.slice(0, 120)}..."`);
+
+        // ── ANTI-REPETITION GUARD: compare against last 3 AI replies to this contact ──
+        try {
+          const { data: recentAiMsgs } = await supabase
+            .from("messages")
+            .select("content")
+            .eq("contact_id", ctx.contactId)
+            .eq("direction", "outbound")
+            .not("content", "is", null)
+            .order("created_at", { ascending: false })
+            .limit(3);
+
+          if (recentAiMsgs && recentAiMsgs.length > 0) {
+            const normalize = (t: string) => (t || "").toLowerCase().replace(/[^\w\sáàâãéèêíìîóòôõúùûçñ]/g, "").replace(/\s+/g, " ").trim();
+            const currentNorm = normalize(reply);
+            const currentWords = new Set(currentNorm.split(" ").filter(w => w.length > 2));
+
+            for (const prev of recentAiMsgs) {
+              const prevNorm = normalize(prev.content || "");
+              if (!prevNorm || prevNorm.length < 10) continue;
+              const prevWords = new Set(prevNorm.split(" ").filter(w => w.length > 2));
+              // Jaccard similarity
+              const intersection = [...currentWords].filter(w => prevWords.has(w)).length;
+              const union = new Set([...currentWords, ...prevWords]).size;
+              const similarity = union > 0 ? intersection / union : 0;
+
+              if (similarity > 0.6) {
+                console.log(`[ANTI-REPEAT] High similarity (${(similarity * 100).toFixed(0)}%) with previous reply: "${prevNorm.slice(0, 60)}..."`);
+                // Inject anti-repeat instruction and regenerate
+                const antiRepeatMsg = { role: "user" as const, content: `[SISTEMA: Sua resposta anterior "${reply.slice(0, 80)}..." é muito parecida com uma resposta recente. Reformule COMPLETAMENTE usando palavras e estrutura DIFERENTES. Mantenha o mesmo significado mas com abordagem nova.]` };
+                const regenerateMsgs = [...chatMessages, { role: "assistant" as const, content: reply }, antiRepeatMsg];
+
+                try {
+                  // Try regeneration with primary provider
+                  const regenCtrl = new AbortController();
+                  const regenTid = setTimeout(() => regenCtrl.abort(), 12000);
+                  let regenUrl = "";
+                  let regenHeaders: Record<string, string> = { "Content-Type": "application/json" };
+                  let regenBody: any = { messages: regenerateMsgs, max_tokens: maxTokens, temperature: 0.9 };
+
+                  if (keys.openai) {
+                    regenUrl = "https://api.openai.com/v1/chat/completions";
+                    regenHeaders["Authorization"] = `Bearer ${keys.openai}`;
+                    regenBody.model = model || "gpt-4o";
+                  } else {
+                    regenUrl = "https://ai.gateway.lovable.dev/v1/chat/completions";
+                    regenHeaders["Authorization"] = `Bearer ${Deno.env.get("LOVABLE_API_KEY") || ""}`;
+                    regenBody.model = "google/gemini-2.5-flash";
+                  }
+
+                  const regenResp = await fetch(regenUrl, {
+                    method: "POST",
+                    headers: regenHeaders,
+                    body: JSON.stringify(regenBody),
+                    signal: regenCtrl.signal,
+                  });
+                  clearTimeout(regenTid);
+
+                  if (regenResp.ok) {
+                    const regenData = await regenResp.json();
+                    const newReply = regenData.choices?.[0]?.message?.content?.trim();
+                    if (newReply && newReply.length > 10) {
+                      const newNorm = normalize(newReply);
+                      const newWords = new Set(newNorm.split(" ").filter(w => w.length > 2));
+                      const newIntersection = [...newWords].filter(w => prevWords.has(w)).length;
+                      const newUnion = new Set([...newWords, ...prevWords]).size;
+                      const newSimilarity = newUnion > 0 ? newIntersection / newUnion : 0;
+
+                      if (newSimilarity < similarity) {
+                        console.log(`[ANTI-REPEAT] Regenerated reply (similarity ${(similarity * 100).toFixed(0)}% → ${(newSimilarity * 100).toFixed(0)}%): "${newReply.slice(0, 80)}..."`);
+                        reply = newReply;
+                      } else {
+                        console.log(`[ANTI-REPEAT] Regenerated reply not better (${(newSimilarity * 100).toFixed(0)}%), keeping original`);
+                      }
+                    }
+                  }
+                } catch (regenErr) {
+                  console.warn(`[ANTI-REPEAT] Regeneration failed, keeping original:`, regenErr);
+                }
+                break; // Only attempt one regeneration
+              }
+            }
+          }
+        } catch (antiRepErr) {
+          console.warn(`[ANTI-REPEAT] Check failed:`, antiRepErr);
+        }
         const hasCatalogProduct =
           ctx.variables["produto_encontrado"] === "true" &&
           !!ctx.variables["produto_nome"] &&
