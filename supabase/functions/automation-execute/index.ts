@@ -6753,7 +6753,7 @@ async function sendElevenLabsAudioFromText(
   // Try user setting first, fallback to project secret (ELEVENLABS_API_KEY)
   let elevenlabsKey = "";
   let userVoiceId = voiceId;
-  let userModel = "eleven_turbo_v2_5";
+  let userModel = "eleven_multilingual_v2";
   let voiceSettings: Record<string, any> | null = null;
 
   if (ctx.userId) {
