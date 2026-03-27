@@ -6600,20 +6600,57 @@ function normalizeSymbolsTTS(text: string): string {
     .replace(/\n+/g, '... ').replace(/\s{2,}/g, ' ');
 }
 
+// ── Strip emojis and WhatsApp formatting from TTS text ──
+function sanitizeTextForTTS(text: string): string {
+  let cleaned = text;
+  // Remove emojis (Unicode emoji ranges)
+  cleaned = cleaned.replace(/[\u{1F600}-\u{1F64F}]/gu, ''); // emoticons
+  cleaned = cleaned.replace(/[\u{1F300}-\u{1F5FF}]/gu, ''); // symbols & pictographs
+  cleaned = cleaned.replace(/[\u{1F680}-\u{1F6FF}]/gu, ''); // transport & map
+  cleaned = cleaned.replace(/[\u{1F1E0}-\u{1F1FF}]/gu, ''); // flags
+  cleaned = cleaned.replace(/[\u{2600}-\u{26FF}]/gu, '');   // misc symbols
+  cleaned = cleaned.replace(/[\u{2700}-\u{27BF}]/gu, '');   // dingbats
+  cleaned = cleaned.replace(/[\u{FE00}-\u{FE0F}]/gu, '');   // variation selectors
+  cleaned = cleaned.replace(/[\u{1F900}-\u{1F9FF}]/gu, ''); // supplemental symbols
+  cleaned = cleaned.replace(/[\u{1FA00}-\u{1FA6F}]/gu, ''); // chess symbols
+  cleaned = cleaned.replace(/[\u{1FA70}-\u{1FAFF}]/gu, ''); // symbols extended
+  cleaned = cleaned.replace(/[\u{200D}]/gu, '');             // zero width joiner
+  cleaned = cleaned.replace(/[\u{20E3}]/gu, '');             // combining enclosing keycap
+  cleaned = cleaned.replace(/[\u{FE0F}]/gu, '');             // variation selector
+  // Remove WhatsApp formatting markers
+  cleaned = cleaned.replace(/\*([^*]+)\*/g, '$1');  // *bold* → bold
+  cleaned = cleaned.replace(/_([^_]+)_/g, '$1');    // _italic_ → italic
+  cleaned = cleaned.replace(/~([^~]+)~/g, '$1');    // ~strikethrough~ → strikethrough
+  cleaned = cleaned.replace(/```([^`]+)```/g, '$1'); // ```code``` → code
+  // Remove bullet points and list markers
+  cleaned = cleaned.replace(/^[\s]*[•·▪▸►→\-]\s*/gm, '');
+  // Remove URLs (TTS reads them character by character)
+  cleaned = cleaned.replace(/https?:\/\/[^\s]+/gi, '');
+  // Clean up multiple spaces/dots
+  cleaned = cleaned.replace(/\s{2,}/g, ' ').replace(/\.{2}/g, '.').trim();
+  return cleaned;
+}
+
 function insertBreathingPausesTTS(text: string): string {
   let result = text;
   
   // Add micro-pauses at natural clause boundaries for human-like rhythm
-  result = result.replace(/\b(mas|porém|então|porque|pois|quando|enquanto|embora)\s+/gi, '$1, ');
+  result = result.replace(/\b(mas|porém|então|porque|pois|quando|enquanto|embora|contudo|entretanto|todavia)\s+/gi, '$1, ');
   
   // Natural pause after greetings/interjections
-  result = result.replace(/^(oi|olá|bom dia|boa tarde|boa noite|tudo bem|e aí)\b/gi, '$1, ');
+  result = result.replace(/^(oi|olá|bom dia|boa tarde|boa noite|tudo bem|e aí|fala)\b/gim, '$1, ');
   
-  // Sentence endings with proper spacing
-  result = result.replace(/([.!?])\s+/g, '$1 ');
+  // Pause after person's name at start (e.g., "Marco, ...")
+  result = result.replace(/^([A-ZÀ-Ú][a-zà-ú]{2,})\s+/gm, '$1, ');
   
-  // Ellipsis as natural pause
-  result = result.replace(/\.{3,}/g, '... ');
+  // Natural pause before "né", "viu", "tá" (colloquial markers)
+  result = result.replace(/\s+(né|viu|tá|hein)\b/gi, ', $1');
+  
+  // Sentence endings with breathing space
+  result = result.replace(/([.!?])\s+/g, '$1... ');
+  
+  // Ellipsis as natural long pause
+  result = result.replace(/\.{3,}/g, '...... ');
   
   // Remove double commas
   result = result.replace(/,\s*,/g, ',');
