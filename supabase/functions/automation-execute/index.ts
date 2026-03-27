@@ -3004,6 +3004,52 @@ Responda APENAS com JSON válido:
         }
       }
 
+      // ── 6b. SENTIMENT DETECTION: adjust tone when frustrated/angry ──
+      let sentimentHint = "";
+      const sentimentSample = (groupedMessages || transcription || ctx.messageContent || "").toLowerCase().trim();
+      if (sentimentSample.length > 5) {
+        // Frustration/anger indicators (strong)
+        const angerPatterns = /\b(absurdo|inaceit[aá]vel|vergonha|palhaçada|piada|lixo|porcaria|droga|merda|p[oô]rra|cac[eê]te|inferno|ridículo|rid[ií]culo|desgraça|incompet[eê]nte|irrespons[aá]vel|safad[oa]|ladr[ãa]o|roubo|golpe|enganação|mentira|falta de respeito|descaso|abandono|abuso)\b/i;
+        const frustrationPatterns = /\b(não funciona|não resolve|ninguém me ajuda|ninguém responde|to esperando|estou esperando|faz tempo|horas esperando|dias esperando|cansei|cansado|cansada|irritado|irritada|revoltado|revoltada|indignado|indignada|insatisfeito|insatisfeita|demorando|demora demais|desistir|cancelar tudo|nunca mais|pior atendimento|péssimo|horrível|horr[ií]vel)\b/i;
+        const capsRatio = sentimentSample.replace(/[^A-ZÀ-Ú]/g, "").length / Math.max(sentimentSample.replace(/[^a-zA-ZÀ-ú]/g, "").length, 1);
+        const hasExcessiveExclamation = (sentimentSample.match(/!/g) || []).length >= 3;
+        const hasExcessiveCaps = capsRatio > 0.5 && sentimentSample.length > 15;
+
+        const angerScore = (angerPatterns.test(sentimentSample) ? 3 : 0)
+          + (frustrationPatterns.test(sentimentSample) ? 2 : 0)
+          + (hasExcessiveCaps ? 1 : 0)
+          + (hasExcessiveExclamation ? 1 : 0);
+
+        if (angerScore >= 3) {
+          sentimentHint = `\n\n😤 SENTIMENTO DETECTADO: IRRITAÇÃO/RAIVA (score ${angerScore}/7)
+AJUSTE DE TOM OBRIGATÓRIO:
+- Seja DIRETO e RESOLUTIVO — o cliente não quer papo, quer solução.
+- NÃO peça desculpas genéricas ("lamentamos o ocorrido"). Em vez disso, VALIDE o sentimento: "Entendo sua frustração" (UMA vez, breve).
+- PRIORIZE AÇÃO IMEDIATA: diga O QUE vai fazer agora, não o que "vamos avaliar".
+- Tom sério e profissional — reduza emojis (máximo 1), sem exclamações excessivas.
+- Se o problema exige escalonamento, OFEREÇA IMEDIATAMENTE: "Vou transferir para um supervisor agora."
+- NÃO use: "fique tranquilo", "calma", "tenha paciência" — isso IRRITA mais.
+- Exemplo BOM: "Entendo sua frustração. Vou resolver isso agora — me passa o código do produto?"
+- Exemplo RUIM: "Lamento muito pelo inconveniente! Fique tranquilo que vamos avaliar sua situação 😊"`;
+          console.log(`[SENTIMENT] Anger/frustration detected (score=${angerScore})`);
+        } else if (angerScore >= 2) {
+          sentimentHint = `\n\n😕 SENTIMENTO DETECTADO: LEVE FRUSTRAÇÃO (score ${angerScore}/7)
+- Seja mais objetivo que o normal. Menos emojis (máximo 1).
+- Valide brevemente: "Entendo" ou "Vou resolver". Depois, vá direto ao ponto.
+- Priorize resolver rápido em vez de fazer perguntas.`;
+          console.log(`[SENTIMENT] Mild frustration detected (score=${angerScore})`);
+        }
+
+        // Positive sentiment — be warm
+        const positivePatterns = /\b(obrigad[oa]|valeu|show|perfeito|excelente|ótimo|maravilh|incrível|top|adorei|amei|sensacional|nota\s*(?:10|dez)|recomendo|parabéns)\b/i;
+        if (!sentimentHint && positivePatterns.test(sentimentSample)) {
+          sentimentHint = `\n\n😊 SENTIMENTO DETECTADO: POSITIVO/SATISFEITO
+- Retribua a energia positiva! Use tom caloroso e genuíno.
+- Um emoji a mais é ok. Exemplo: "Que bom que deu certo! 💚😊"`;
+          console.log(`[SENTIMENT] Positive sentiment detected`);
+        }
+      }
+
       // ── 7. PERSONALIZED GREETING by time + history ──
       let greetingHint = "";
       if (isNewSession) {
