@@ -6810,11 +6810,11 @@ async function sendElevenLabsAudioFromText(
     ttsBody.voice_settings = voiceSettings;
   } else {
     ttsBody.voice_settings = {
-      stability: 0.25,
-      similarity_boost: 0.72,
-      style: 0.55,
+      stability: 0.35,
+      similarity_boost: 0.78,
+      style: 0.45,
       use_speaker_boost: true,
-      speed: 0.95,
+      speed: 0.92,
     };
   }
 
