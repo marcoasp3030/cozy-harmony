@@ -3010,6 +3010,16 @@ Responda APENAS com JSON válido:
         const brHour = new Date(now + (-3 * 60 * 60 * 1000)).getUTCHours();
         const greetingTime = brHour >= 5 && brHour < 12 ? "Bom dia" : brHour >= 12 && brHour < 18 ? "Boa tarde" : "Boa noite";
         const contactName = contactProfile?.name && contactProfile.name !== "Não informado" ? contactProfile.name.split(" ")[0] : "";
+
+        // Contextual time-of-day hints
+        let timeContextHint = "";
+        if (brHour >= 0 && brHour < 5) {
+          timeContextHint = `\n- É MADRUGADA (${brHour}h). A loja funciona 24h. Diga algo como: "${contactName || "Oi"}! Mesmo de madrugada a loja está funcionando normalmente 😊" ou "Fala${contactName ? `, ${contactName}` : ""}! A loja tá aberta 24h, pode ficar tranquilo 😊"`;
+        } else if (brHour >= 5 && brHour < 7) {
+          timeContextHint = `\n- É bem cedinho (${brHour}h). Pode comentar: "Acordou cedo hoje${contactName ? `, ${contactName}` : ""}! 😄"`;
+        } else if (brHour >= 22) {
+          timeContextHint = `\n- É tarde da noite (${brHour}h). A loja funciona 24h normalmente.`;
+        }
         
         // Check last interaction for context
         let lastInteractionContext = "";
@@ -3039,11 +3049,21 @@ Responda APENAS com JSON válido:
           storeContext = `\n- A última unidade registrada do cliente é "${storeMatch[0].trim()}". NÃO assuma que ele está lá agora — pergunte naturalmente: "Você está na ${storeMatch[0].trim()}?"`;
         }
 
+        // Random greeting style picker (avoids monotony)
+        const greetingStyles = [
+          `"${greetingTime}${contactName ? `, ${contactName}` : ""}! 😊"`,
+          `"${contactName || "Oi"}! ${greetingTime} 😊"`,
+          `"Ei${contactName ? ` ${contactName}` : ""}! ${greetingTime}!"`,
+          `"${greetingTime}! Tudo bem${contactName ? `, ${contactName}` : ""}?"`,
+          `"Fala${contactName ? `, ${contactName}` : ""}! ${greetingTime}! 💚"`,
+          `"E aí${contactName ? `, ${contactName}` : ""}! ${greetingTime}!"`,
+        ];
+        const pickedGreeting = greetingStyles[Math.floor(Math.random() * greetingStyles.length)];
+
         greetingHint = `\n\n🌅 SAUDAÇÃO PERSONALIZADA (sessão nova):
-- Use "${greetingTime}${contactName ? `, ${contactName}` : ""}!" como base, mas VARIE naturalmente.
-- Alternativas: "${contactName || "Oi"}! ${greetingTime} 😊", "Ei${contactName ? ` ${contactName}` : ""}! ${greetingTime}!", ou "${greetingTime}! Tudo bem${contactName ? `, ${contactName}` : ""}?"
-- NUNCA use a mesma saudação duas vezes para o mesmo contato.${lastInteractionContext}${storeContext}`;
-        console.log(`[GREETING] Personalized greeting: ${greetingTime}, name=${contactName || "unknown"}`);
+- Use ${pickedGreeting} como saudação (JÁ ESCOLHIDA aleatoriamente — use EXATAMENTE esta).
+- NUNCA use a mesma saudação duas vezes para o mesmo contato.${timeContextHint}${lastInteractionContext}${storeContext}`;
+        console.log(`[GREETING] Personalized greeting: ${greetingTime}, name=${contactName || "unknown"}, hour=${brHour}`);
       }
 
       // ── 8. PROACTIVE PRODUCT PATTERN DETECTION ──
