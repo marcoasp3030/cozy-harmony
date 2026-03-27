@@ -3117,7 +3117,15 @@ Responda APENAS com JSON válido:
         }
       }
 
-      // ── 9. RESPONSE VARIATION + CRITICAL THINKING INSTRUCTIONS ──
+      // ── 9. RESPONSE VARIATION + CRITICAL THINKING + CONNECTOR BANK ──
+      // Pick random connectors to inject variety
+      const ackBank = ["Entendi!", "Beleza!", "Show!", "Pode deixar!", "Anotado!", "Certo!", "Tranquilo!", "Perfeito!", "Fechou!", "Combinado!"];
+      const progressBank = ["Vou dar uma olhada!", "Já estou verificando!", "Deixa comigo!", "Vou resolver!", "Tô vendo aqui!"];
+      const empathyBank = ["Imagino!", "Sem problemas!", "Faz sentido!", "Compreendo!", "Claro!", "Com certeza!"];
+      const pickedAcks = ackBank.sort(() => Math.random() - 0.5).slice(0, 4).join('", "');
+      const pickedProgress = progressBank.sort(() => Math.random() - 0.5).slice(0, 3).join('", "');
+      const pickedEmpathy = empathyBank.sort(() => Math.random() - 0.5).slice(0, 3).join('", "');
+
       const variationHint = `\n\n🧠 REGRAS CRÍTICAS:
 
 ANTI-REPETIÇÃO: Releia o histórico. NUNCA re-pergunte algo já respondido. Se o cliente já disse a loja/problema, AVANCE.
@@ -3129,6 +3137,12 @@ BREVIDADE: Máximo 1-2 frases por mensagem. Separe com "---". Total máximo ~150
 - RUIM: "Recebi a foto! Para eu conseguir te ajudar com o valor e o pagamento..."
 
 NATURALIDADE: Frases completas, sem abreviações (use "você", não "vc"). Tom de pessoa real no WhatsApp.
+
+🔄 BANCO DE CONECTORES (use ESTES para variar — NÃO repita o mesmo conector em mensagens consecutivas):
+- Reconhecimento: "${pickedAcks}"
+- Progresso: "${pickedProgress}"
+- Empatia: "${pickedEmpathy}"
+Escolha UM conector por mensagem. NUNCA use o mesmo que já usou nesta conversa.
 
 PROGRESSO: Cada mensagem deve avançar a resolução. Prefira AÇÕES a PERGUNTAS.
 
