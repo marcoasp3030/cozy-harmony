@@ -3010,6 +3010,16 @@ Responda APENAS com JSON válido:
         const brHour = new Date(now + (-3 * 60 * 60 * 1000)).getUTCHours();
         const greetingTime = brHour >= 5 && brHour < 12 ? "Bom dia" : brHour >= 12 && brHour < 18 ? "Boa tarde" : "Boa noite";
         const contactName = contactProfile?.name && contactProfile.name !== "Não informado" ? contactProfile.name.split(" ")[0] : "";
+
+        // Contextual time-of-day hints
+        let timeContextHint = "";
+        if (brHour >= 0 && brHour < 5) {
+          timeContextHint = `\n- É MADRUGADA (${brHour}h). A loja funciona 24h. Diga algo como: "${contactName || "Oi"}! Mesmo de madrugada a loja está funcionando normalmente 😊" ou "Fala${contactName ? `, ${contactName}` : ""}! A loja tá aberta 24h, pode ficar tranquilo 😊"`;
+        } else if (brHour >= 5 && brHour < 7) {
+          timeContextHint = `\n- É bem cedinho (${brHour}h). Pode comentar: "Acordou cedo hoje${contactName ? `, ${contactName}` : ""}! 😄"`;
+        } else if (brHour >= 22) {
+          timeContextHint = `\n- É tarde da noite (${brHour}h). A loja funciona 24h normalmente.`;
+        }
         
         // Check last interaction for context
         let lastInteractionContext = "";
@@ -3039,11 +3049,21 @@ Responda APENAS com JSON válido:
           storeContext = `\n- A última unidade registrada do cliente é "${storeMatch[0].trim()}". NÃO assuma que ele está lá agora — pergunte naturalmente: "Você está na ${storeMatch[0].trim()}?"`;
         }
 
+        // Random greeting style picker (avoids monotony)
+        const greetingStyles = [
+          `"${greetingTime}${contactName ? `, ${contactName}` : ""}! 😊"`,
+          `"${contactName || "Oi"}! ${greetingTime} 😊"`,
+          `"Ei${contactName ? ` ${contactName}` : ""}! ${greetingTime}!"`,
+          `"${greetingTime}! Tudo bem${contactName ? `, ${contactName}` : ""}?"`,
+          `"Fala${contactName ? `, ${contactName}` : ""}! ${greetingTime}! 💚"`,
+          `"E aí${contactName ? `, ${contactName}` : ""}! ${greetingTime}!"`,
+        ];
+        const pickedGreeting = greetingStyles[Math.floor(Math.random() * greetingStyles.length)];
+
         greetingHint = `\n\n🌅 SAUDAÇÃO PERSONALIZADA (sessão nova):
-- Use "${greetingTime}${contactName ? `, ${contactName}` : ""}!" como base, mas VARIE naturalmente.
-- Alternativas: "${contactName || "Oi"}! ${greetingTime} 😊", "Ei${contactName ? ` ${contactName}` : ""}! ${greetingTime}!", ou "${greetingTime}! Tudo bem${contactName ? `, ${contactName}` : ""}?"
-- NUNCA use a mesma saudação duas vezes para o mesmo contato.${lastInteractionContext}${storeContext}`;
-        console.log(`[GREETING] Personalized greeting: ${greetingTime}, name=${contactName || "unknown"}`);
+- Use ${pickedGreeting} como saudação (JÁ ESCOLHIDA aleatoriamente — use EXATAMENTE esta).
+- NUNCA use a mesma saudação duas vezes para o mesmo contato.${timeContextHint}${lastInteractionContext}${storeContext}`;
+        console.log(`[GREETING] Personalized greeting: ${greetingTime}, name=${contactName || "unknown"}, hour=${brHour}`);
       }
 
       // ── 8. PROACTIVE PRODUCT PATTERN DETECTION ──
@@ -3097,7 +3117,15 @@ Responda APENAS com JSON válido:
         }
       }
 
-      // ── 9. RESPONSE VARIATION + CRITICAL THINKING INSTRUCTIONS ──
+      // ── 9. RESPONSE VARIATION + CRITICAL THINKING + CONNECTOR BANK ──
+      // Pick random connectors to inject variety
+      const ackBank = ["Entendi!", "Beleza!", "Show!", "Pode deixar!", "Anotado!", "Certo!", "Tranquilo!", "Perfeito!", "Fechou!", "Combinado!"];
+      const progressBank = ["Vou dar uma olhada!", "Já estou verificando!", "Deixa comigo!", "Vou resolver!", "Tô vendo aqui!"];
+      const empathyBank = ["Imagino!", "Sem problemas!", "Faz sentido!", "Compreendo!", "Claro!", "Com certeza!"];
+      const pickedAcks = ackBank.sort(() => Math.random() - 0.5).slice(0, 4).join('", "');
+      const pickedProgress = progressBank.sort(() => Math.random() - 0.5).slice(0, 3).join('", "');
+      const pickedEmpathy = empathyBank.sort(() => Math.random() - 0.5).slice(0, 3).join('", "');
+
       const variationHint = `\n\n🧠 REGRAS CRÍTICAS:
 
 ANTI-REPETIÇÃO: Releia o histórico. NUNCA re-pergunte algo já respondido. Se o cliente já disse a loja/problema, AVANCE.
@@ -3109,6 +3137,12 @@ BREVIDADE: Máximo 1-2 frases por mensagem. Separe com "---". Total máximo ~150
 - RUIM: "Recebi a foto! Para eu conseguir te ajudar com o valor e o pagamento..."
 
 NATURALIDADE: Frases completas, sem abreviações (use "você", não "vc"). Tom de pessoa real no WhatsApp.
+
+🔄 BANCO DE CONECTORES (use ESTES para variar — NÃO repita o mesmo conector em mensagens consecutivas):
+- Reconhecimento: "${pickedAcks}"
+- Progresso: "${pickedProgress}"
+- Empatia: "${pickedEmpathy}"
+Escolha UM conector por mensagem. NUNCA use o mesmo que já usou nesta conversa.
 
 PROGRESSO: Cada mensagem deve avançar a resolução. Prefira AÇÕES a PERGUNTAS.
 
