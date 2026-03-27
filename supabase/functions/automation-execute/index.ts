@@ -192,11 +192,24 @@ function enforceConciseNaturalReply(text: string): string {
 
   const bannedPatterns = [
     /obrigad[oa]\s+por\s+nos?\s+avisar[^.!?\n]*[.!?]?/gi,
+    /obrigad[oa]\s+por\s+(entrar\s+em\s+contato|informar|nos\s+contatar)[^.!?\n]*[.!?]?/gi,
     /a\s+sua\s+colaboraç[aã]o[^.!?\n]*[.!?]?/gi,
     /se\s+precisar\s+de\s+mais\s+alguma\s+coisa[^.!?\n]*[.!?]?/gi,
-    /qualquer\s+coisa[^.!?\n]*[.!?]?/gi,
+    /qualquer\s+(coisa|d[uú]vida)[^.!?\n]*[.!?]?/gi,
     /fico\s+[àa]\s+disposiç[aã]o[^.!?\n]*[.!?]?/gi,
-    /estou\s+aqui(?:\s+para\s+ajudar)?[^.!?\n]*[.!?]?/gi,
+    /estou\s+aqui(?:\s+para\s+(?:ajudar|o\s+que\s+precisar))?[^.!?\n]*[.!?]?/gi,
+    /estou\s+[àa]\s+disposiç[aã]o[^.!?\n]*[.!?]?/gi,
+    /compreendo\s+(?:sua|a\s+sua)\s+situaç[aã]o[^.!?\n]*[.!?]?/gi,
+    /agrade[çc]o\s+(?:pela|a\s+sua)\s+paci[eê]ncia[^.!?\n]*[.!?]?/gi,
+    /lamento\s+(?:o\s+)?(?:inconveniente|transtorno)[^.!?\n]*[.!?]?/gi,
+    /peço\s+desculpas?\s+(?:pelo|por\s+qualquer)[^.!?\n]*[.!?]?/gi,
+    /(?:como|em\s+que)\s+(?:posso|podemos)\s+(?:te\s+)?ajud[aá][r-]?[^.!?\n]*[.!?]?/gi,
+    /(?:há|existe)\s+(?:mais\s+)?algo\s+(?:em\s+que|que)\s+(?:eu\s+)?poss[ao]\s+ajudar[^.!?\n]*[.!?]?/gi,
+    /n[aã]o\s+hesite\s+em\s+(?:nos\s+)?(?:contactar|entrar\s+em\s+contato)[^.!?\n]*[.!?]?/gi,
+    /(?:seu|sua)\s+satisfaç[aã]o\s+[eé]\s+(?:muito\s+)?importante[^.!?\n]*[.!?]?/gi,
+    /(?:informamos|comunicamos)\s+que\b[^.!?\n]*[.!?]?/gi,
+    /prezad[oa]\s+(?:cliente|senhor|senhora)[^.!?\n]*[,]?/gi,
+    /(?:senhor|senhora)\s*\([^)]*\)[^.!?\n]*/gi,
   ];
 
   for (const pattern of bannedPatterns) {
@@ -207,6 +220,9 @@ function enforceConciseNaturalReply(text: string): string {
     .replace(/\bencaminhar\s+essa\s+informaç[aã]o\b/gi, "passar isso")
     .replace(/\bencaminhar\b/gi, "passar")
     .replace(/\bo\s+mais\s+r[aá]pido\s+poss[ií]vel\b/gi, "o quanto antes")
+    .replace(/\bpara\s+que\s+possamos\b/gi, "pra gente")
+    .replace(/\bgostar[ií]amos\s+de\s+informar\b/gi, "")
+    .replace(/\bsolicitamos\s+que\b/gi, "")
     .replace(/\s{2,}/g, " ")
     .trim();
 
@@ -224,7 +240,6 @@ function enforceConciseNaturalReply(text: string): string {
   let concise = sentences.slice(0, 3).join(" ").trim();
 
   if (!concise) {
-    // Return empty string — let the caller handle empty responses instead of injecting a hardcoded fallback
     return "";
   }
 
@@ -6585,20 +6600,57 @@ function normalizeSymbolsTTS(text: string): string {
     .replace(/\n+/g, '... ').replace(/\s{2,}/g, ' ');
 }
 
+// ── Strip emojis and WhatsApp formatting from TTS text ──
+function sanitizeTextForTTS(text: string): string {
+  let cleaned = text;
+  // Remove emojis (Unicode emoji ranges)
+  cleaned = cleaned.replace(/[\u{1F600}-\u{1F64F}]/gu, ''); // emoticons
+  cleaned = cleaned.replace(/[\u{1F300}-\u{1F5FF}]/gu, ''); // symbols & pictographs
+  cleaned = cleaned.replace(/[\u{1F680}-\u{1F6FF}]/gu, ''); // transport & map
+  cleaned = cleaned.replace(/[\u{1F1E0}-\u{1F1FF}]/gu, ''); // flags
+  cleaned = cleaned.replace(/[\u{2600}-\u{26FF}]/gu, '');   // misc symbols
+  cleaned = cleaned.replace(/[\u{2700}-\u{27BF}]/gu, '');   // dingbats
+  cleaned = cleaned.replace(/[\u{FE00}-\u{FE0F}]/gu, '');   // variation selectors
+  cleaned = cleaned.replace(/[\u{1F900}-\u{1F9FF}]/gu, ''); // supplemental symbols
+  cleaned = cleaned.replace(/[\u{1FA00}-\u{1FA6F}]/gu, ''); // chess symbols
+  cleaned = cleaned.replace(/[\u{1FA70}-\u{1FAFF}]/gu, ''); // symbols extended
+  cleaned = cleaned.replace(/[\u{200D}]/gu, '');             // zero width joiner
+  cleaned = cleaned.replace(/[\u{20E3}]/gu, '');             // combining enclosing keycap
+  cleaned = cleaned.replace(/[\u{FE0F}]/gu, '');             // variation selector
+  // Remove WhatsApp formatting markers
+  cleaned = cleaned.replace(/\*([^*]+)\*/g, '$1');  // *bold* → bold
+  cleaned = cleaned.replace(/_([^_]+)_/g, '$1');    // _italic_ → italic
+  cleaned = cleaned.replace(/~([^~]+)~/g, '$1');    // ~strikethrough~ → strikethrough
+  cleaned = cleaned.replace(/```([^`]+)```/g, '$1'); // ```code``` → code
+  // Remove bullet points and list markers
+  cleaned = cleaned.replace(/^[\s]*[•·▪▸►→\-]\s*/gm, '');
+  // Remove URLs (TTS reads them character by character)
+  cleaned = cleaned.replace(/https?:\/\/[^\s]+/gi, '');
+  // Clean up multiple spaces/dots
+  cleaned = cleaned.replace(/\s{2,}/g, ' ').replace(/\.{2}/g, '.').trim();
+  return cleaned;
+}
+
 function insertBreathingPausesTTS(text: string): string {
   let result = text;
   
   // Add micro-pauses at natural clause boundaries for human-like rhythm
-  result = result.replace(/\b(mas|porém|então|porque|pois|quando|enquanto|embora)\s+/gi, '$1, ');
+  result = result.replace(/\b(mas|porém|então|porque|pois|quando|enquanto|embora|contudo|entretanto|todavia)\s+/gi, '$1, ');
   
   // Natural pause after greetings/interjections
-  result = result.replace(/^(oi|olá|bom dia|boa tarde|boa noite|tudo bem|e aí)\b/gi, '$1, ');
+  result = result.replace(/^(oi|olá|bom dia|boa tarde|boa noite|tudo bem|e aí|fala)\b/gim, '$1, ');
   
-  // Sentence endings with proper spacing
-  result = result.replace(/([.!?])\s+/g, '$1 ');
+  // Pause after person's name at start (e.g., "Marco, ...")
+  result = result.replace(/^([A-ZÀ-Ú][a-zà-ú]{2,})\s+/gm, '$1, ');
   
-  // Ellipsis as natural pause
-  result = result.replace(/\.{3,}/g, '... ');
+  // Natural pause before "né", "viu", "tá" (colloquial markers)
+  result = result.replace(/\s+(né|viu|tá|hein)\b/gi, ', $1');
+  
+  // Sentence endings with breathing space
+  result = result.replace(/([.!?])\s+/g, '$1... ');
+  
+  // Ellipsis as natural long pause
+  result = result.replace(/\.{3,}/g, '...... ');
   
   // Remove double commas
   result = result.replace(/,\s*,/g, ',');
@@ -6608,6 +6660,7 @@ function insertBreathingPausesTTS(text: string): string {
 
 // ── Pronunciation corrections for proper nouns & brands commonly mispronounced by TTS ──
 const TTS_PRONUNCIATION_FIXES: Record<string, string> = {
+  // Marcas automotivas
   'Audi': 'áudi', 'audi': 'áudi', 'AUDI': 'áudi',
   'Hyundai': 'riundái', 'hyundai': 'riundái',
   'Chevrolet': 'chevrôlé', 'chevrolet': 'chevrôlé',
@@ -6622,25 +6675,40 @@ const TTS_PRONUNCIATION_FIXES: Record<string, string> = {
   'Jeep': 'djípe', 'jeep': 'djípe',
   'Mitsubishi': 'mitsubíchi', 'Suzuki': 'suzúqui', 'Subaru': 'subáru',
   'Land Rover': 'lând rôver', 'Range Rover': 'rêindj rôver',
-  'WhatsApp': 'uótsapp', 'whatsapp': 'uótsapp',
+  // Redes sociais e tech
+  'WhatsApp': 'uótsap', 'whatsapp': 'uótsap', 'Whatsapp': 'uótsap',
   'Instagram': 'instagrãm', 'instagram': 'instagrãm',
   'Facebook': 'feicebuk', 'facebook': 'feicebuk',
   'Google': 'gúgol', 'google': 'gúgol',
   'YouTube': 'iutúbi', 'youtube': 'iutúbi',
   'iPhone': 'aifôni', 'iphone': 'aifôni',
   'Wi-Fi': 'uaifai', 'wifi': 'uaifai', 'WiFi': 'uaifai',
+  // Palavras estrangeiras comuns
   'delivery': 'delivéri', 'Delivery': 'delivéri',
   'online': 'onlaine', 'Online': 'onlaine',
-  'email': 'iméil', 'Email': 'iméil', 'e-mail': 'iméil',
+  'offline': 'óflaine', 'Offline': 'óflaine',
+  'email': 'iméiol', 'Email': 'iméiol', 'e-mail': 'iméiol',
   'login': 'lóguin', 'Login': 'lóguin',
-  'feedback': 'fídbéque', 'Feedback': 'fídbéque',
-  'link': 'linque', 'Link': 'linque',
-  'site': 'sáite', 'app': 'épp', 'App': 'épp',
-  'shopping': 'chóping', 'Shopping': 'chóping',
-  'QR code': 'cú érre code', 'QR Code': 'cú érre code', 'qrcode': 'cú érre code', 'QRCode': 'cú érre code', 'qr code': 'cú érre code',
-  'drive-thru': 'dráive trú', 'self-service': 'sélfi sérvice',
-  'checkout': 'tchéquiaut', 'Checkout': 'tchéquiaut',
-  'cashback': 'quéchbéque', 'Cashback': 'quéchbéque',
+  'feedback': 'fídbéqui', 'Feedback': 'fídbéqui',
+  'link': 'linqui', 'Link': 'linqui',
+  'site': 'sáitchi', 'app': 'épi', 'App': 'épi',
+  'shopping': 'chópin', 'Shopping': 'chópin',
+  'drive-thru': 'dráive trú', 'self-service': 'sélfi sérvici',
+  'checkout': 'tchéquiáuti', 'Checkout': 'tchéquiáuti',
+  'cashback': 'quéchbéqui', 'Cashback': 'quéchbéqui',
+  'design': 'dezáin', 'Design': 'dezáin',
+  'ok': 'oquêi', 'Ok': 'oquêi', 'OK': 'oquêi',
+  // Nutricar / negócio específico
+  'Nutricar': 'Nutricar', 'nutricar': 'Nutricar', 'NUTRICAR': 'Nutricar',
+  'totem': 'tôtem', 'Totem': 'tôtem',
+  'QR code': 'quêrri code', 'QR Code': 'quêrri code', 'qrcode': 'quêrri code', 'QRCode': 'quêrri code', 'qr code': 'quêrri code',
+  // Termos financeiros
+  'PIX': 'píqs', 'pix': 'píqs', 'Pix': 'píqs',
+  'CNPJ': 'cê ene pê jota', 'CPF': 'cê pê éfe',
+  // Unidades
+  'ml': 'mililitros', 'ML': 'mililitros',
+  'kg': 'quilos', 'KG': 'quilos',
+  'g': 'gramas',
 };
 
 function normalizePronunciationTTS(text: string): string {
@@ -6657,6 +6725,8 @@ function normalizePronunciationTTS(text: string): string {
 
 function normalizeNumbersForTTS(text: string): string {
   let normalized = text;
+  // FIRST: strip emojis, WhatsApp formatting, URLs before any other processing
+  normalized = sanitizeTextForTTS(normalized);
   normalized = normalizePronunciationTTS(normalized);
   normalized = normalizeCurrencyTTS(normalized);
   normalized = normalizePercentagesTTS(normalized);
@@ -6683,7 +6753,7 @@ async function sendElevenLabsAudioFromText(
   // Try user setting first, fallback to project secret (ELEVENLABS_API_KEY)
   let elevenlabsKey = "";
   let userVoiceId = voiceId;
-  let userModel = "eleven_turbo_v2_5";
+  let userModel = "eleven_multilingual_v2";
   let voiceSettings: Record<string, any> | null = null;
 
   if (ctx.userId) {
@@ -6740,11 +6810,11 @@ async function sendElevenLabsAudioFromText(
     ttsBody.voice_settings = voiceSettings;
   } else {
     ttsBody.voice_settings = {
-      stability: 0.25,
-      similarity_boost: 0.72,
-      style: 0.55,
+      stability: 0.35,
+      similarity_boost: 0.78,
+      style: 0.45,
       use_speaker_boost: true,
-      speed: 0.95,
+      speed: 0.92,
     };
   }
 
