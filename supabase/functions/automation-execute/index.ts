@@ -192,11 +192,24 @@ function enforceConciseNaturalReply(text: string): string {
 
   const bannedPatterns = [
     /obrigad[oa]\s+por\s+nos?\s+avisar[^.!?\n]*[.!?]?/gi,
+    /obrigad[oa]\s+por\s+(entrar\s+em\s+contato|informar|nos\s+contatar)[^.!?\n]*[.!?]?/gi,
     /a\s+sua\s+colaboraç[aã]o[^.!?\n]*[.!?]?/gi,
     /se\s+precisar\s+de\s+mais\s+alguma\s+coisa[^.!?\n]*[.!?]?/gi,
-    /qualquer\s+coisa[^.!?\n]*[.!?]?/gi,
+    /qualquer\s+(coisa|d[uú]vida)[^.!?\n]*[.!?]?/gi,
     /fico\s+[àa]\s+disposiç[aã]o[^.!?\n]*[.!?]?/gi,
-    /estou\s+aqui(?:\s+para\s+ajudar)?[^.!?\n]*[.!?]?/gi,
+    /estou\s+aqui(?:\s+para\s+(?:ajudar|o\s+que\s+precisar))?[^.!?\n]*[.!?]?/gi,
+    /estou\s+[àa]\s+disposiç[aã]o[^.!?\n]*[.!?]?/gi,
+    /compreendo\s+(?:sua|a\s+sua)\s+situaç[aã]o[^.!?\n]*[.!?]?/gi,
+    /agrade[çc]o\s+(?:pela|a\s+sua)\s+paci[eê]ncia[^.!?\n]*[.!?]?/gi,
+    /lamento\s+(?:o\s+)?(?:inconveniente|transtorno)[^.!?\n]*[.!?]?/gi,
+    /peço\s+desculpas?\s+(?:pelo|por\s+qualquer)[^.!?\n]*[.!?]?/gi,
+    /(?:como|em\s+que)\s+(?:posso|podemos)\s+(?:te\s+)?ajud[aá][r-]?[^.!?\n]*[.!?]?/gi,
+    /(?:há|existe)\s+(?:mais\s+)?algo\s+(?:em\s+que|que)\s+(?:eu\s+)?poss[ao]\s+ajudar[^.!?\n]*[.!?]?/gi,
+    /n[aã]o\s+hesite\s+em\s+(?:nos\s+)?(?:contactar|entrar\s+em\s+contato)[^.!?\n]*[.!?]?/gi,
+    /(?:seu|sua)\s+satisfaç[aã]o\s+[eé]\s+(?:muito\s+)?importante[^.!?\n]*[.!?]?/gi,
+    /(?:informamos|comunicamos)\s+que\b[^.!?\n]*[.!?]?/gi,
+    /prezad[oa]\s+(?:cliente|senhor|senhora)[^.!?\n]*[,]?/gi,
+    /(?:senhor|senhora)\s*\([^)]*\)[^.!?\n]*/gi,
   ];
 
   for (const pattern of bannedPatterns) {
@@ -207,6 +220,9 @@ function enforceConciseNaturalReply(text: string): string {
     .replace(/\bencaminhar\s+essa\s+informaç[aã]o\b/gi, "passar isso")
     .replace(/\bencaminhar\b/gi, "passar")
     .replace(/\bo\s+mais\s+r[aá]pido\s+poss[ií]vel\b/gi, "o quanto antes")
+    .replace(/\bpara\s+que\s+possamos\b/gi, "pra gente")
+    .replace(/\bgostar[ií]amos\s+de\s+informar\b/gi, "")
+    .replace(/\bsolicitamos\s+que\b/gi, "")
     .replace(/\s{2,}/g, " ")
     .trim();
 
@@ -224,7 +240,6 @@ function enforceConciseNaturalReply(text: string): string {
   let concise = sentences.slice(0, 3).join(" ").trim();
 
   if (!concise) {
-    // Return empty string — let the caller handle empty responses instead of injecting a hardcoded fallback
     return "";
   }
 
